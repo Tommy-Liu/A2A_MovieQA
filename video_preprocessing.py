@@ -25,7 +25,7 @@ def clean_token(l):
     :param l: a string of line
     :return: a cleaned string of line
     """
-    return re.sub('<.*?>', '', l)
+    return re.sub(r'<.*?>', '', l)
 
 
 def get_start_and_end_time(l):
@@ -34,7 +34,7 @@ def get_start_and_end_time(l):
     :param l: a string of the time interval
     :return: start time and end time (second [ float ])
     """
-    comp = re.split(' --> |:|,', l)
+    comp = re.split(r' --> |:|,', l)
     offset = 0
     start_time = int(comp[offset + 0]) * 3600 + \
                  int(comp[offset + 1]) * 60 + \
@@ -57,7 +57,7 @@ def exist_make_dirs(d):
     if not os.path.exists(d):
         os.makedirs(d)
 
-
+# Fuck os.path.basename. I wrote my own version.
 def get_base_name(p):
     """
     Get the subdirectory or file name
@@ -65,9 +65,12 @@ def get_base_name(p):
     :param p: a string of directory or file path.
     :return: a string of base name.
     """
-    return p.split('/')[-1]
+    pos = -1
+    if p.split('/')[pos] == '':
+        pos = -2
+    return p.split('/')[pos]
 
-
+# Wrapped function
 def get_base_name_without_ext(p):
     """
     Get the base name without extension
@@ -75,17 +78,18 @@ def get_base_name_without_ext(p):
     :return: base name
     """
     base_name = get_base_name(p)
-    end = len(base_name.split('.')[-1]) + 1  # + dot
-    return base_name[:end]
+    base_name = os.path.splitext(base_name)[0]
+    return base_name
 
 
-def get_start_frame(p):
+def get_start_and_end_frame(p):
     """
-    Get start frame.
+    Get start and end frame.
     :param p: file path or name.
-    :return: an integer of start frame
+    :return: 2 integers of start and end frame #.
     """
-    return re.split(r'\.|-', p)[-5]
+    comp = re.split(r'\.|-', p)
+    return int(comp[-5]), int(comp[-3])
 
 
 def get_videos_clips():
@@ -127,10 +131,10 @@ def get_line(line_list, i):
 
 def map_frame_to_subtitle(matidx, base_name):
     """
-    
-    :param matidx:
-    :param base_name:
-    :return:
+    Map each line of subtitle to the frame.
+    :param matidx: a dictionary with key:frame #, value:time(second [ float ])
+    :param base_name: imdb name
+    :return: a dictionary with key:frame #, value:a string of line.
     """
     with open(join(subt_dir, base_name + '.srt')) as f:
         line_list = list(f)
@@ -155,6 +159,10 @@ def map_frame_to_subtitle(matidx, base_name):
 
 
 def check_and_extract_videos_and_align_subtitle():
+    """
+
+    :return:
+    """
     videos_clips = get_videos_clips()
     avail_video_map = {}
     avail_video_list = []
@@ -162,7 +170,7 @@ def check_and_extract_videos_and_align_subtitle():
     avail_video_subt = {}
     unavail_video_list = []
     for key in tqdm(videos_clips.keys()):
-        frame_to_subtitle = map_frame_to_subtitle()
+        frame_to_subtitle = map_frame_to_subtitle(get_matidx(key), key)
         for video in videos_clips[key]:
             base_name = get_base_name_without_ext(video)
             exist_make_dirs(
@@ -183,13 +191,17 @@ def check_and_extract_videos_and_align_subtitle():
                 avail_video_map[base_name] = True
                 avail_video_list.append(base_name)
                 avail_video_info[base_name] = reader.get_meta_data()
-                start_frame = int(get_start_frame(base_name))
+                start_frame, end_frame = get_start_and_end_frame(video)
                 avail_video_info[base_name]['start_frame'] = start_frame
-                img_list = list(reader)
+                avail_video_info[base_name]['end_frame'] = end_frame
+                subt = []
+                for i in len(img_list):
+                    subt.append(frame_to_subtitle[start_frame + i])
+                avail_video_subt[base_name] = subt
                 for img in img_list:
-                    pass
+                    imageio.imwrite()
 
-
+## tt0109446.sf-046563.ef-056625.video.mp4
 class MovieDataset(object):
     def __init__(self):
         pass
