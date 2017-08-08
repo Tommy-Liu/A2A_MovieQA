@@ -1,11 +1,18 @@
+import multiprocessing
+import traceback
 import imageio
-import sys
+import codecs
+import json
+# import sys
 import os
 import re
+
 
 from glob import glob
 from tqdm import tqdm
 from os.path import join
+from functools import partial
+from multiprocessing import Pool, Manager
 
 data_dir = '/home/tommy8054/MovieQA_benchmark/story/video_clips'
 matidx_dir = '/home/tommy8054/MovieQA_benchmark/story/matidx'
@@ -15,8 +22,12 @@ video_img = './video_img'
 
 DIR_PATTERN_ = 'tt*'
 VIDEO_PATTERN_ = '*.mp4'
-CLEAN_PATTERN_ = ''
+IMAGE_PATTERN_ = '*.jpg'
 videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.isdir(d)]
+
+
+def error(msg, *args):
+    return multiprocessing.get_logger().error(msg, *args)
 
 
 def clean_token(l):
@@ -57,6 +68,7 @@ def exist_make_dirs(d):
     if not os.path.exists(d):
         os.makedirs(d)
 
+
 # Fuck os.path.basename. I wrote my own version.
 def get_base_name(p):
     """
@@ -69,6 +81,7 @@ def get_base_name(p):
     if p.split('/')[pos] == '':
         pos = -2
     return p.split('/')[pos]
+
 
 # Wrapped function
 def get_base_name_without_ext(p):
@@ -107,12 +120,12 @@ def get_videos_clips():
 def get_matidx(p):
     """
     Get the mapping of frame and time from the file.
-    :param p: file path
+    :param p: base name
     :return: a dictionary with key:frame #, value:time(second [ float ])
     """
     matidx = {}
     with open(join(matidx_dir, p + '.matidx'), 'r') as f:
-        for l in tqdm(f):
+        for l in f:
             comp = l.replace('\n', '').split(' ')
             idx, time = int(comp[0]), float(comp[1])
             matidx[idx] = time
@@ -136,70 +149,98 @@ def map_frame_to_subtitle(matidx, base_name):
     :param base_name: imdb name
     :return: a dictionary with key:frame #, value:a string of line.
     """
-    with open(join(subt_dir, base_name + '.srt')) as f:
-        line_list = list(f)
-    line_list = [l.replace('\n', '') for l in line_list]
-    i, j = 0, 0
-    frame_to_subtitle = {}
-    while i < len(line_list):
-        l, i = get_line(line_list, i)
-        lines = []
-        if l.isdigit():
+    try:
+        line_list = []
+        with codecs.open(join(subt_dir, base_name + '.srt'), 'r',
+                         encoding='utf-8', errors='ignore') as f:
+            for l in f:
+                line_list.append(re.sub('\n|\r', '', l))
+            if line_list[-1] != '':
+                line_list.append('')
+        i, j = 0, 0
+        frame_to_subtitle = {}
+        while i < len(line_list):
             l, i = get_line(line_list, i)
-            start_time, end_time = get_start_and_end_time(l)
-            l, i = get_line(line_list, i)
-            while l != '':
-                lines.append(l)
+            lines = []
+            if l.isdigit():
                 l, i = get_line(line_list, i)
-            lines = clean_token(' '.join(lines))
-            while matidx[j] < end_time:
-                frame_to_subtitle[j] = lines
-                j = j + 1
+                start_time, end_time = get_start_and_end_time(l)
+                l, i = get_line(line_list, i)
+                while l != '':
+                    lines.append(l)
+                    l, i = get_line(line_list, i)
+                lines = clean_token(' '.join(lines))
+                while j < len(matidx) and matidx[j] <= end_time:
+                    frame_to_subtitle[j] = lines
+                    j = j + 1
+        while j < len(matidx):
+            frame_to_subtitle[j] = lines
+            j = j + 1
+    except Exception as e:
+        error(traceback.format_exc())
+        raise Exception(base_name)
     return frame_to_subtitle
 
 
-def check_and_extract_videos_and_align_subtitle():
+def check_and_extract_videos_and_align_subtitle(videos_clips,
+                                                avail_video_map,
+                                                avail_video_list,
+                                                avail_video_info,
+                                                avail_video_subt,
+                                                unavail_video_list,
+                                                key):
     """
 
     :return:
     """
-    videos_clips = get_videos_clips()
-    avail_video_map = {}
-    avail_video_list = []
-    avail_video_info = {}
-    avail_video_subt = {}
-    unavail_video_list = []
-    for key in tqdm(videos_clips.keys()):
-        frame_to_subtitle = map_frame_to_subtitle(get_matidx(key), key)
-        for video in videos_clips[key]:
-            base_name = get_base_name_without_ext(video)
-            exist_make_dirs(
-                join(video_img,
-                     base_name)
-            )
-            try:
-                reader = imageio.get_reader(video)
+    # videos_clips = get_videos_clips()
+    # avail_video_map = {}
+    # avail_video_list = []
+    # avail_video_info = {}
+    # avail_video_subt = {}
+    # unavail_video_list = []
+    # for key in tqdm(videos_clips.keys()):
+    # print('Start %s !' % key)
+    frame_to_subtitle = map_frame_to_subtitle(get_matidx(key), key)
+    for video in videos_clips[key]:
+        base_name = get_base_name_without_ext(video)
+        exist_make_dirs(
+            join(video_img,
+                 base_name)
+        )
+        try:
+            reader = imageio.get_reader(video)
+            if len(glob(join(video_img, base_name, IMAGE_PATTERN_))) < len(img_list) - 1:
+                print('Start extract %s with %d frames.' %
+                      (get_base_name(video), len(img_list)))
                 img_list = list(reader)
-                sys.stdout.write('\r%s\'s frames: %d' % (
-                    get_base_name(video), len(img_list)))
-                sys.stdout.flush()
-            except:
-                unavail_video_list.append(video)
-                avail_video_map[base_name] = False
+                video_length = len(img_list)
             else:
-                reader = imageio.get_reader(video)
-                avail_video_map[base_name] = True
-                avail_video_list.append(base_name)
-                avail_video_info[base_name] = reader.get_meta_data()
-                start_frame, end_frame = get_start_and_end_frame(video)
-                avail_video_info[base_name]['start_frame'] = start_frame
-                avail_video_info[base_name]['end_frame'] = end_frame
-                subt = []
-                for i in len(img_list):
-                    subt.append(frame_to_subtitle[start_frame + i])
-                avail_video_subt[base_name] = subt
-                for img in img_list:
-                    imageio.imwrite()
+                video_length = len(glob(join(video_img, base_name, IMAGE_PATTERN_)))
+                print('Start process %s.' % (get_base_name(video)))
+            # sys.stdout.write('\r%s\'s frames: %d' % (
+            #     get_base_name(video), len(img_list)))
+            # sys.stdout.flush()
+        except:
+            unavail_video_list.append(video)
+            avail_video_map[base_name] = False
+        else:
+            avail_video_map[base_name] = True
+            avail_video_list.append(base_name)
+            avail_video_info[base_name] = reader.get_meta_data()
+            start_frame, end_frame = get_start_and_end_frame(video)
+            avail_video_info[base_name]['start_frame'] = start_frame
+            avail_video_info[base_name]['end_frame'] = end_frame
+            subt = []
+            for i in range(video_length):
+                subt.append(frame_to_subtitle[min([start_frame + i, len(frame_to_subtitle) - 1])])
+            avail_video_subt[base_name] = subt
+            exist_make_dirs(join(video_img, base_name))
+            if len(glob(join(video_img, base_name, IMAGE_PATTERN_))) < len(img_list) - 1:
+                for i, img in enumerate(img_list):
+                    imageio.imwrite(join(video_img, base_name, 'img_%05d.jpg' % (i + 1)), img)
+        print('%s done.' % get_base_name(video))
+
 
 ## tt0109446.sf-046563.ef-056625.video.mp4
 class MovieDataset(object):
@@ -208,8 +249,46 @@ class MovieDataset(object):
 
 
 def main():
-    pass
+    videos_clips = get_videos_clips()
+    with Manager() as manager:
+        shared_videos_clips = manager.dict(videos_clips)
+        shared_avail_video_map = manager.dict()
+        shared_avail_video_list = manager.list()
+        shared_avail_video_info = manager.dict()
+        shared_avail_video_subt = manager.dict()
+        shared_unavail_video_list = manager.list()
+        keys = list(iter(videos_clips.keys()))
+        do_what_i_told_you_to_do = partial(check_and_extract_videos_and_align_subtitle,
+                                           shared_videos_clips,
+                                           shared_avail_video_map,
+                                           shared_avail_video_list,
+                                           shared_avail_video_info,
+                                           shared_avail_video_subt,
+                                           shared_unavail_video_list)
+        with Pool(8) as p:
+            p.map(do_what_i_told_you_to_do, keys)
+
+        avail_video_metadata = {
+            'map': shared_avail_video_map.copy(),
+            'list': list(shared_avail_video_list),
+            'info': shared_avail_video_info.copy(),
+            'subtitle': shared_avail_video_subt.copy(),
+            'unavailable': list(shared_unavail_video_list)
+        }
+    json.dump(avail_video_metadata, open('avail_video_metadata.json', 'w'))
+
 
 
 if __name__ == '__main__':
     main()
+
+
+
+    # key = next(iter(videos_clips.keys()))
+    # matidx = get_matidx(key)
+    # print(matidx[0])
+    # print(matidx[len(matidx) - 1])
+    # frame_to_subtitle = map_frame_to_subtitle(matidx, key)
+    # print(frame_to_subtitle[0])
+    # print(frame_to_subtitle[len(matidx) - 1])
+    # print(frame_to_subtitle[len(matidx)])
