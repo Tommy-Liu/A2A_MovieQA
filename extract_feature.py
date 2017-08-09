@@ -15,7 +15,7 @@ metadata = './metadata.json'
 video_img = './video_img'
 IMAGE_PATTERN_ = '*.jpg'
 DIR_PATTERN_ = 'tt*'
-
+# ['map', 'list', 'info', 'subtitle', 'unavailable']
 def main():
     avail_video_metadata = json.load(open('avail_video_metadata.json', 'r'))
     print(avail_video_metadata.keys())
