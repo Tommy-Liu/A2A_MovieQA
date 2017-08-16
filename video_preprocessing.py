@@ -180,8 +180,9 @@ def map_frame_to_subtitle(matidx, base_name):
                     l, i = get_line(line_list, i)
                 # Clean lines?? good or bad?
                 # Cuz it might be another clue.
-                # lines = clean_token(' '.join(lines))
-                lines = ' '.join(lines)
+                # Update: Fuck those tokens.
+                lines = clean_token(' '.join(lines))
+                # lines = ' '.join(lines)
                 # print(lines)
                 # Iterate each frame. If in the interval,
                 # assign lines to it. If greater than end_time,
