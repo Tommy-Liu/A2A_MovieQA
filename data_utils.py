@@ -14,12 +14,12 @@ def bytes_feature(value):
 
 def int64_feature_list(values):
   """Wrapper for inserting an int64 FeatureList into a SequenceExample proto."""
-  return tf.train.FeatureList(feature=[_int64_feature(v) for v in values])
+  return tf.train.FeatureList(feature=[int64_feature(v) for v in values])
 
 
 def bytes_feature_list(values):
   """Wrapper for inserting a bytes FeatureList into a SequenceExample proto."""
-  return tf.train.FeatureList(feature=[_bytes_feature(v) for v in values])
+  return tf.train.FeatureList(feature=[bytes_feature(v) for v in values])
 
 def float_feature(value):
     if not isinstance(value, (tuple, list)):
@@ -27,4 +27,17 @@ def float_feature(value):
     return tf.train.Feature(float_list=tf.train.FloatList(value=value))
 
 def float_feature_list(values):
-    return tf.train.FeatureList(feature=[_float_feature(v) for v in values])
+    return tf.train.FeatureList(feature=[float_feature(v) for v in values])
+
+
+def frame_feature_example(features):
+
+    frame_feats = float_feature_list([feats.tolist() for feats in features])
+    context = tf.train.Features(feature={
+        "number": int64_feature(len(features))
+    })
+    feature_lists = tf.train.FeatureLists(feature_list={
+        "frame_feats": frame_feats
+    })
+    return tf.train.SequenceExample(
+        context=context, feature_lists=feature_lists)
