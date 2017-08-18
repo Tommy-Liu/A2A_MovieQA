@@ -11,11 +11,9 @@ from collections import Counter, OrderedDict
 from nltk.tokenize import word_tokenize
 from video_preprocessing import get_base_name, get_base_name_without_ext, clean_token
 
-
 video_img = './video_img'
 UNK = 'UNK'
 IMAGE_PATTERN_ = '*.jpg'
-
 
 
 def is_in(a, b):
@@ -76,7 +74,7 @@ def get_split(qa, avail_video_metadata):
             else:
                 total_qa_val.append(qa_)
 
-    return avail_qa_train,  avail_qa_test, avail_qa_val, \
+    return avail_qa_train, avail_qa_test, avail_qa_val, \
            total_qa_train, total_qa_test, total_qa_val
 
 
@@ -115,13 +113,14 @@ def tokenize_and_build_vocab(qa_list, subtitles):
     counter_total = counter_q + counter_a + counter_s
 
     return counter_q, counter_a, counter_s, \
-           vocab_q, inverse_vocab_q,\
+           vocab_q, inverse_vocab_q, \
            vocab_a, inverse_vocab_a, \
            vocab_s, inverse_vocab_s, counter_total
 
 
 def encode_sentences(qa_list):
     pass
+
 
 def main():
     avail_video_metadata = json.load(open('avail_video_metadata.json', 'r'))
@@ -149,8 +148,6 @@ def main():
     vocab_a, inverse_vocab_a, \
     vocab_s, inverse_vocab_s, counter_total = tokenize_and_build_vocab(avail_qa_train,
                                                                        avail_video_metadata['subtitle'])
-
-
 
 
 if __name__ == '__main__':
