@@ -30,19 +30,16 @@ def get_tf_record_name(video):
 def main():
     exist_make_dirs(tf_record_dir)
     avail_video_metadata = json.load(open('avail_video_metadata.json', 'r'))
-    # _decode_jpeg_data = tf.placeholder(dtype=tf.string)
-    # _decode_jpeg = tf.image.decode_jpeg(_decode_jpeg_data, channels=3)
-    # print(avail_video_metadata['list'])
+    print('Load json file done !!')
     filenames = []
     capacity = []
     tfrecords = []
-    for folder in avail_video_metadata['list']:
+    for folder in tqdm(avail_video_metadata['list']):
         tfrecords.append(folder)
         imgs = glob(join(video_img, folder, IMAGE_PATTERN_))
         imgs = sorted(imgs)
         capacity.append(len(imgs))
         filenames.extend(imgs)
-
     # imgs = sorted(glob(join(video_img, 'tt1454029.sf-006466.ef-010607.video', IMAGE_PATTERN_)))
     # print(imgs)
     filename_queue = tf.train.string_input_producer(filenames, shuffle=False)
@@ -53,7 +50,7 @@ def main():
     image = preprocess_image(image, 299, 299, is_training=False)
     print(image)
     min_after_dequeue = batch_size * 4
-    images = tf.train.batch(image,
+    images = tf.train.batch([image],
                             batch_size=batch_size,
                             num_threads=4,
                             capacity=2 * min_after_dequeue,
@@ -62,12 +59,13 @@ def main():
     with slim.arg_scope(inception_resnet_v2_arg_scope()):
         logits, end_points = inception_resnet_v2(images, num_classes=1001, is_training=False)
     print(end_points['PreLogitsFlatten'])
-    saver = tf.train.Saver(slim.get_variables_to_restore())
 
+    print('Pipeline setup done !!')
+    saver = tf.train.Saver(slim.get_variables_to_restore())
     config = tf.ConfigProto(allow_soft_placement=True, )
     # log_device_placement=True)
     config.gpu_options.allow_growth = True
-
+    print('Start extract !!')
     with tf.Session(config=config) as sess:
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
@@ -85,13 +83,13 @@ def main():
                 features_list.append(features)
                 if count >= capacity[video_idx]:
                     count = count - capacity[video_idx]
-                    final_features = np.concatenate(features_list[:-1] + features_list[-1][:count], 0)
+                    bound = batch_size - count
+                    # ? * 1536
+                    final_features = np.concatenate(features_list[:-1] + [features_list[-1][:bound]], 0)
+                    print(tfrecords[video_idx], final_features.shape)
                     tfrecord_writer.write(frame_feature_example(final_features).SerializeToString())
                     tfrecord_writer.close()
-                    if count != 0:
-                        features_list = [features_list[-1][(features.shape[0] - count):]]
-                    else:
-                        features_list = []
+                    features_list = [features_list[-1][bound:]]
                     video_idx += 1
                     tfrecord_writer = tf.python_io.TFRecordWriter(get_tf_record_name(tfrecords[video_idx]))
         except tf.errors.OutOfRangeError:

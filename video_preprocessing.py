@@ -3,7 +3,7 @@ import traceback
 import imageio
 import codecs
 import json
-# import sys
+import sys
 import os
 import re
 
@@ -12,6 +12,7 @@ from glob import glob
 from tqdm import tqdm
 from os.path import join
 from functools import partial
+from nltk.tokenize import word_tokenize
 from multiprocessing import Pool, Manager
 
 data_dir = '/home/tommy8054/MovieQA_benchmark/story/video_clips'
@@ -23,6 +24,8 @@ video_img = './video_img'
 DIR_PATTERN_ = 'tt*'
 VIDEO_PATTERN_ = '*.mp4'
 IMAGE_PATTERN_ = '*.jpg'
+ALIGN_SUBTITLE_PATTERN_ = '\r>> Align subtitles  %d/%d IMDB: %s'
+discard_offset = 10
 videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.isdir(d)]
 
 
@@ -142,28 +145,33 @@ def get_line(line_list, i):
     return line_list[i], i + 1
 
 
-def map_frame_to_subtitle(matidx, base_name):
+def flush_print(s):
+    sys.stdout.write(s)
+    sys.stdout.flush()
+
+def map_frame_to_subtitle(imdb_key):
     """
     Map each line of subtitle to the frame.
-    :param matidx: a dictionary with key:frame #, value:time(second [ float ])
-    :param base_name: imdb name
+    :param imdb_key: imdb name
     :return: a dictionary with key:frame #, value:a string of line.
     """
     try:
+        matidx = get_matidx(imdb_key)
         line_list = []
-        with codecs.open(join(subt_dir, base_name + '.srt'), 'r',
+        # Read all subtitles from file.
+        with codecs.open(join(subt_dir, imdb_key + '.srt'), 'r',
                          encoding='utf-8', errors='ignore') as f:
             for l in f:
                 line_list.append(re.sub('\n|\r', '', l))
-            # Some of subtitles don't have last new line.
+            # Some of subtitles don't have the last new line.
             # So, we add one.
             if line_list[-1] != '':
                 line_list.append('')
 
-        # i for subtitle line #
-        # j for frame #
+        # i for subtitle line number.
+        # j for frame number.
         i, j = 0, 0
-        frame_to_subtitle = {}
+        frame_to_subtitle = []
         while i < len(line_list):
             l, i = get_line(line_list, i)
             lines = []
@@ -181,34 +189,47 @@ def map_frame_to_subtitle(matidx, base_name):
                 # Clean lines?? good or bad?
                 # Cuz it might be another clue.
                 # Update: Fuck those tokens.
-                lines = clean_token(' '.join(lines))
-                # lines = ' '.join(lines)
-                # print(lines)
-                # Iterate each frame. If in the interval,
-                # assign lines to it. If greater than end_time,
-                # break the roop. If smaller than start_time,
-                # assign empty string.
-                while j < len(matidx):
-                    if start_time <= matidx[j] <= end_time:
-                        frame_to_subtitle[j] = lines
-                    elif matidx[j] > end_time:
-                        break
+                lines = word_tokenize(clean_token(' '.join(lines)))
+                # Iterate each frame to assign lines to it.
+                while j < len(matidx) and matidx[j] <= end_time:
+                    # flush_print(ALIGN_SUBTITLE_PATTERN_ % (
+                    #     j + 1, len(matidx), imdb_key))
+                    if start_time > matidx[j]:
+                        frame_to_subtitle.append('')
                     else:
-                        frame_to_subtitle[j] = ''
+                        frame_to_subtitle.append(lines)
                     j = j + 1
         # Loop over the rest of frames, and
         # assign them empty string.
         while j < len(matidx):
-            frame_to_subtitle[j] = ''
+            # flush_print(ALIGN_SUBTITLE_PATTERN_ % (
+            #     j + 1, len(matidx), imdb_key))
+            frame_to_subtitle.append('')
             j = j + 1
-    except Exception as e:
+    except Exception:
         error(traceback.format_exc())
-        raise Exception(base_name)
+        raise Exception(imdb_key)
     return frame_to_subtitle
 
 
+def check_video(video):
+    print(get_base_name(video))
+    img_list = []
+    try:
+        reader = imageio.get_reader(video)
+        for img in reader:
+            img_list.append(img)
+    except OSError:
+        print(get_base_name(video), 'failed.')
+        return False, img_list, None
+    except imageio.core.format.CannotReadFrameError:
+        pass
+    finally:
+        return True, img_list, reader
+
+
+
 def check_and_extract_videos_and_align_subtitle(videos_clips,
-                                                avail_video_map,
                                                 avail_video_list,
                                                 avail_video_info,
                                                 avail_video_subt,
@@ -219,47 +240,33 @@ def check_and_extract_videos_and_align_subtitle(videos_clips,
     :return:
     """
     # print('Start %s !' % key)
-    frame_to_subtitle = map_frame_to_subtitle(get_matidx(key), key)
+    frame_to_subtitle = map_frame_to_subtitle(key)
     for video in videos_clips[key]:
         base_name = get_base_name_without_ext(video)
-        exist_make_dirs(
-            join(video_img,
-                 base_name)
-        )
-        reader = imageio.get_reader(video)
-        img_list = list(reader)
-        print('Start extract %s with %d frames.' %
-              (get_base_name(video), len(img_list)))
-        video_length = len(img_list)
-    #     try:
-    #         reader = imageio.get_reader(video)
-    #         if len(glob(join(video_img, base_name, IMAGE_PATTERN_))) < len(img_list) - 1:
-    #             print('Start extract %s with %d frames.' %
-    #                   (get_base_name(video), len(img_list)))
-    #             img_list = list(reader)
-    #             video_length = len(img_list)
-    #         else:
-    #             video_length = len(glob(join(video_img, base_name, IMAGE_PATTERN_)))
-    #             print('Start process %s.' % (get_base_name(video)))
-    #     except:
-    #         unavail_video_list.append(video)
-    #         avail_video_map[base_name] = False
-    #     else:
-    #         avail_video_map[base_name] = True
-    #         avail_video_list.append(base_name)
-    #         avail_video_info[base_name] = reader.get_meta_data()
-    #         start_frame, end_frame = get_start_and_end_frame(video)
-    #         avail_video_info[base_name]['start_frame'] = start_frame
-    #         avail_video_info[base_name]['end_frame'] = end_frame
-    #         subt = []
-    #         for i in range(video_length):
-    #             subt.append(frame_to_subtitle[min([start_frame + i, len(frame_to_subtitle) - 1])])
-    #         avail_video_subt[base_name] = subt
-    #         exist_make_dirs(join(video_img, base_name))
-    #         if len(glob(join(video_img, base_name, IMAGE_PATTERN_))) < len(img_list) - 1:
-    #             for i, img in enumerate(img_list):
-    #                 imageio.imwrite(join(video_img, base_name, 'img_%05d.jpg' % (i + 1)), img)
-        print('%s done.' % get_base_name(video))
+        flag, img_list, reader = check_video(video)
+        imgs_length = len(glob(join(video_img, base_name, IMAGE_PATTERN_)))
+
+        if flag:
+            if len(img_list) > imgs_length + discard_offset:
+                exist_make_dirs(join(video_img, base_name))
+
+                for i, img in enumerate(img_list):
+                    imageio.imwrite(join(video_img, base_name, 'img_%05d.jpg' % (i + 1)), img)
+
+            avail_video_list.append(base_name)
+            avail_video_info[base_name] = reader.get_meta_data()
+            start_frame, end_frame = get_start_and_end_frame(video)
+            avail_video_info[base_name]['start_frame'] = start_frame
+            avail_video_info[base_name]['end_frame'] = end_frame
+
+            subt = []
+            for i in range(len(video_img)):
+                subt.append(frame_to_subtitle[min([start_frame + i, len(frame_to_subtitle) - 1])])
+            avail_video_subt[base_name] = subt
+
+        else:
+            unavail_video_list.append(video)
+
 
 
 ## tt0109446.sf-046563.ef-056625.video.mp4
@@ -270,11 +277,10 @@ class MovieDataset(object):
 
 def main():
     videos_clips = get_videos_clips()
-    # matidx = get_matidx('tt1058017')
-    # frame_to_subtitle = map_frame_to_subtitle(matidx,'tt1058017')
+    # frame_to_subtitle = map_frame_to_subtitle('tt1058017')
+    # print(json.dumps(frame_to_subtitle[10000:10100], indent=4))
     with Manager() as manager:
         shared_videos_clips = manager.dict(videos_clips)
-        shared_avail_video_map = manager.dict()
         shared_avail_video_list = manager.list()
         shared_avail_video_info = manager.dict()
         shared_avail_video_subt = manager.dict()
@@ -282,7 +288,6 @@ def main():
         keys = list(iter(videos_clips.keys()))
         do_what_i_told_you_to_do = partial(check_and_extract_videos_and_align_subtitle,
                                            shared_videos_clips,
-                                           shared_avail_video_map,
                                            shared_avail_video_list,
                                            shared_avail_video_info,
                                            shared_avail_video_subt,
@@ -290,15 +295,13 @@ def main():
         with Pool(8) as p:
             p.map(do_what_i_told_you_to_do, keys)
 
-    #     avail_video_metadata = {
-    #         'map': shared_avail_video_map.copy(),
-    #         'list': list(shared_avail_video_list),
-    #         'info': shared_avail_video_info.copy(),
-    #         'subtitle': shared_avail_video_subt.copy(),
-    #         'unavailable': list(shared_unavail_video_list)
-    #     }
-    # json.dump(avail_video_metadata, open('avail_video_metadata.json', 'w'))
-
+        avail_video_metadata = {
+            'list': list(shared_avail_video_list),
+            'info': shared_avail_video_info.copy(),
+            'subtitle': shared_avail_video_subt.copy(),
+            'unavailable': list(shared_unavail_video_list)
+        }
+    json.dump(avail_video_metadata, open('avail_video_metadata.json', 'w'))
 
 
 if __name__ == '__main__':

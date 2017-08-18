@@ -7,7 +7,7 @@ import numpy as np
 from glob import glob
 from tqdm import tqdm
 from os.path import join
-from collections import Counter
+from collections import Counter, OrderedDict
 from nltk.tokenize import word_tokenize
 from video_preprocessing import get_base_name, get_base_name_without_ext, clean_token
 
@@ -31,9 +31,12 @@ def qid_split(qa_):
 
 
 def build_vocab(counter):
+    sorted_dict = OrderedDict(sorted(counter.items(),
+                                     key=lambda t: t[1],
+                                     reverse=True))
     vocab = {
         item[0]: idx
-        for idx, item in enumerate(counter.most_common())
+        for idx, item in enumerate(sorted_dict)
     }
     inverse_vocab = [key for key in vocab.keys()]
     return vocab, inverse_vocab
