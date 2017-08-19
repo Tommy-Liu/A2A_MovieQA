@@ -219,13 +219,15 @@ def check_video(video):
         reader = imageio.get_reader(video)
         for img in reader:
             img_list.append(img)
+        return True, img_list, reader
     except OSError:
         print(get_base_name(video), 'failed.')
         return False, img_list, None
     except imageio.core.format.CannotReadFrameError:
-        pass
-    finally:
-        return True, img_list, reader
+        print(get_base_name(video), 'failed.')
+        return False, img_list, None
+
+
 
 
 

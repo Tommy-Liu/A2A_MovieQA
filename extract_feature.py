@@ -19,11 +19,30 @@ tf_record_dir = './tfrecords'
 IMAGE_PATTERN_ = '*.jpg'
 TFRECORD_PATTERN_ = '%s.tfrecord'
 DIR_PATTERN_ = 'tt*'
-batch_size = 16
+batch_size = 16 * 3
 
+def make_parallel(fn, num_gpus, **kwargs):
+    in_splits = {}
+    for k, v in kwargs.items():
+        in_splits[k] = tf.split(v, num_gpus)
+
+    out_split = []
+    for i in range(num_gpus):
+        with tf.device(tf.DeviceSpec(device_type="GPU", device_index=i)):
+            with tf.variable_scope(tf.get_variable_scope(), reuse=i > 0):
+                out_split.append(fn(**{k : v[i] for k, v in in_splits.items()}))
+
+    return tf.concat(out_split, axis=0)
 
 def get_tf_record_name(video):
     return join(tf_record_dir, TFRECORD_PATTERN_ % video)
+
+
+def models(images):
+    with slim.arg_scope(inception_resnet_v2_arg_scope()):
+        logits, end_points = inception_resnet_v2(images, num_classes=1001, is_training=False)
+    return end_points['PreLogitsFlatten']
+
 
 
 # ['map', 'list', 'info', 'subtitle', 'unavailable']
@@ -48,17 +67,16 @@ def main():
     image = tf.image.decode_jpeg(raw_image, channels=3)
     # # image = tf.image.resize_image_with_crop_or_pad()
     image = preprocess_image(image, 299, 299, is_training=False)
-    print(image)
+    # print(image)
     min_after_dequeue = batch_size * 4
     images = tf.train.batch([image],
                             batch_size=batch_size,
                             num_threads=4,
                             capacity=2 * min_after_dequeue,
                             allow_smaller_final_batch=True)
-    print(images)
-    with slim.arg_scope(inception_resnet_v2_arg_scope()):
-        logits, end_points = inception_resnet_v2(images, num_classes=1001, is_training=False)
-    print(end_points['PreLogitsFlatten'])
+    # print(images)
+    feature_tensor = make_parallel(models, 3, images=images)
+    # print(end_points['PreLogitsFlatten'])
 
     print('Pipeline setup done !!')
     saver = tf.train.Saver(slim.get_variables_to_restore())
@@ -78,7 +96,7 @@ def main():
         count = 0
         try:
             while not coord.should_stop():
-                features = sess.run(end_points['PreLogitsFlatten'])
+                features = sess.run(feature_tensor)
                 count += features.shape[0]
                 features_list.append(features)
                 if count >= capacity[video_idx]:
