@@ -13,13 +13,22 @@ from video_preprocessing import get_base_name, exist_make_dirs
 from inception_preprocessing import preprocess_image
 from inception_resnet_v2 import inception_resnet_v2_arg_scope, inception_resnet_v2
 
-metadata = './metadata.json'
-video_img = './video_img'
-tf_record_dir = './tfrecords'
+flags = tf.app.flags
+
+flags.DEFINE_string('tf_record_dir', './tfrecords', '')
+flags.DEFINE_string('metadata', './avail_video_metadata.json', '')
+flags.DEFINE_string('video_img', './video_img', '')
+flags.DEFINE_integer('num_gpus', 3, '')
+flags.DEFINE_integer('per_batch_size', 16, '')
+flags.DEFINE_integer('num_worker', 4, '')
+
+FLAGS = flags.FLAGS
+
+
 IMAGE_PATTERN_ = '*.jpg'
 TFRECORD_PATTERN_ = '%s.tfrecord'
 DIR_PATTERN_ = 'tt*'
-batch_size = 16 * 3
+batch_size = 16 * FLAGS.num_gpus
 
 def make_parallel(fn, num_gpus, **kwargs):
     in_splits = {}
@@ -35,7 +44,7 @@ def make_parallel(fn, num_gpus, **kwargs):
     return tf.concat(out_split, axis=0)
 
 def get_tf_record_name(video):
-    return join(tf_record_dir, TFRECORD_PATTERN_ % video)
+    return join(FLAGS.tf_record_dir, TFRECORD_PATTERN_ % video)
 
 
 def models(images):
@@ -46,16 +55,16 @@ def models(images):
 
 
 # ['map', 'list', 'info', 'subtitle', 'unavailable']
-def main():
-    exist_make_dirs(tf_record_dir)
-    avail_video_metadata = json.load(open('avail_video_metadata.json', 'r'))
+def main(_):
+    exist_make_dirs(FLAGS.tf_record_dir)
+    avail_video_metadata = json.load(open(FLAGS.metatdata, 'r'))
     print('Load json file done !!')
     filenames = []
     capacity = []
     tfrecords = []
     for folder in tqdm(avail_video_metadata['list']):
         tfrecords.append(folder)
-        imgs = glob(join(video_img, folder, IMAGE_PATTERN_))
+        imgs = glob(join(FLAGS.video_img, folder, IMAGE_PATTERN_))
         imgs = sorted(imgs)
         capacity.append(len(imgs))
         filenames.extend(imgs)
@@ -75,7 +84,7 @@ def main():
                             capacity=2 * min_after_dequeue,
                             allow_smaller_final_batch=True)
     # print(images)
-    feature_tensor = make_parallel(models, 3, images=images)
+    feature_tensor = make_parallel(models, FLAGS.num_gpus, images=images)
     # print(end_points['PreLogitsFlatten'])
 
     print('Pipeline setup done !!')
@@ -172,4 +181,4 @@ def test():
 
 
 if __name__ == '__main__':
-    main()
+    tf.app.run()
