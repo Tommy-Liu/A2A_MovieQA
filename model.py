@@ -1,6 +1,8 @@
 import numpy as np
 import tensorflow as tf
 
+from config import ModelConfig
+
 flags = tf.app.flags
 
 flags.DEFINE_integer('batch_size', 4, '')
@@ -8,6 +10,45 @@ flags.DEFINE_integer('batch_size', 4, '')
 FLAGS = tf.app.flags.FLAGS
 
 time_steps = 20
+
+
+class VLLabMemoryModel(object):
+    def __init__(self):
+        self.config = ModelConfig()
+
+        self.initializer = tf.random_uniform_initializer(
+            minval=-self.config.initializer_scale,
+            maxval=self.config.initializer_scale)
+
+        self.ques_embeddings = None
+        self.ans_embeddings = None
+        self.subt_embedding = None
+
+        self.build_seq_embedding()
+
+    def build_seq_embedding(self):
+        with tf.variable_scope("ques_embedding"), tf.device("/cpu:0"):
+            embedding_map = tf.get_variable(
+                name="map",
+                shape=[self.config.size_vocab_q, self.config.embedding_size],
+                initializer=self.initializer)
+            seq_embeddings = tf.nn.embedding_lookup(embedding_map, self.input_seqs)
+            self.ques_embeddings = seq_embeddings
+
+        with tf.variable_scope("ans_embedding"), tf.device("/cpu:0"):
+            embedding_map = tf.get_variable(
+                name="map",
+                shape=[self.config.size_vocab_q, self.config.embedding_size],
+                initializer=self.initializer)
+            seq_embeddings = tf.nn.embedding_lookup(embedding_map, self.input_seqs)
+            self.ans_embeddings = seq_embeddings
+        with tf.variable_scope("subt_embedding"), tf.device("/cpu:0"):
+            embedding_map = tf.get_variable(
+                name="map",
+                shape=[self.config.size_vocab_q, self.config.embedding_size],
+                initializer=self.initializer)
+            seq_embeddings = tf.nn.embedding_lookup(embedding_map, self.input_seqs)
+            self.subt_embedding = seq_embeddings
 
 
 def main(_):

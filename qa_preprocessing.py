@@ -1,4 +1,5 @@
 import re
+import os
 import json
 import imageio
 
@@ -28,15 +29,22 @@ def qid_split(qa_):
     return qa_['qid'].split(':')[0]
 
 
+def insert_unk(vocab, inverse_vocab):
+    vocab[UNK] = len(vocab)
+    inverse_vocab.append(UNK)
+    return vocab, inverse_vocab
+
+
 def build_vocab(counter):
-    sorted_dict = OrderedDict(sorted(counter.items(),
-                                     key=lambda t: t[1],
-                                     reverse=True))
+    sorted_vocab = sorted(counter.items(),
+                          key=lambda t: t[1],
+                          reverse=True)
     vocab = {
         item[0]: idx
-        for idx, item in enumerate(sorted_dict)
+        for idx, item in enumerate(sorted_vocab)
     }
     inverse_vocab = [key for key in vocab.keys()]
+    vocab, inverse_vocab = insert_unk(vocab, inverse_vocab)
     return vocab, inverse_vocab
 
 
@@ -78,10 +86,12 @@ def get_split(qa, avail_video_metadata):
            total_qa_train, total_qa_test, total_qa_val
 
 
-def tokenize_and_build_vocab(qa_list, subtitles):
-    counter_q = Counter()
-    counter_a = Counter()
-    counter_s = Counter()
+def tokenize_sentences(qa_list, subtitles, is_train=False):
+    if is_train:
+        counter_q = Counter()
+        counter_a = Counter()
+        counter_s = Counter()
+
     for qa_ in tqdm(qa_list):
         # Tokenize sentences
         qa_['tokenize_question'] = word_tokenize(qa_['question'])
@@ -91,45 +101,53 @@ def tokenize_and_build_vocab(qa_list, subtitles):
                       IMAGE_PATTERN_))
             for vid in qa_['video_clips']
         ]
-        qa_['video_subtitle'] = [
+        qa_['tokenize_video_subtitle'] = [
             subtitles[get_base_name_without_ext(vid)]
             for vid in qa_['video_clips']
         ]
-        qa_['tokenize_video_subtitle'] = [
-            [word_tokenize(sent) for sent in subt]
-            for subt in qa_['video_subtitle']
+        qa_['video_subtitle'] = [
+            [' '.join(sent) for sent in subt]
+            for subt in qa_['tokenize_video_subtitle']
         ]
-        # Update counters
-        counter_q.update(qa_['tokenize_question'])
-        for tokens in qa_['tokenize_answer']:
-            counter_a.update(tokens)
-        for subt in qa_['tokenize_video_subtitle']:
-            for sent in subt:
-                counter_s.update(sent)
-    # Build vocab
-    vocab_q, inverse_vocab_q = build_vocab(counter_q)
-    vocab_a, inverse_vocab_a = build_vocab(counter_a)
-    vocab_s, inverse_vocab_s = build_vocab(counter_s)
-    counter_total = counter_q + counter_a + counter_s
-
-    return counter_q, counter_a, counter_s, \
-           vocab_q, inverse_vocab_q, \
-           vocab_a, inverse_vocab_a, \
-           vocab_s, inverse_vocab_s, counter_total
+        if is_train:
+            # Update counters
+            counter_q.update(qa_['tokenize_question'])
+            for tokens in qa_['tokenize_answer']:
+                counter_a.update(tokens)
+            for subt in qa_['tokenize_video_subtitle']:
+                for sent in subt:
+                    counter_s.update(sent)
+    if is_train:
+        counter_total = counter_q + counter_a + counter_s
+        return counter_q, counter_a, counter_s, counter_total
 
 
-def encode_sentences(qa_list):
-    pass
+def encode_sentences(qa_list, vocab_q, vocab_a, vocab_s):
+
+    for qa_ in tqdm(qa_list):
+        qa_['encoded_answer'] = [
+            [vocab_a[word] if word in vocab_a else vocab_a[UNK] for word in aa]
+            for aa in qa_['tokenize_answer']
+        ]
+        qa_['encoded_question'] = [
+            vocab_q[word] if word in vocab_q else vocab_q[UNK] for word in qa_['tokenize_question']
+        ]
+        qa_['encoded_subtitle'] = [
+            [
+                [vocab_s[word] if word in vocab_s else vocab_s[UNK] for word in sent]
+                for sent in subt
+            ]
+            for subt in qa_['tokenize_video_subtitle']
+        ]
+    return qa_list
 
 
 def main():
     avail_video_metadata = json.load(open('avail_video_metadata.json', 'r'))
+    avail_video_subtitle = json.load(open('avail_video_subtitle.json', 'r'))
     qa = json.load(open('../MovieQA_benchmark/data/qa.json'))
-    split = json.load(open('../MovieQA_benchmark/data/splits.json'))
-    unavail_list = [get_base_name(d) for d in avail_video_metadata['unavailable']]
-
-    # Fuck those subtitle tokens
-    avail_video_metadata['subtitle'] = cleans(avail_video_metadata['subtitle'])
+    # split = json.load(open('../MovieQA_benchmark/data/splits.json'))
+    # unavail_list = [get_base_name(d) for d in avail_video_metadata['unavailable']]
 
     avail_qa_train, avail_qa_test, avail_qa_val, \
     total_qa_train, total_qa_test, total_qa_val = get_split(qa, avail_video_metadata)
@@ -143,12 +161,40 @@ def main():
                                                 len(total_qa_test),
                                                 len(total_qa_val)))
 
-    counter_q, counter_a, counter_s, \
-    vocab_q, inverse_vocab_q, \
-    vocab_a, inverse_vocab_a, \
-    vocab_s, inverse_vocab_s, counter_total = tokenize_and_build_vocab(avail_qa_train,
-                                                                       avail_video_metadata['subtitle'])
+    counter_q, counter_a, counter_s, counter_total = \
+        tokenize_sentences(avail_qa_train,
+                           avail_video_subtitle,
+                           is_train=True)
 
+    # Build vocab
+    vocab_q, inverse_vocab_q = build_vocab(counter_q)
+    vocab_a, inverse_vocab_a = build_vocab(counter_a)
+    vocab_s, inverse_vocab_s = build_vocab(counter_s)
+    vocab_total, inverse_vocab_total = build_vocab(counter_total)
+
+    # encode sentences
+    tokenize_sentences(avail_qa_test, avail_video_subtitle)
+    tokenize_sentences(avail_qa_val, avail_video_subtitle)
+    encode_sentences(avail_qa_train, vocab_q, vocab_a, vocab_s)
+    encode_sentences(avail_qa_test, vocab_q, vocab_a, vocab_s)
+    encode_sentences(avail_qa_val, vocab_q, vocab_a, vocab_s)
+
+    avail_preprocessing_qa = {
+        'avail_qa_train': avail_qa_train,
+        'avail_qa_test': avail_qa_test,
+        'avail_qa_val': avail_qa_val,
+        'vocab_q': vocab_q,
+        'vocab_a': vocab_a,
+        'vocab_s': vocab_s,
+        'inverse_vocab_q': inverse_vocab_q,
+        'inverse_vocab_a': inverse_vocab_a,
+        'inverse_vocab_s': inverse_vocab_s,
+        'vocab_total': vocab_total,
+        'inverse_vocab_total': inverse_vocab_total
+    }
+
+    json.dump(avail_preprocessing_qa, open('./avail_preprocessing_qa.json', 'w'))
+    os.system('rm info.json')
 
 if __name__ == '__main__':
     main()
