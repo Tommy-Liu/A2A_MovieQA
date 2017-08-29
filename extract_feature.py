@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import math
 import json
 import random
 
@@ -15,22 +16,24 @@ from os.path import join
 from video_preprocessing import get_base_name, exist_make_dirs
 from inception_preprocessing import preprocess_image
 from inception_resnet_v2 import inception_resnet_v2_arg_scope, inception_resnet_v2
+from multiprocessing import Manager, Process, Event, Queue
 
 flags = tf.app.flags
 
 flags.DEFINE_string('tf_record_dir', './tfrecords', '')
+flags.DEFINE_string('feature_dir', './features', '')
 flags.DEFINE_string('metadata', './avail_video_metadata.json', '')
 flags.DEFINE_string('video_img', './video_img', '')
 flags.DEFINE_integer('num_gpus', 3, '')
 flags.DEFINE_integer('per_batch_size', 16, '')
-flags.DEFINE_integer('num_worker', 2, '')
+flags.DEFINE_integer('num_worker', 4, '')
 
 FLAGS = flags.FLAGS
-
 
 filename_json = './filenames.json'
 IMAGE_PATTERN_ = '*.jpg'
 TFRECORD_PATTERN_ = '%s.tfrecord'
+NPY_PATTERN_ = '%s.npy'
 DIR_PATTERN_ = 'tt*'
 batch_size = FLAGS.per_batch_size * FLAGS.num_gpus
 num_worker = FLAGS.num_worker * FLAGS.num_gpus
@@ -54,6 +57,10 @@ def get_tf_record_name(video):
     return join(FLAGS.tf_record_dir, TFRECORD_PATTERN_ % video)
 
 
+def get_npy_name(video):
+    return join(FLAGS.feature_dir, NPY_PATTERN_ % video)
+
+
 def models(images):
     with slim.arg_scope(inception_resnet_v2_arg_scope()):
         logits, end_points = inception_resnet_v2(images, num_classes=1001, is_training=False)
@@ -61,80 +68,154 @@ def models(images):
 
 
 def get_images_path():
-    if not os.path.exists(filename_json):
-        avail_video_metadata = json.load(open(FLAGS.metadata, 'r'))
-        print('Load json file done !!')
-        file_names = []
-        capacity = []
-        tfrecords = []
-        for folder in tqdm(avail_video_metadata['list']):
-            # if not os.path.exists(get_tf_record_name(folder)):
-            tfrecords.append(get_tf_record_name(folder))
+    # if not os.path.exists(filename_json):
+    avail_video_metadata = json.load(open(FLAGS.metadata, 'r'))
+    print('Load json file done !!')
+    file_names = []
+    capacity = []
+    npy_names = []
+    for folder in tqdm(avail_video_metadata['list']):
+        if not os.path.exists(get_npy_name(folder)):
+            npy_names.append(get_npy_name(folder))
             imgs = glob(join(FLAGS.video_img, folder, IMAGE_PATTERN_))
             imgs = sorted(imgs)
             capacity.append(len(imgs))
             file_names.extend(imgs)
-        json.dump({
-            'file_names': file_names,
-            'capacity': capacity,
-            'tfrecords': tfrecords,
-        }, open(filename_json, 'w'))
-    else:
-        file_names_json = json.load(open(filename_json, 'r'))
-        print('Load json file done !!')
-        file_names, capacity, tfrecords = \
-            file_names_json['file_names'], file_names_json['capacity'], file_names_json['tfrecords']
-    return file_names, capacity, tfrecords
+    # json.dump({
+    #     'file_names': file_names,
+    #     'capacity': capacity,
+    #     'npy_names': npy_names,
+    # }, open(filename_json, 'w'))
+    # else:
+    #     file_names_json = json.load(open(filename_json, 'r'))
+    #     print('Load json file done !!')
+    #     file_names, capacity, npy_names = \
+    #         file_names_json['file_names'], file_names_json['capacity'], file_names_json['npy_names']
+    return file_names, capacity, npy_names
 
 
 def input_pipeline(filenames):
     filename_queue = tf.train.string_input_producer(
-        filenames, shuffle=False, num_epochs=1, capacity=batch_size * 2)
+        filenames, shuffle=False, num_epochs=1,) # capacity=batch_size * 2)
     reader = tf.WholeFileReader()
     _, raw_image = reader.read(filename_queue)
     image = tf.image.decode_jpeg(raw_image, channels=3)
-    # # image = tf.image.resize_image_with_crop_or_pad()
     image = preprocess_image(image, 299, 299, is_training=False)
-    # print(image)
-    min_after_dequeue = batch_size * FLAGS.num_worker
     images = tf.train.batch([image],
                             batch_size=batch_size,
                             num_threads=num_worker,
-                            capacity=2 * min_after_dequeue,
+                            capacity=2 * batch_size * FLAGS.num_worker,
                             allow_smaller_final_batch=True)
     return images
 
 
-# ['map', 'list', 'info', 'subtitle', 'unavailable']
+def parse_function(filename):
+    raw_image = tf.read_file(filename)
+    image = tf.image.decode_jpeg(raw_image, channels=3)
+    image = preprocess_image(image, 299, 299, is_training=False)
+    return image
+
+
+def count_num(features_list):
+    num = 0
+    for featues in features_list:
+        num += featues.shape[0]
+    return num
+
+
+def writer_worker(e, features_list, capacity, npy_names):
+    total_count = 0
+    video_idx = 0
+    front_cut = 0
+    local_feature_list = []
+    while True:
+        if len(features_list) > 0:
+            local_feature_list.append(features_list.pop(0))
+            total_count += local_feature_list[-1].shape[0]
+            if total_count >= capacity[video_idx]:
+                end_cut = (capacity[video_idx] + front_cut) % batch_size
+                list_bound = int(math.floor((capacity[video_idx] + front_cut) / batch_size))
+                concat = [local_feature_list[0][front_cut:]] + \
+                         local_feature_list[1:list_bound] + \
+                         [local_feature_list[list_bound][:end_cut]] if end_cut > 0 else \
+                         [local_feature_list[0][front_cut:]] + \
+                         local_feature_list[1:list_bound]
+                final_features = np.concatenate(concat, 0)
+                print(npy_names[video_idx], final_features.shape, capacity[video_idx], len(local_feature_list))
+                np.save(npy_names[video_idx], final_features)
+                for i in range(list_bound):
+                    local_feature_list.pop(0)
+                front_cut = end_cut
+                total_count -= capacity[video_idx]
+                video_idx += 1
+        else:
+            time.sleep(0.5)
+        if len(features_list) == 0:
+            e.set()
+        else:
+            e.clear()  # ['map', 'list', 'info', 'subtitle', 'unavailable']
 def main(_):
-    exist_make_dirs(FLAGS.tf_record_dir)
-    filenames, capacity, tfrecords = get_images_path()
+    exist_make_dirs(FLAGS.feature_dir)
+    filenames, capacity, npy_names = get_images_path()
     images = input_pipeline(filenames)
-
-    # imgs = sorted(glob(join(video_img, 'tt1454029.sf-006466.ef-010607.video', IMAGE_PATTERN_)))
-    # print(imgs)
-
-
-    # # print(images)
+    # file_placeholder = tf.placeholder(tf.string, shape=[None])
+    # dataset = tf.contrib.data.Dataset.from_tensor_slices(file_placeholder)
+    # dataset = dataset.map(parse_function)
+    # dataset = dataset.repeat(1)
+    # dataset = dataset.batch(batch_size)
+    # iterator = dataset.make_initializable_iterator()
+    # images = iterator.get_next()
     # feature_tensor = make_parallel(models, FLAGS.num_gpus, images=images)
-    # # print(end_points['PreLogitsFlatten'])
-    #
-    # print('Pipeline setup done !!')
-    # saver = tf.train.Saver(slim.get_variables_to_restore())
+    feature_tensor = models(images)
+    print('Pipeline setup done !!')
+    saver = tf.train.Saver(tf.global_variables())
     config = tf.ConfigProto(allow_soft_placement=True, )
-    # log_device_placement=True)
     config.gpu_options.allow_growth = True
-    # print('Start extract !!')
+    print('Start extract !!')
+    with tf.Session(config=config) as sess, Manager() as manager:
+        # e = Event()
+        # features_list = manager.list()
+        # p = Process(target=writer_worker, args=(e, features_list, capacity, npy_names))
+        # p.start()
+        # sess.run(iterator.initializer, feed_dict={
+        #     file_placeholder: filenames
+        # })
+        tf.global_variables_initializer().run()
+        tf.local_variables_initializer().run()
+        saver.restore(sess, './inception_resnet_v2_2016_08_30.ckpt')
+        # coord = tf.train.Coordinator()
+        # threads = tf.train.start_queue_runners(coord=coord)
+        try:
+            # while not coord.should_stop():
+            while True:
+                features = sess.run(feature_tensor)
+                # features_list.append(features)
+        except tf.errors.OutOfRangeError:
+            print('done!')
+            # e.wait()
+            # time.sleep(3)
+            # p.terminate()
+        except KeyboardInterrupt:
+            print()
+            # p.terminate()
+            # finally:
+            # coord.request_stop()
+            # coord.join(threads)
+
+
+def test_time():
+    exist_make_dirs(FLAGS.tf_record_dir)
+    filenames, capacity, npy_names = get_images_path()
+    images = input_pipeline(filenames)
+    print('Pipeline setup done !!')
+    config = tf.ConfigProto(allow_soft_placement=True, )
+    config.gpu_options.allow_growth = True
+    print('Start extract !!')
     with tf.Session(config=config) as sess:
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
-    #     saver.restore(sess, './inception_resnet_v2_2016_08_30.ckpt')
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord)
-    #     video_idx = 0
-    #     tfrecord_writer = tf.python_io.TFRecordWriter(tfrecords[video_idx])
-    #     features_list = []
-    #     count = 0
         sess.run(images)
         avg_time = 0
         iter = 1
@@ -147,31 +228,13 @@ def main(_):
                 sys.stdout.write("\rAverage time: %.4f Iter time: %.4f" % (avg_time, end_time - start_time))
                 sys.stdout.flush()
                 iter += 1
-    #             features = sess.run(feature_tensor)
-    #             count += features.shape[0]
-    #             features_list.append(features)
-    #             if count >= capacity[video_idx]:
-    #                 count = count - capacity[video_idx]
-    #                 bound = batch_size - count
-    #                 # ? * 1536
-    #                 final_features = np.concatenate(features_list[:-1] + [features_list[-1][:bound]], 0)
-    #                 print(tfrecords[video_idx], final_features.shape)
-    #                 tfrecord_writer.write(frame_feature_example(final_features).SerializeToString())
-    #                 tfrecord_writer.close()
-    #                 features_list = [features_list[-1][bound:]]
-    #                 video_idx += 1
-    #                 tfrecord_writer = tf.python_io.TFRecordWriter(tfrecords[video_idx])
         except tf.errors.OutOfRangeError:
             print('done!')
         except KeyboardInterrupt:
             print()
-            # tfrecord_writer.close()
-            # os.remove(get_tf_record_name(tfrecords[video_idx]))
         finally:
             coord.request_stop()
             coord.join(threads)
-            # for img in imgs:
-            #     image_data = tf.gfile.FastGFile(img, 'rb').read()
 
 
 def test():
