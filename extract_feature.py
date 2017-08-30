@@ -24,9 +24,9 @@ flags.DEFINE_string('tf_record_dir', './tfrecords', '')
 flags.DEFINE_string('feature_dir', './features', '')
 flags.DEFINE_string('metadata', './avail_video_metadata.json', '')
 flags.DEFINE_string('video_img', './video_img', '')
-flags.DEFINE_integer('num_gpus', 3, '')
-flags.DEFINE_integer('per_batch_size', 16, '')
-flags.DEFINE_integer('num_worker', 4, '')
+flags.DEFINE_integer('num_gpus', 1, '')
+flags.DEFINE_integer('per_batch_size', 64, '')
+flags.DEFINE_integer('num_worker', 8, '')
 
 FLAGS = flags.FLAGS
 
@@ -68,35 +68,41 @@ def models(images):
 
 
 def get_images_path():
-    # if not os.path.exists(filename_json):
-    avail_video_metadata = json.load(open(FLAGS.metadata, 'r'))
-    print('Load json file done !!')
-    file_names = []
-    capacity = []
-    npy_names = []
-    for folder in tqdm(avail_video_metadata['list']):
-        if not os.path.exists(get_npy_name(folder)):
+    if not os.path.exists(filename_json):
+        avail_video_metadata = json.load(open(FLAGS.metadata, 'r'))
+        print('Load json file done !!')
+        file_names = []
+        file_names_sep = []
+        capacity = []
+        npy_names = []
+        for folder in tqdm(avail_video_metadata['list']):
+            # if not os.path.exists(get_npy_name(folder)):
             npy_names.append(get_npy_name(folder))
             imgs = glob(join(FLAGS.video_img, folder, IMAGE_PATTERN_))
             imgs = sorted(imgs)
             capacity.append(len(imgs))
+            file_names_sep.append(imgs)
             file_names.extend(imgs)
-    # json.dump({
-    #     'file_names': file_names,
-    #     'capacity': capacity,
-    #     'npy_names': npy_names,
-    # }, open(filename_json, 'w'))
-    # else:
-    #     file_names_json = json.load(open(filename_json, 'r'))
-    #     print('Load json file done !!')
-    #     file_names, capacity, npy_names = \
-    #         file_names_json['file_names'], file_names_json['capacity'], file_names_json['npy_names']
+        json.dump({
+            'file_names': file_names_sep,
+            'capacity': capacity,
+            'npy_names': npy_names,
+        }, open(filename_json, 'w'))
+    file_names_json = json.load(open(filename_json, 'r'))
+    print('Load json file done !!')
+    file_names, capacity, npy_names = [], [], []
+    for idx, name in enumerate(tqdm(file_names_json['npy_names'])):
+        if not os.path.exists(name):
+            file_names.extend(file_names_json['file_names'][idx])
+            capacity.append(len(file_names_json['file_names'][idx]))
+            npy_names.append(name)
+    print(len(file_names), len(capacity))
     return file_names, capacity, npy_names
 
 
 def input_pipeline(filenames):
     filename_queue = tf.train.string_input_producer(
-        filenames, shuffle=False, num_epochs=1,) # capacity=batch_size * 2)
+        filenames, shuffle=False, num_epochs=1)  # , capacity=   batch_size * 2)
     reader = tf.WholeFileReader()
     _, raw_image = reader.read(filename_queue)
     image = tf.image.decode_jpeg(raw_image, channels=3)
@@ -138,8 +144,8 @@ def writer_worker(e, features_list, capacity, npy_names):
                 concat = [local_feature_list[0][front_cut:]] + \
                          local_feature_list[1:list_bound] + \
                          [local_feature_list[list_bound][:end_cut]] if end_cut > 0 else \
-                         [local_feature_list[0][front_cut:]] + \
-                         local_feature_list[1:list_bound]
+                    [local_feature_list[0][front_cut:]] + \
+                    local_feature_list[1:list_bound]
                 final_features = np.concatenate(concat, 0)
                 print(npy_names[video_idx], final_features.shape, capacity[video_idx], len(local_feature_list))
                 np.save(npy_names[video_idx], final_features)
@@ -154,6 +160,8 @@ def writer_worker(e, features_list, capacity, npy_names):
             e.set()
         else:
             e.clear()  # ['map', 'list', 'info', 'subtitle', 'unavailable']
+
+
 def main(_):
     exist_make_dirs(FLAGS.feature_dir)
     filenames, capacity, npy_names = get_images_path()
@@ -169,38 +177,37 @@ def main(_):
     feature_tensor = models(images)
     print('Pipeline setup done !!')
     saver = tf.train.Saver(tf.global_variables())
-    config = tf.ConfigProto(allow_soft_placement=True, )
+    config = tf.ConfigProto()  # allow_soft_placement=True, )
     config.gpu_options.allow_growth = True
     print('Start extract !!')
     with tf.Session(config=config) as sess, Manager() as manager:
-        # e = Event()
-        # features_list = manager.list()
-        # p = Process(target=writer_worker, args=(e, features_list, capacity, npy_names))
-        # p.start()
+        e = Event()
+        features_list = manager.list()
+        p = Process(target=writer_worker, args=(e, features_list, capacity, npy_names))
+        p.start()
         # sess.run(iterator.initializer, feed_dict={
         #     file_placeholder: filenames
         # })
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
         saver.restore(sess, './inception_resnet_v2_2016_08_30.ckpt')
-        # coord = tf.train.Coordinator()
-        # threads = tf.train.start_queue_runners(coord=coord)
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(coord=coord)
         try:
             # while not coord.should_stop():
             while True:
-                features = sess.run(feature_tensor)
-                # features_list.append(features)
+                features_list.append(sess.run(feature_tensor))
         except tf.errors.OutOfRangeError:
             print('done!')
-            # e.wait()
-            # time.sleep(3)
-            # p.terminate()
+            e.wait()
+            time.sleep(3)
+            p.terminate()
         except KeyboardInterrupt:
             print()
-            # p.terminate()
-            # finally:
-            # coord.request_stop()
-            # coord.join(threads)
+            p.terminate()
+        finally:
+            coord.request_stop()
+            coord.join(threads)
 
 
 def test_time():
