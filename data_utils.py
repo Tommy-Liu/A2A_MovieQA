@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 
 
 def int64_feature(value):
