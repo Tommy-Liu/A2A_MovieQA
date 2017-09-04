@@ -2,10 +2,20 @@ import tensorflow as tf
 import numpy as np
 
 
+def to_feature(value):
+    if isinstance(value, np.ndarray):
+        if value.dtype == np.int64 or value.dtype == np.int32:
+            return int64_feature(value)
+        elif value.dtype == np.float32 or value.dtype == np.float64:
+            return float_feature(value)
+    elif not isinstance(value, (tuple, list)):
+        if isinstance(value, int):
+            return int64_feature([value])
+        elif isinstance(1,float):
+            pass
+
 def int64_feature(value):
     """Wrapper for inserting an int64 Feature into a SequenceExample proto."""
-    if not isinstance(value, (tuple, list)):
-        value = [value]
     return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
 
 
