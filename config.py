@@ -16,7 +16,6 @@ class ModelConfig(object):
     NPY_PATTERN_ = '*.npy'
     feature_dir = './features'
 
-
     def __init__(self):
         """Sets the default model hyperparameters."""
         # File pattern of sharded TFRecord file containing SequenceExample protos.
