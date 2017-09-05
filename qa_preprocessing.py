@@ -102,50 +102,58 @@ def get_split(qa, avail_video_metadata):
 
 
 def tokenize_sentences(qa_list, subtitles, is_train=False):
-    if is_train:
-        counter_q = Counter()
-        counter_a = Counter()
-        counter_s = Counter()
-
+    counter_q = Counter()
+    counter_a = Counter()
+    counter_s = Counter()
+    tokenize_qa_list = []
     for qa_ in tqdm(qa_list, desc='Tokenize sentences'):
         # Tokenize sentences
-        qa_['tokenize_question'] = word_tokenize(qa_['question'])
-        qa_['tokenize_answer'] = [word_tokenize(aa) for aa in qa_['answers']]
-        qa_['tokenize_video_subtitle'] = [
-            subtitles[get_base_name_without_ext(vid)]
-            for vid in qa_['video_clips']
-        ]
+        tokenize_qa_ = {
+            'tokenize_question': word_tokenize(qa_['question']),
+            'tokenize_answer': [word_tokenize(aa) for aa in qa_['answers']],
+            'tokenize_video_subtitle': [
+                subtitles[get_base_name_without_ext(vid)]
+                for vid in qa_['video_clips']
+            ]
+        }
+        tokenize_qa_list.append(tokenize_qa_)
         if is_train:
             # Update counters
-            counter_q.update(qa_['tokenize_question'])
-            for tokens in qa_['tokenize_answer']:
+            counter_q.update(tokenize_qa_['tokenize_question'])
+            for tokens in tokenize_qa_['tokenize_answer']:
                 counter_a.update(tokens)
-            for subt in qa_['tokenize_video_subtitle']:
+            for subt in tokenize_qa_['tokenize_video_subtitle']:
                 for sent in subt:
                     counter_s.update(sent)
     if is_train:
         counter_total = counter_q + counter_a + counter_s
-        return counter_q, counter_a, counter_s, counter_total
+        return tokenize_qa_list, counter_q, counter_a, counter_s, counter_total
+    else:
+        return tokenize_qa_list
 
 
 def encode_sentences(qa_list, vocab_q, vocab_a, vocab_s):
+    encode_qa_list = []
     for qa_ in tqdm(qa_list, desc='Encode sentences'):
-        qa_['encoded_answer'] = [
-            [vocab_a[word] if word in vocab_a else vocab_a[UNK] for word in aa]
-            for aa in qa_['tokenize_answer']
-        ]
-        qa_['encoded_question'] = [
-            vocab_q[word] if word in vocab_q else vocab_q[UNK] for word in qa_['tokenize_question']
-        ]
-        qa_['encoded_subtitle'] = [
-            [
-                [vocab_s[word] if word in vocab_s else vocab_s[UNK] for word in sent]
-                if sent != [] else [vocab_s[UNK]] for sent in subt
+        encode_qa_ = {
+            'encoded_answer': [
+                [vocab_a[word] if word in vocab_a else vocab_a[UNK] for word in aa]
+                for aa in qa_['tokenize_answer']
+            ],
+            'encoded_question': [
+                vocab_q[word] if word in vocab_q else vocab_q[UNK] for word in qa_['tokenize_question']
+            ],
+            'encoded_subtitle': [
+                [
+                    [vocab_s[word] if word in vocab_s else vocab_s[UNK] for word in sent]
+                    if sent != [] else [vocab_s[UNK]] for sent in subt
+                ]
+                for subt in qa_['tokenize_video_subtitle']
             ]
-            for subt in qa_['tokenize_video_subtitle']
-        ]
-    print(qa_['encoded_subtitle'][0][:10])
-    return qa_list
+        }
+        encode_qa_list.append(encode_qa_)
+    # print(qa_['encoded_subtitle'][0][:10])
+    return encode_qa_list
 
 
 def main():
@@ -168,7 +176,7 @@ def main():
                                                 len(total_qa_test),
                                                 len(total_qa_val)))
 
-    counter_q, counter_a, counter_s, counter_total = \
+    tokenize_qa_train, counter_q, counter_a, counter_s, counter_total = \
         tokenize_sentences(avail_qa_train,
                            avail_video_subtitle,
                            is_train=True)
@@ -180,11 +188,11 @@ def main():
     vocab_total, inverse_vocab_total = build_vocab(counter_total)
 
     # encode sentences
-    tokenize_sentences(avail_qa_test, avail_video_subtitle)
-    tokenize_sentences(avail_qa_val, avail_video_subtitle)
-    encode_sentences(avail_qa_train, vocab_q, vocab_a, vocab_s)
-    encode_sentences(avail_qa_test, vocab_q, vocab_a, vocab_s)
-    encode_sentences(avail_qa_val, vocab_q, vocab_a, vocab_s)
+    tokenize_qa_test = tokenize_sentences(avail_qa_test, avail_video_subtitle)
+    tokenize_qa_val = tokenize_sentences(avail_qa_val, avail_video_subtitle)
+    encode_qa_train = encode_sentences(tokenize_qa_train, vocab_q, vocab_a, vocab_s)
+    encode_qa_test = encode_sentences(tokenize_qa_test, vocab_q, vocab_a, vocab_s)
+    encode_qa_val = encode_sentences(tokenize_qa_val, vocab_q, vocab_a, vocab_s)
 
     avail_preprocessing_qa = {
         'avail_qa_train': avail_qa_train,

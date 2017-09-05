@@ -4,9 +4,9 @@ import random
 import json
 import math
 
-from data_utils import *
-from video_preprocessing import get_base_name_without_ext
-from extract_feature import get_npy_name
+from tqdm import trange
+from data_utils import get_dataset_name, qa_feature_example
+from video_preprocessing import exist_make_dirs
 
 flags = tf.app.flags
 flags.DEFINE_integer("num_shards", 5, "")
@@ -24,7 +24,8 @@ FLAGS = flags.FLAGS
 
 def create_tfrecord(qas, split):
     num_per_shard = 5  # int(math.ceil(len(qas) / float(FLAGS.num_shards)))
-    for shard_id in range(FLAGS.num_shard):
+    for shard_id in trange(FLAGS.num_shards,
+                           desc="shard loop"):
         output_filename = get_dataset_name(FLAGS.dataset_dir,
                                            FLAGS.dataset_name,
                                            split,
@@ -33,18 +34,23 @@ def create_tfrecord(qas, split):
         with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
             start_ndx = shard_id * num_per_shard
             end_ndx = min((shard_id + 1) * num_per_shard, len(qas))
-            for i in range(start_ndx, end_ndx):
-                for ans_idx in range(len(qas[i]['encoded_answer'])):
+            for i in trange(start_ndx, end_ndx,
+                            desc="shard %d" % (shard_id + 1)):
+                for ans_idx in trange(len(qas[i]['encoded_answer']),
+                                      desc="answer loop"):
                     if ans_idx == qas[i]['correct_index']:
-                        for _ in range(len(qas[i]['encoded_answer']) - 1):
+                        for _ in trange(len(qas[i]['encoded_answer']) - 1,
+                                        desc="duplicate loop"):
                             example = qa_feature_example(qas[i], ans_idx)
                             tfrecord_writer.write(example.SerializeToString())
                     else:
                         example = qa_feature_example(qas[i], ans_idx)
                         tfrecord_writer.write(example.SerializeToString())
 
-def main():
+
+def main(_):
     avail_preprocessing_qa = json.load(open('./avail_preprocessing_qa.json', 'r'))
+    exist_make_dirs(FLAGS.dataset_dir)
     create_tfrecord(avail_preprocessing_qa['avail_qa_train'], split='train')
     create_tfrecord(avail_preprocessing_qa['avail_qa_test'], split='test')
     create_tfrecord(avail_preprocessing_qa['avail_qa_val'], split='val')
