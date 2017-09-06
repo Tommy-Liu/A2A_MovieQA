@@ -12,6 +12,8 @@ flags = tf.app.flags
 flags.DEFINE_integer("num_shards", 5, "")
 flags.DEFINE_string("dataset_name", "movieqa", "")
 flags.DEFINE_string("dataset_dir", "./dataset", "")
+flags.DEFINE_string("encode_file_name", "./encode_qa.json",
+                    "")
 FLAGS = flags.FLAGS
 
 
@@ -43,17 +45,18 @@ def create_tfrecord(qas, split):
                                         desc="duplicate loop"):
                             example = qa_feature_example(qas[i], ans_idx)
                             tfrecord_writer.write(example.SerializeToString())
-                    else:
+                    # TODO(tommy8054): Decide training process
+                    elif True:
                         example = qa_feature_example(qas[i], ans_idx)
                         tfrecord_writer.write(example.SerializeToString())
 
 
 def main(_):
-    avail_preprocessing_qa = json.load(open('./avail_preprocessing_qa.json', 'r'))
+    encode_qa = json.load(open(FLAGS.encode_file_name, 'r'))
     exist_make_dirs(FLAGS.dataset_dir)
-    create_tfrecord(avail_preprocessing_qa['avail_qa_train'], split='train')
-    create_tfrecord(avail_preprocessing_qa['avail_qa_test'], split='test')
-    create_tfrecord(avail_preprocessing_qa['avail_qa_val'], split='val')
+    create_tfrecord(encode_qa['encode_qa_train'], split='train')
+    create_tfrecord(encode_qa['encode_qa_test'], split='test')
+    create_tfrecord(encode_qa['encode_qa_val'], split='val')
 
 
 if __name__ == '__main__':

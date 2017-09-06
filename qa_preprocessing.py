@@ -17,27 +17,33 @@ UNK = 'UNK'
 IMAGE_PATTERN_ = '*.jpg'
 
 qa_file_name = './avail_preprocessing_qa.json'
+tokenize_file_name = './tokenize_qa.json'
+encode_file_name = './encode_qa.json'
 sep_vocab_file_name = './avail_separate_vocab.json'
 all_vocab_file_name = './avail_all_vocab.json'
 info_file = './info.json'
 
+def exist_or_remove(f):
+    if os.path.exists(f):
+        os.remove(f)
+
 
 def is_in(a, b):
-    '''
+    """
     Is a a subset of b ?
     :param a: set a
     :param b: set b
     :return: True or False
-    '''
+    """
     return set(a).issubset(set(b))
 
 
 def get_imdb_key(d):
-    '''
+    """
     Get imdb key form the directory.
     :param d: the directory.
     :return: key of imdb.
-    '''
+    """
     return re.search(r'(tt.*?)(?=\.)', d).group(0)
 
 
@@ -114,7 +120,9 @@ def tokenize_sentences(qa_list, subtitles, is_train=False):
             'tokenize_video_subtitle': [
                 subtitles[get_base_name_without_ext(vid)]
                 for vid in qa_['video_clips']
-            ]
+            ],
+            'video_clips': qa_['video_clips'],
+            'correct_index': qa_['correct_index']
         }
         tokenize_qa_list.append(tokenize_qa_)
         if is_train:
@@ -149,7 +157,9 @@ def encode_sentences(qa_list, vocab_q, vocab_a, vocab_s):
                     if sent != [] else [vocab_s[UNK]] for sent in subt
                 ]
                 for subt in qa_['tokenize_video_subtitle']
-            ]
+            ],
+            'video_clips': qa_['video_clips'],
+            'correct_index': qa_['correct_index']
         }
         encode_qa_list.append(encode_qa_)
     # print(qa_['encoded_subtitle'][0][:10])
@@ -200,6 +210,17 @@ def main():
         'avail_qa_val': avail_qa_val,
     }
 
+    tokenize_qa = {
+        'tokenize_qa_train': tokenize_qa_train,
+        'tokenize_qa_test': tokenize_qa_test,
+        'tokenize_qa_val': tokenize_qa_val,
+    }
+
+    encode_qa = {
+        'encode_qa_train': encode_qa_train,
+        'encode_qa_test': encode_qa_test,
+        'encode_qa_val': encode_qa_val,
+    }
     vocab_sep = {
         'vocab_q': vocab_q,
         'vocab_a': vocab_a,
@@ -214,15 +235,19 @@ def main():
         'inverse_vocab_total': inverse_vocab_total
     }
 
-    os.remove(qa_file_name)
-    os.remove(sep_vocab_file_name)
-    os.remove(all_vocab_file_name)
+    exist_or_remove(qa_file_name)
+    exist_or_remove(tokenize_file_name)
+    exist_or_remove(encode_file_name)
+    exist_or_remove(sep_vocab_file_name)
+    exist_or_remove(all_vocab_file_name)
 
     json.dump(avail_preprocessing_qa, open(qa_file_name, 'w'))
+    json.dump(tokenize_qa, open(tokenize_file_name, 'w'))
+    json.dump(encode_qa, open(encode_file_name, 'w'))
     json.dump(vocab_sep, open(sep_vocab_file_name, 'w'))
     json.dump(vocab_all, open(all_vocab_file_name, 'w'))
     # make sure to use new vocab
-    os.remove(info_file)
+    exist_or_remove(info_file)
 
 
 if __name__ == '__main__':
