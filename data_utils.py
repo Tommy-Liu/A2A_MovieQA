@@ -1,11 +1,10 @@
-import tensorflow as tf
-import numpy as np
-
-
-
-from video_preprocessing import get_base_name_without_ext
-from extract_feature import get_npy_name
 from os.path import join
+
+import numpy as np
+import tensorflow as tf
+
+from extract_feature import get_npy_name
+from video_preprocessing import get_base_name_without_ext
 
 _FILE_PATTERN = '%s_%s_%05d-of-%05d.tfrecord'
 
@@ -92,6 +91,29 @@ def float_feature_list(values):
     return tf.train.FeatureList(feature=[float_feature(v) for v in values])
 
 
+def qa_eval_feature_example(qa):
+    subtitle = []
+    for s in qa['encoded_subtitle']:
+        subtitle += s
+    length = [len(sent) for sent in subtitle]
+    feat_name = [get_npy_name(get_base_name_without_ext(v)) for v in qa['video_clips']]
+    feat = np.concatenate([np.load(name) for name in feat_name],
+                          axis=0).astype(np.float32)
+
+    feature_lists = tf.train.FeatureLists(feature_list={
+        "subt": to_feature(subtitle),
+        "feat": to_feature(feat),
+        "ans": to_feature(qa['encoded_answer'])
+    })
+    context = tf.train.Features(feature={
+        "subt_length": to_feature(length),
+        "ques": to_feature(qa['encoded_question']),
+        "correct_index": to_feature(qa['correct_index'])
+    })
+    return tf.train.SequenceExample(context=context,
+                                    feature_lists=feature_lists)
+
+
 def qa_feature_example(qa, ans_idx):
     subtitle = []
     for s in qa['encoded_subtitle']:
@@ -108,15 +130,18 @@ def qa_feature_example(qa, ans_idx):
     context = tf.train.Features(feature={
         "subt_length": to_feature(length),
         "ques": to_feature(qa['encoded_question']),
-        "ans": to_feature(qa['encoded_answer'][ans_idx]),
-        "label": to_feature(int(qa['correct_index'] == ans_idx))
+        "neg_ans": to_feature(qa['encoded_answer'][ans_idx]),
+        "pos_ans": to_feature(qa['encoded_answer'][qa['correct_index']]),
     })
     return tf.train.SequenceExample(context=context,
                                     feature_lists=feature_lists)
 
 
-def get_dataset_name(d, name, split, shard_id, num_shards):
-    return join(d, _FILE_PATTERN % (name, split, shard_id, num_shards))
+def get_dataset_name(d, name, split, shard_id, num_shards, is_training=False):
+    if is_training:
+        return join(d, 'training_' + _FILE_PATTERN % (name, split, shard_id, num_shards))
+    else:
+        return join(d, _FILE_PATTERN % (name, split, shard_id, num_shards))
 
 
 def frame_feature_example(features):
