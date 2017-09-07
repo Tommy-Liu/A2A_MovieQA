@@ -6,12 +6,7 @@ import numpy as np
 import tensorflow as tf
 
 _FILE_PATTERN = '%s_%s_%05d-of-%05d.tfrecord'
-TFRECORD_PATTERN_ = '%s.tfrecord'
 NPY_PATTERN_ = '%s.npy'
-
-
-def get_tf_record_name(tf_record_dir, video):
-    return join(tf_record_dir, TFRECORD_PATTERN_ % video)
 
 
 def get_npy_name(feature_dir, video):
@@ -146,12 +141,12 @@ def float_feature_list(values):
     return tf.train.FeatureList(feature=[float_feature(v) for v in values])
 
 
-def qa_eval_feature_example(qa):
+def qa_eval_feature_example(qa, feature_dir):
     subtitle = []
     for s in qa['encoded_subtitle']:
         subtitle += s
     length = [len(sent) for sent in subtitle]
-    feat_name = [get_npy_name(get_base_name_without_ext(v)) for v in qa['video_clips']]
+    feat_name = [get_npy_name(feature_dir, get_base_name_without_ext(v)) for v in qa['video_clips']]
     feat = np.concatenate([np.load(name) for name in feat_name],
                           axis=0).astype(np.float32)
 
@@ -169,12 +164,26 @@ def qa_eval_feature_example(qa):
                                     feature_lists=feature_lists)
 
 
-def qa_feature_example(qa, ans_idx):
+def qa_feature_parsed():
+    context_features = {
+        "subt_length": tf.VarLenFeature(dtype=tf.int64),
+        "ques": tf.VarLenFeature(dtype=tf.int64),
+        "neg_ans": tf.VarLenFeature(dtype=tf.int64),
+        "pos_ans": tf.VarLenFeature(dtype=tf.int64),
+    }
+    sequence_features = {
+        "subt": tf.VarLenFeature(dtype=tf.int64),
+        "feat": tf.FixedLenSequenceFeature([1536], dtype=tf.float32),
+    }
+    return context_features, sequence_features
+
+
+def qa_feature_example(qa, feature_dir, ans_idx):
     subtitle = []
     for s in qa['encoded_subtitle']:
         subtitle += s
     length = [len(sent) for sent in subtitle]
-    feat_name = [get_npy_name(get_base_name_without_ext(v)) for v in qa['video_clips']]
+    feat_name = [get_npy_name(feature_dir, get_base_name_without_ext(v)) for v in qa['video_clips']]
     feat = np.concatenate([np.load(name) for name in feat_name],
                           axis=0).astype(np.float32)
 

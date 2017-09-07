@@ -10,6 +10,7 @@ flags = tf.app.flags
 flags.DEFINE_integer("num_shards", 5, "")
 flags.DEFINE_string("dataset_name", "movieqa", "")
 flags.DEFINE_string("dataset_dir", "./dataset", "")
+flags.DEFINE_string('feature_dir', './features', '')
 flags.DEFINE_string("encode_file_name", "./encode_qa.json",
                     "")
 FLAGS = flags.FLAGS
@@ -42,10 +43,10 @@ def create_tfrecord(qas, split, is_training=False):
                     for ans_idx in trange(len(qas[i]['encoded_answer']),
                                           desc="answer loop"):
                         if ans_idx != qas[i]['correct_index'] and qas[i]['encoded_answer'][ans_idx] != []:
-                            example = qa_feature_example(qas[i], ans_idx)
+                            example = qa_feature_example(qas[i], FLAGS.feature_dir, ans_idx)
                             tfrecord_writer.write(example.SerializeToString())
                 else:
-                    example = qa_eval_feature_example(qas[i])
+                    example = qa_eval_feature_example(qas[i], FLAGS.feature_dir)
                     tfrecord_writer.write(example.SerializeToString())
 
 
