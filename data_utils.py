@@ -5,12 +5,20 @@ from os.path import join
 import numpy as np
 import tensorflow as tf
 
-from extract_feature import get_npy_name
-
 _FILE_PATTERN = '%s_%s_%05d-of-%05d.tfrecord'
+TFRECORD_PATTERN_ = '%s.tfrecord'
+NPY_PATTERN_ = '%s.npy'
 
 
-def exist_or_remove(f):
+def get_tf_record_name(tf_record_dir, video):
+    return join(tf_record_dir, TFRECORD_PATTERN_ % video)
+
+
+def get_npy_name(feature_dir, video):
+    return join(feature_dir, NPY_PATTERN_ % video)
+
+
+def exist_then_remove(f):
     if os.path.exists(f):
         os.remove(f)
 

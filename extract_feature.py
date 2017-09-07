@@ -1,22 +1,22 @@
+import json
+import math
 import os
+import random
 import sys
 import time
-import math
-import json
-import random
+from glob import glob
+from multiprocessing import Manager, Process, Event
+from os.path import join
 
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-
-from glob import glob
 from tqdm import tqdm
-from data_utils import *
-from os.path import join
-from video_preprocessing import get_base_name, exist_make_dirs
+
+from data_utils import exist_make_dirs, float_feature_list, int64_feature, \
+    get_npy_name
 from inception_preprocessing import preprocess_image
 from inception_resnet_v2 import inception_resnet_v2_arg_scope, inception_resnet_v2
-from multiprocessing import Manager, Process, Event, Queue
 
 flags = tf.app.flags
 
@@ -32,9 +32,8 @@ FLAGS = flags.FLAGS
 
 filename_json = './filenames.json'
 IMAGE_PATTERN_ = '*.jpg'
-TFRECORD_PATTERN_ = '%s.tfrecord'
-NPY_PATTERN_ = '%s.npy'
 DIR_PATTERN_ = 'tt*'
+
 batch_size = FLAGS.per_batch_size * FLAGS.num_gpus
 num_worker = FLAGS.num_worker * FLAGS.num_gpus
 
@@ -53,14 +52,6 @@ def make_parallel(fn, num_gpus, **kwargs):
     return tf.concat(out_split, axis=0)
 
 
-def get_tf_record_name(video):
-    return join(FLAGS.tf_record_dir, TFRECORD_PATTERN_ % video)
-
-
-def get_npy_name(video):
-    return join(FLAGS.feature_dir, NPY_PATTERN_ % video)
-
-
 def models(images):
     with slim.arg_scope(inception_resnet_v2_arg_scope()):
         logits, end_points = inception_resnet_v2(images, num_classes=1001, is_training=False)
@@ -77,7 +68,7 @@ def get_images_path():
         npy_names = []
         for folder in tqdm(avail_video_metadata['list']):
             # if not os.path.exists(get_npy_name(folder)):
-            npy_names.append(get_npy_name(folder))
+            npy_names.append(get_npy_name(FLAGS.feature_dir, folder))
             imgs = glob(join(FLAGS.video_img, folder, IMAGE_PATTERN_))
             imgs = sorted(imgs)
             capacity.append(len(imgs))

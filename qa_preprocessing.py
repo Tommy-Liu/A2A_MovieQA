@@ -5,7 +5,7 @@ from collections import Counter
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 
-from data_utils import clean_token, get_base_name_without_ext, exist_or_remove
+from data_utils import clean_token, get_base_name_without_ext, exist_then_remove
 
 video_img = './video_img'
 UNK = 'UNK'
@@ -223,11 +223,11 @@ def main():
         'inverse_vocab_total': inverse_vocab_total
     }
 
-    exist_or_remove(qa_file_name)
-    exist_or_remove(tokenize_file_name)
-    exist_or_remove(encode_file_name)
-    exist_or_remove(sep_vocab_file_name)
-    exist_or_remove(all_vocab_file_name)
+    exist_then_remove(qa_file_name)
+    exist_then_remove(tokenize_file_name)
+    exist_then_remove(encode_file_name)
+    exist_then_remove(sep_vocab_file_name)
+    exist_then_remove(all_vocab_file_name)
 
     json.dump(avail_preprocessing_qa, open(qa_file_name, 'w'))
     json.dump(tokenize_qa, open(tokenize_file_name, 'w'))
@@ -235,7 +235,7 @@ def main():
     json.dump(vocab_sep, open(sep_vocab_file_name, 'w'))
     json.dump(vocab_all, open(all_vocab_file_name, 'w'))
     # make sure to use new vocab
-    exist_or_remove(info_file)
+    exist_then_remove(info_file)
 
 
 if __name__ == '__main__':

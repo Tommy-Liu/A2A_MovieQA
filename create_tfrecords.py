@@ -3,7 +3,8 @@ import json
 import tensorflow as tf
 from tqdm import trange
 
-from data_utils import get_dataset_name, qa_feature_example, qa_eval_feature_example, exist_make_dirs
+from data_utils import get_dataset_name, qa_feature_example, \
+    qa_eval_feature_example, exist_make_dirs, exist_then_remove
 
 flags = tf.app.flags
 flags.DEFINE_integer("num_shards", 5, "")
@@ -31,7 +32,7 @@ def create_tfrecord(qas, split, is_training=False):
                                            shard_id + 1,
                                            FLAGS.num_shards,
                                            is_training)
-
+        exist_then_remove(output_filename)
         with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
             start_ndx = shard_id * num_per_shard
             end_ndx = min((shard_id + 1) * num_per_shard, len(qas))
@@ -50,11 +51,12 @@ def create_tfrecord(qas, split, is_training=False):
 
 def main(_):
     encode_qa = json.load(open(FLAGS.encode_file_name, 'r'))
+    print('Json file loading done !!')
     exist_make_dirs(FLAGS.dataset_dir)
     create_tfrecord(encode_qa['encode_qa_train'], split='train', is_training=True)
-    create_tfrecord(encode_qa['encode_qa_train'], split='train')
-    create_tfrecord(encode_qa['encode_qa_test'], split='test')
-    create_tfrecord(encode_qa['encode_qa_val'], split='val')
+    # create_tfrecord(encode_qa['encode_qa_train'], split='train')
+    # create_tfrecord(encode_qa['encode_qa_test'], split='test')
+    # create_tfrecord(encode_qa['encode_qa_val'], split='val')
 
 
 if __name__ == '__main__':
