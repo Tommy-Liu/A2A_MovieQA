@@ -1,12 +1,59 @@
+import os
+import re
 from os.path import join
 
 import numpy as np
 import tensorflow as tf
 
 from extract_feature import get_npy_name
-from video_preprocessing import get_base_name_without_ext
 
 _FILE_PATTERN = '%s_%s_%05d-of-%05d.tfrecord'
+
+
+def exist_or_remove(f):
+    if os.path.exists(f):
+        os.remove(f)
+
+
+def clean_token(l):
+    """
+    Clean up Subrip tags.
+    """
+    return re.sub(r'<.*?>', '', l)
+
+
+def exist_make_dirs(d):
+    """
+    If the directory dose not exist, make one.
+    """
+    if not os.path.exists(d):
+        os.makedirs(d)
+
+
+# Wrapped function
+def get_base_name_without_ext(p):
+    """
+    Get the base name without extension
+    :param p: a string of directory or file path.
+    :return: base name
+    """
+    base_name = get_base_name(p)
+    base_name = os.path.splitext(base_name)[0]
+    return base_name
+
+
+# Fuck os.path.basename. I wrote my own version.
+def get_base_name(p):
+    """
+    Get the subdirectory or file name
+    in the last position of the path p.
+    :param p: a string of directory or file path.
+    :return: a string of base name.
+    """
+    pos = -1
+    if p.split('/')[pos] == '':
+        pos = -2
+    return p.split('/')[pos]
 
 
 def to_feature(value):

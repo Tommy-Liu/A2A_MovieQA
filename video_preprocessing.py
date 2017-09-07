@@ -1,18 +1,21 @@
-import multiprocessing
-import traceback
-import imageio
 import codecs
 import json
-import sys
+import multiprocessing
 import os
 import re
-
-from glob import glob
-from tqdm import tqdm
-from os.path import join
+import sys
+import traceback
 from functools import partial
-from nltk.tokenize import word_tokenize
+from glob import glob
 from multiprocessing import Pool, Manager
+from os.path import join
+
+import imageio
+from nltk.tokenize import word_tokenize
+from tqdm import tqdm
+
+from data_utils import exist_make_dirs, get_base_name, get_base_name_without_ext, \
+    clean_token
 
 data_dir = '/home/tommy8054/MovieQA_benchmark/story/video_clips'
 matidx_dir = '/home/tommy8054/MovieQA_benchmark/story/matidx'
@@ -30,15 +33,6 @@ videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.
 
 def error(msg, *args):
     return multiprocessing.get_logger().error(msg, *args)
-
-
-def clean_token(l):
-    """
-    Clean up Subrip tags.
-    :param l: a string of line
-    :return: a cleaned string of line
-    """
-    return re.sub(r'<.*?>', '', l)
 
 
 def get_start_and_end_time(l):
@@ -59,42 +53,6 @@ def get_start_and_end_time(l):
                int(comp[offset + 2]) + \
                int(comp[offset + 3]) / 1000
     return start_time, end_time
-
-
-def exist_make_dirs(d):
-    """
-    If the directory dose not exist, make one.
-    :param d: a string of directory path.
-    :return: None
-    """
-    if not os.path.exists(d):
-        os.makedirs(d)
-
-
-# Fuck os.path.basename. I wrote my own version.
-def get_base_name(p):
-    """
-    Get the subdirectory or file name
-    in the last position of the path p.
-    :param p: a string of directory or file path.
-    :return: a string of base name.
-    """
-    pos = -1
-    if p.split('/')[pos] == '':
-        pos = -2
-    return p.split('/')[pos]
-
-
-# Wrapped function
-def get_base_name_without_ext(p):
-    """
-    Get the base name without extension
-    :param p: a string of directory or file path.
-    :return: base name
-    """
-    base_name = get_base_name(p)
-    base_name = os.path.splitext(base_name)[0]
-    return base_name
 
 
 def get_start_and_end_frame(p):

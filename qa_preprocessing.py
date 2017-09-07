@@ -1,16 +1,11 @@
-import re
-import os
 import json
-import imageio
+import re
+from collections import Counter
 
-import numpy as np
-
-from glob import glob
-from tqdm import tqdm
-from os.path import join
-from collections import Counter, OrderedDict
 from nltk.tokenize import word_tokenize
-from video_preprocessing import get_base_name, get_base_name_without_ext, clean_token
+from tqdm import tqdm
+
+from data_utils import clean_token, get_base_name_without_ext, exist_or_remove
 
 video_img = './video_img'
 UNK = 'UNK'
@@ -23,17 +18,10 @@ sep_vocab_file_name = './avail_separate_vocab.json'
 all_vocab_file_name = './avail_all_vocab.json'
 info_file = './info.json'
 
-def exist_or_remove(f):
-    if os.path.exists(f):
-        os.remove(f)
-
 
 def is_in(a, b):
     """
     Is a a subset of b ?
-    :param a: set a
-    :param b: set b
-    :return: True or False
     """
     return set(a).issubset(set(b))
 
