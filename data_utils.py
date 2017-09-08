@@ -5,7 +5,7 @@ from os.path import join
 import numpy as np
 import tensorflow as tf
 
-_FILE_PATTERN = '%s_%s_%05d-of-%05d.tfrecord'
+FILE_PATTERN = '%s_%s_%05d-of-%05d.tfrecord'
 NPY_PATTERN_ = '%s.npy'
 
 
@@ -203,9 +203,9 @@ def qa_feature_example(qa, feature_dir, ans_idx):
 
 def get_dataset_name(d, name, split, shard_id, num_shards, is_training=False):
     if is_training:
-        return join(d, 'training_' + _FILE_PATTERN % (name, split, shard_id, num_shards))
+        return join(d, 'training_' + FILE_PATTERN % (name, split, shard_id, num_shards))
     else:
-        return join(d, _FILE_PATTERN % (name, split, shard_id, num_shards))
+        return join(d, FILE_PATTERN % (name, split, shard_id, num_shards))
 
 
 def frame_feature_example(features):
