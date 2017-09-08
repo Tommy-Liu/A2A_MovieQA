@@ -33,7 +33,7 @@ class MovieQAData(object):
         ques = tf.sparse_tensor_to_dense(context_parsed['ques'])
 
 
-def main(_):
+def test(_):
     print(TFRECORD_PATTERN % (FLAGS.dataset_name, 'train'))
     file_names = glob(join(FLAGS.dataset_dir,
                            TFRECORD_PATTERN % (FLAGS.dataset_name, 'train')))
@@ -47,7 +47,26 @@ def main(_):
         context_features=context_features,
         sequence_features=sequence_features
     )
+    config = tf.ConfigProto(allow_soft_placement=True)
+    config.gpu_options.allow_growth = True
+    with tf.Session(config=config) as sess:
+        tf.global_variables_initializer().run()
+        tf.local_variables_initializer().run()
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(coord=coord)
+        na, pa, q, sl, f, s, cs = sess.run([context_parsed['neg_ans'],
+                                          context_parsed['pos_ans'],
+                                          context_parsed['ques'],
+                                          context_parsed['subt_length'],
+                                          sequence_parsed['feat'],
+                                          sequence_parsed['subt'],
+                                          tf.sparse_tensor_to_dense(sequence_parsed['subt']), ])
+        print(na, pa, q, sl, f[:3], s[:3], cs[:3], sep='\n')
+        coord.request_stop()
+        coord.join(threads)
 
+def main(_):
+    pass
 
 if __name__ == '__main__':
     tf.app.run()
