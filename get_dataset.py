@@ -45,6 +45,7 @@ class MovieQAData(object):
             context_features=context_features,
             sequence_features=sequence_features
         )
+        self.sparse_ans = sequence_parsed['ans']
         ques = tf.sparse_tensor_to_dense(context_parsed['ques'])
         ans = tf.sparse_tensor_to_dense(sequence_parsed['ans'])
         subt = tf.sparse_tensor_to_dense(sequence_parsed['subt'])
@@ -114,9 +115,10 @@ def main(_):
                                     movieqa_data.ans,
                                     movieqa_data.subt,
                                     movieqa_data.feat,
-                                    movieqa_data.label])
-            q, a, s, f, l = tensor_list
-            print(q, a, s.shape, f.shape, l)
+                                    movieqa_data.label,
+                                    movieqa_data.sparse_ans])
+            q, a, s, f, l, sa = tensor_list
+            print(q, a, s.shape, f.shape, l, sa)
         coord.request_stop()
         coord.join(threads)
 

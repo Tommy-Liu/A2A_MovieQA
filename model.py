@@ -1,8 +1,8 @@
 import numpy as np
 import tensorflow as tf
+import tensorflow.contrib.layers as l
 
 from config import ModelConfig
-import tensorflow.contrib.layers as l
 
 time_steps = 20
 frame_size = 20000
@@ -13,9 +13,9 @@ def npy_read_func(file_name):
 
 
 class VLLabMemoryModel(object):
-    def __init__(self):
-        self.config = ModelConfig()
+    def __init__(self, inputs):
 
+        self.config = ModelConfig()
         self.initializer = tf.random_uniform_initializer(
             minval=-self.config.initializer_scale,
             maxval=self.config.initializer_scale)
@@ -29,20 +29,21 @@ class VLLabMemoryModel(object):
         self.subt_lstm_outputs = None
 
         self.conv_test = []
+        self.pooled_outputs = []
 
-        self.seq_index = tf.convert_to_tensor(
-            np.random.randint(1000, size=(self.config.batch_size, time_steps)), dtype=tf.int64)
+        # self.seq_index = tf.convert_to_tensor(
+        #     np.random.randint(1000, size=(self.config.batch_size, time_steps)), dtype=tf.int64)
         self.batch_features = None
         # self.batch_features = tf.convert_to_tensor(
         #     np.random.randint(1000, size=(self.config.batch_size, frame_size, self.config.feature_dim, 1)),
         #     dtype=tf.float32)
-        self.mask = tf.convert_to_tensor(np.array([
-            [1] * i * 2 + [0] * (time_steps - i * 2) for i in range(1, self.config.batch_size + 1)
-        ]), dtype=tf.int64)
+        # self.mask = tf.convert_to_tensor(np.array([
+        #     [1] * i * 2 + [0] * (time_steps - i * 2) for i in range(1, self.config.batch_size + 1)
+        # ]), dtype=tf.int64)
 
         self.build_seq_embedding()
-        self.simple_input_pipeline()
-        self.sliding_conv()
+        # self.simple_input_pipeline()
+        # self.sliding_conv()
 
     def simple_input_pipeline(self):
         # print(self.config.npy_files)
@@ -58,7 +59,6 @@ class VLLabMemoryModel(object):
         self.batch_features = features
 
     def sliding_conv(self):
-        self.pooled_outputs = []
         for i, filter_size in enumerate(self.config.filter_sizes):
             with tf.variable_scope("conv-maxpool-%s" % filter_size):
                 # Convolution Layer

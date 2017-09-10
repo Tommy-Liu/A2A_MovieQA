@@ -9,6 +9,8 @@ from glob import glob
 json_file = './avail_preprocessing_qa.json'
 info_file = './info.json'
 
+batch_size = 2
+
 
 class ModelConfig(object):
     """Wrapper class for model hyperparameters."""
@@ -20,6 +22,8 @@ class ModelConfig(object):
         # File pattern of sharded TFRecord file containing SequenceExample protos.
         # Must be provided in training and evaluation modes.
         self.input_file_pattern = None
+
+        self.batch_size = batch_size
 
         self.feature_dim = 1536
         self.npy_files = glob(os.path.join(self.feature_dir, self.NPY_PATTERN_))
@@ -73,7 +77,7 @@ class TrainingConfig(object):
         self.num_examples_per_epoch = 586363
         self.num_worker = 4
         # Batch size.
-        self.batch_size = 2
+        self.batch_size = batch_size
         # Optimizer for training the model.
         self.optimizer = "SGD"
 
