@@ -1,4 +1,5 @@
 import json
+import math
 
 import tensorflow as tf
 from tqdm import trange
@@ -7,7 +8,7 @@ from data_utils import get_dataset_name, qa_feature_example, \
     qa_eval_feature_example, exist_make_dirs, exist_then_remove
 
 flags = tf.app.flags
-flags.DEFINE_integer("num_shards", 5, "")
+flags.DEFINE_integer("num_shards", 128, "")
 flags.DEFINE_string("dataset_name", "movieqa", "")
 flags.DEFINE_string("dataset_dir", "./dataset", "")
 flags.DEFINE_string('feature_dir', './features', '')
@@ -24,9 +25,10 @@ FLAGS = flags.FLAGS
 # 'encoded_answer', 'encoded_question', 'encoded_subtitle']
 
 def create_tfrecord(qas, split, is_training=False):
-    num_per_shard = 5  # int(math.ceil(len(qas) / float(FLAGS.num_shards)))
-    for shard_id in trange(FLAGS.num_shards,
+    num_per_shard = int(math.ceil(len(qas) / float(FLAGS.num_shards)))
+    for shard_id in trange(FLAGS.num_shards,  # range(FLAGS.num_shards):
                            desc="shard loop"):
+
         output_filename = get_dataset_name(FLAGS.dataset_dir,
                                            FLAGS.dataset_name,
                                            split,
@@ -37,12 +39,13 @@ def create_tfrecord(qas, split, is_training=False):
         with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
             start_ndx = shard_id * num_per_shard
             end_ndx = min((shard_id + 1) * num_per_shard, len(qas))
-            for i in trange(start_ndx, end_ndx,
+            for i in trange(start_ndx, end_ndx,  # range(start_ndx, end_ndx):
                             desc="shard %d" % (shard_id + 1)):
                 if is_training:
-                    for ans_idx in trange(len(qas[i]['encoded_answer']),
+                    for ans_idx in trange(len(qas[i]['encoded_answer']),  # range(len(qas[i]['encoded_answer'])):
                                           desc="answer loop"):
                         if ans_idx != qas[i]['correct_index'] and qas[i]['encoded_answer'][ans_idx] != []:
+                            # print(qas[i]['encoded_answer'][ans_idx])
                             example = qa_feature_example(qas[i], FLAGS.feature_dir, ans_idx)
                             tfrecord_writer.write(example.SerializeToString())
                 else:

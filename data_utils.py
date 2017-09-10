@@ -168,12 +168,11 @@ def qa_feature_parsed():
     context_features = {
         "subt_length": tf.VarLenFeature(dtype=tf.int64),
         "ques": tf.VarLenFeature(dtype=tf.int64),
-        "neg_ans": tf.VarLenFeature(dtype=tf.int64),
-        "pos_ans": tf.VarLenFeature(dtype=tf.int64),
     }
     sequence_features = {
         "subt": tf.VarLenFeature(dtype=tf.int64),
         "feat": tf.FixedLenSequenceFeature([1536], dtype=tf.float32),
+        "ans": tf.VarLenFeature(dtype=tf.int64)
     }
     return context_features, sequence_features
 
@@ -190,12 +189,12 @@ def qa_feature_example(qa, feature_dir, ans_idx):
     feature_lists = tf.train.FeatureLists(feature_list={
         "subt": to_feature(subtitle),
         "feat": to_feature(feat),
+        "ans": to_feature([qa['encoded_answer'][qa['correct_index']],
+                           qa['encoded_answer'][ans_idx]])
     })
     context = tf.train.Features(feature={
         "subt_length": to_feature(length),
         "ques": to_feature(qa['encoded_question']),
-        "neg_ans": to_feature(qa['encoded_answer'][ans_idx]),
-        "pos_ans": to_feature(qa['encoded_answer'][qa['correct_index']]),
     })
     return tf.train.SequenceExample(context=context,
                                     feature_lists=feature_lists)
