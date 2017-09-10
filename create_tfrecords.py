@@ -2,7 +2,10 @@ import json
 import math
 
 import tensorflow as tf
+
 from tqdm import trange
+from functools import partial
+from multiprocessing import Pool
 
 from data_utils import get_dataset_name, qa_feature_example, \
     qa_eval_feature_example, exist_make_dirs, exist_then_remove
@@ -24,33 +27,69 @@ FLAGS = flags.FLAGS
 # 'video_clips', 'tokenize_question', 'tokenize_answer', 'tokenize_video_subtitle',
 # 'encoded_answer', 'encoded_question', 'encoded_subtitle']
 
+def create_one_tfrecord(split, num_per_shard, qas, is_training, shard_id):
+    output_filename = get_dataset_name(FLAGS.dataset_dir,
+                                       FLAGS.dataset_name,
+                                       split,
+                                       shard_id + 1,
+                                       FLAGS.num_shards,
+                                       is_training)
+    exist_then_remove(output_filename)
+    print('Start writing %s.' % output_filename)
+    with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
+        start_ndx = shard_id * num_per_shard
+        end_ndx = min((shard_id + 1) * num_per_shard, len(qas))
+        for i in range(start_ndx, end_ndx):
+                # trange(start_ndx, end_ndx,  #
+                #         desc="shard %d" % (shard_id + 1)):
+            if is_training:
+                for ans_idx in range(len(qas[i]['encoded_answer'])):
+                        # trange(len(qas[i]['encoded_answer']),  #
+                        #               desc="answer loop"):
+                    if ans_idx != qas[i]['correct_index'] and qas[i]['encoded_answer'][ans_idx] != []:
+                        # print(qas[i]['encoded_answer'][ans_idx])
+                        example = qa_feature_example(qas[i], FLAGS.feature_dir, ans_idx)
+                        tfrecord_writer.write(example.SerializeToString())
+            else:
+                example = qa_eval_feature_example(qas[i], FLAGS.feature_dir)
+                tfrecord_writer.write(example.SerializeToString())
+    print('Writing %s done!' % output_filename)
+
 def create_tfrecord(qas, split, is_training=False):
     num_per_shard = int(math.ceil(len(qas) / float(FLAGS.num_shards)))
-    for shard_id in trange(FLAGS.num_shards,  # range(FLAGS.num_shards):
-                           desc="shard loop"):
-
-        output_filename = get_dataset_name(FLAGS.dataset_dir,
-                                           FLAGS.dataset_name,
-                                           split,
-                                           shard_id + 1,
-                                           FLAGS.num_shards,
-                                           is_training)
-        exist_then_remove(output_filename)
-        with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
-            start_ndx = shard_id * num_per_shard
-            end_ndx = min((shard_id + 1) * num_per_shard, len(qas))
-            for i in trange(start_ndx, end_ndx,  # range(start_ndx, end_ndx):
-                            desc="shard %d" % (shard_id + 1)):
-                if is_training:
-                    for ans_idx in trange(len(qas[i]['encoded_answer']),  # range(len(qas[i]['encoded_answer'])):
-                                          desc="answer loop"):
-                        if ans_idx != qas[i]['correct_index'] and qas[i]['encoded_answer'][ans_idx] != []:
-                            # print(qas[i]['encoded_answer'][ans_idx])
-                            example = qa_feature_example(qas[i], FLAGS.feature_dir, ans_idx)
-                            tfrecord_writer.write(example.SerializeToString())
-                else:
-                    example = qa_eval_feature_example(qas[i], FLAGS.feature_dir)
-                    tfrecord_writer.write(example.SerializeToString())
+    shard_id_list = list(range(FLAGS.num_shards))
+    func = partial(create_one_tfrecord,
+                   split,
+                   num_per_shard,
+                   qas,
+                   is_training)
+    with Pool(8) as p:
+        p.map(func, shard_id_list)
+    # for shard_id in trange(FLAGS.num_shards,  # range(FLAGS.num_shards):
+    #                        desc="shard loop"):
+    #
+    #     output_filename = get_dataset_name(FLAGS.dataset_dir,
+    #                                        FLAGS.dataset_name,
+    #                                        split,
+    #                                        shard_id + 1,
+    #                                        FLAGS.num_shards,
+    #                                        is_training)
+    #     exist_then_remove(output_filename)
+    #     with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
+    #         start_ndx = shard_id * num_per_shard
+    #         end_ndx = min((shard_id + 1) * num_per_shard, len(qas))
+    #         for i in trange(start_ndx, end_ndx,  # range(start_ndx, end_ndx):
+    #                         desc="shard %d" % (shard_id + 1)):
+    #             if is_training:
+    #                 for ans_idx in trange(len(qas[i]['encoded_answer']),  # range(len(qas[i]['encoded_answer'])):
+    #                                       desc="answer loop"):
+    #                     if ans_idx != qas[i]['correct_index'] and qas[i]['encoded_answer'][ans_idx] != []:
+    #                         # print(qas[i]['encoded_answer'][ans_idx])
+    #                         example = qa_feature_example(qas[i], FLAGS.feature_dir, ans_idx)
+    #                         tfrecord_writer.write(example.SerializeToString())
+    #             else:
+    #                 example = qa_eval_feature_example(qas[i], FLAGS.feature_dir)
+    #                 tfrecord_writer.write(example.SerializeToString())
 
 
 def main(_):
