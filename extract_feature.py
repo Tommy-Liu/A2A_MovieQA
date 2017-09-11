@@ -20,7 +20,6 @@ from inception_resnet_v2 import inception_resnet_v2_arg_scope, inception_resnet_
 
 flags = tf.app.flags
 
-flags.DEFINE_string('tf_record_dir', './tfrecords', '')
 flags.DEFINE_string('feature_dir', './features', '')
 flags.DEFINE_string('metadata', './avail_video_metadata.json', '')
 flags.DEFINE_string('video_img', './video_img', '')

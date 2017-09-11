@@ -14,14 +14,17 @@ import imageio
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 
-from data_utils import exist_make_dirs, get_base_name, get_base_name_without_ext, \
-    clean_token
+from config import MovieQAConfig
+from data_utils import exist_make_dirs, get_base_name, \
+    get_base_name_without_ext, clean_token
 
-data_dir = '/home/tommy8054/MovieQA_benchmark/story/video_clips'
-matidx_dir = '/home/tommy8054/MovieQA_benchmark/story/matidx'
-subt_dir = '/home/tommy8054/MovieQA_benchmark/story/subtt'
-metadata = './metadata.json'
-video_img = './video_img'
+config = MovieQAConfig()
+data_dir = config.data_dir
+matidx_dir = config.matidx_dir
+subt_dir = config.subt_dir
+video_img = config.video_img
+json_metadata = config.json_metadata
+json_subtitle = config.json_subtitle
 
 DIR_PATTERN_ = 'tt*'
 VIDEO_PATTERN_ = '*.mp4'
@@ -284,7 +287,7 @@ def main():
             'info': shared_avail_video_info.copy(),
             'unavailable': list(shared_unavail_video_list)
         }
-        json.dump(avail_video_metadata, open('avail_video_metadata.json', 'w'))
+        json.dump(avail_video_metadata, open(json_metadata, 'w'))
 
         align_func = partial(align_subtitle,
                              shared_videos_clips,
@@ -293,7 +296,7 @@ def main():
                              shared_avail_video_list)
         with Pool(8) as p:
             p.map(align_func, keys)
-        json.dump(shared_avail_video_subt.copy(), open('avail_video_subtitle.json', 'w'))
+        json.dump(shared_avail_video_subt.copy(), open(json_subtitle, 'w'))
 
 
 if __name__ == '__main__':

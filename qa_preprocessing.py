@@ -5,18 +5,22 @@ from collections import Counter
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 
-from data_utils import clean_token, get_base_name_without_ext, exist_then_remove
+from config import MovieQAConfig
+from data_utils import clean_token, get_base_name_without_ext, \
+    exist_then_remove
 
-video_img = './video_img'
-UNK = 'UNK'
+config = MovieQAConfig()
+video_img = config.video_img
+UNK = config.UNK
+
 IMAGE_PATTERN_ = '*.jpg'
 
-qa_file_name = './avail_preprocessing_qa.json'
-tokenize_file_name = './tokenize_qa.json'
-encode_file_name = './encode_qa.json'
-sep_vocab_file_name = './avail_separate_vocab.json'
-all_vocab_file_name = './avail_all_vocab.json'
-info_file = './info.json'
+qa_file_name = config.qa_file_name
+tokenize_file_name = config.tokenize_file_name
+encode_file_name = config.encode_file_name
+sep_vocab_file_name = config.sep_vocab_file_name
+all_vocab_file_name = config.all_vocab_file_name
+info_file = config.info_file
 
 
 def is_in(a, b):

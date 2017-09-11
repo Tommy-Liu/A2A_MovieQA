@@ -6,17 +6,11 @@ from multiprocessing import Pool
 import tensorflow as tf
 from tqdm import tqdm
 
+from config import MovieQAConfig
 from data_utils import get_dataset_name, qa_feature_example, \
     qa_eval_feature_example, exist_make_dirs, exist_then_remove
 
-flags = tf.app.flags
-flags.DEFINE_integer("num_shards", 128, "")
-flags.DEFINE_string("dataset_name", "movieqa", "")
-flags.DEFINE_string("dataset_dir", "./dataset", "")
-flags.DEFINE_string('feature_dir', './features', '')
-flags.DEFINE_string("encode_file_name", "./encode_qa.json",
-                    "")
-FLAGS = flags.FLAGS
+config = MovieQAConfig()
 
 
 # 1: dataset name, 2:split name, 3: shard id, 4: total shard number
@@ -27,11 +21,11 @@ FLAGS = flags.FLAGS
 # 'encoded_answer', 'encoded_question', 'encoded_subtitle']
 
 def create_one_tfrecord(split, num_per_shard, qas, is_training, shard_id):
-    output_filename = get_dataset_name(FLAGS.dataset_dir,
-                                       FLAGS.dataset_name,
+    output_filename = get_dataset_name(config.dataset_dir,
+                                       config.dataset_name,
                                        split,
                                        shard_id + 1,
-                                       FLAGS.num_shards,
+                                       config.num_shards,
                                        is_training)
     exist_then_remove(output_filename)
     # print('Start writing %s.' % output_filename)
@@ -47,33 +41,33 @@ def create_one_tfrecord(split, num_per_shard, qas, is_training, shard_id):
                     #               desc="answer loop"):
                     if ans_idx != qas[i]['correct_index'] and qas[i]['encoded_answer'][ans_idx] != []:
                         # print(qas[i]['encoded_answer'][ans_idx])
-                        example = qa_feature_example(qas[i], FLAGS.feature_dir, ans_idx)
+                        example = qa_feature_example(qas[i], config.feature_dir, ans_idx)
                         tfrecord_writer.write(example.SerializeToString())
             else:
-                example = qa_eval_feature_example(qas[i], FLAGS.feature_dir)
+                example = qa_eval_feature_example(qas[i], config.feature_dir)
                 tfrecord_writer.write(example.SerializeToString())
                 # print('Writing %s done!' % output_filename)
 
 
 def create_tfrecord(qas, split, is_training=False):
-    num_per_shard = int(math.ceil(len(qas) / float(FLAGS.num_shards)))
-    shard_id_list = list(range(FLAGS.num_shards))
+    num_per_shard = int(math.ceil(len(qas) / float(config.num_shards)))
+    shard_id_list = list(range(config.num_shards))
     func = partial(create_one_tfrecord,
                    split,
                    num_per_shard,
                    qas,
                    is_training)
-    with Pool(8) as p, tqdm(total=FLAGS.num_shards, desc="Write tfrecords") as pbar:
+    with Pool(8) as p, tqdm(total=config.num_shards, desc="Write tfrecords") as pbar:
         for i, _ in enumerate(p.imap_unordered(func, shard_id_list)):
             pbar.update()
-            # for shard_id in trange(FLAGS.num_shards,  # range(FLAGS.num_shards):
+            # for shard_id in trange(config.num_shards,  # range(config.num_shards):
             #                        desc="shard loop"):
             #
-            #     output_filename = get_dataset_name(FLAGS.dataset_dir,
-            #                                        FLAGS.dataset_name,
+            #     output_filename = get_dataset_name(config.dataset_dir,
+            #                                        config.dataset_name,
             #                                        split,
             #                                        shard_id + 1,
-            #                                        FLAGS.num_shards,
+            #                                        config.num_shards,
             #                                        is_training)
             #     exist_then_remove(output_filename)
             #     with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
@@ -86,17 +80,17 @@ def create_tfrecord(qas, split, is_training=False):
             #                                       desc="answer loop"):
             #                     if ans_idx != qas[i]['correct_index'] and qas[i]['encoded_answer'][ans_idx] != []:
             #                         # print(qas[i]['encoded_answer'][ans_idx])
-            #                         example = qa_feature_example(qas[i], FLAGS.feature_dir, ans_idx)
+            #                         example = qa_feature_example(qas[i], config.feature_dir, ans_idx)
             #                         tfrecord_writer.write(example.SerializeToString())
             #             else:
-            #                 example = qa_eval_feature_example(qas[i], FLAGS.feature_dir)
+            #                 example = qa_eval_feature_example(qas[i], config.feature_dir)
             #                 tfrecord_writer.write(example.SerializeToString())
 
 
 def main(_):
-    encode_qa = json.load(open(FLAGS.encode_file_name, 'r'))
+    encode_qa = json.load(open(config.encode_file_name, 'r'))
     print('Json file loading done !!')
-    exist_make_dirs(FLAGS.dataset_dir)
+    exist_make_dirs(config.dataset_dir)
     create_tfrecord(encode_qa['encode_qa_train'], split='train', is_training=True)
     # create_tfrecord(encode_qa['encode_qa_train'], split='train')
     # create_tfrecord(encode_qa['encode_qa_test'], split='test')
