@@ -1,5 +1,4 @@
 import json
-import math
 import os
 import random
 import sys
@@ -13,21 +12,21 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 from tqdm import tqdm
 
+from config import MovieQAConfig
 from data_utils import exist_make_dirs, float_feature_list, int64_feature, \
-    get_npy_name
+    get_npy_name, get_base_name_without_ext
 from inception_preprocessing import preprocess_image
 from inception_resnet_v2 import inception_resnet_v2_arg_scope, inception_resnet_v2
 
 flags = tf.app.flags
 
-flags.DEFINE_string('feature_dir', './features', '')
-flags.DEFINE_string('metadata', './avail_video_metadata.json', '')
-flags.DEFINE_string('video_img', './video_img', '')
 flags.DEFINE_integer('num_gpus', 1, '')
 flags.DEFINE_integer('per_batch_size', 64, '')
 flags.DEFINE_integer('num_worker', 8, '')
 
 FLAGS = flags.FLAGS
+
+config = MovieQAConfig()
 
 filename_json = './filenames.json'
 IMAGE_PATTERN_ = '*.jpg'
@@ -59,7 +58,7 @@ def models(images):
 
 def get_images_path():
     if not os.path.exists(filename_json):
-        avail_video_metadata = json.load(open(FLAGS.metadata, 'r'))
+        avail_video_metadata = json.load(open(config.json_metadata, 'r'))
         print('Load json file done !!')
         file_names = []
         file_names_sep = []
@@ -67,8 +66,8 @@ def get_images_path():
         npy_names = []
         for folder in tqdm(avail_video_metadata['list']):
             # if not os.path.exists(get_npy_name(folder)):
-            npy_names.append(get_npy_name(FLAGS.feature_dir, folder))
-            imgs = glob(join(FLAGS.video_img, folder, IMAGE_PATTERN_))
+            npy_names.append(get_npy_name(config.feature_dir, folder))
+            imgs = glob(join(config.video_img, folder, IMAGE_PATTERN_))
             imgs = sorted(imgs)
             capacity.append(len(imgs))
             file_names_sep.append(imgs)
@@ -78,14 +77,22 @@ def get_images_path():
             'capacity': capacity,
             'npy_names': npy_names,
         }, open(filename_json, 'w'))
-    file_names_json = json.load(open(filename_json, 'r'))
-    print('Load json file done !!')
-    file_names, capacity, npy_names = [], [], []
-    for idx, name in enumerate(tqdm(file_names_json['npy_names'])):
-        if not os.path.exists(name):
-            file_names.extend(file_names_json['file_names'][idx])
-            capacity.append(len(file_names_json['file_names'][idx]))
-            npy_names.append(name)
+    else:
+        file_names_json = json.load(open(filename_json, 'r'))
+        print('Load json file done !!')
+        file_names, capacity, npy_names = [], [], []
+        for idx, name in enumerate(tqdm(file_names_json['npy_names'])):
+            if not os.path.exists(name):
+                file_names.extend(file_names_json['file_names'][idx])
+                capacity.append(file_names_json['capacity'][idx])
+                npy_names.append(name)
+            else:
+                tensor = np.load(name)
+                if tensor.shape[0] != file_names_json['capacity'][idx]:
+                    file_names.extend(file_names_json['file_names'][idx])
+                    capacity.append(file_names_json['capacity'][idx])
+                    npy_names.append(name)
+
     print(len(file_names), len(capacity))
     return file_names, capacity, npy_names
 
@@ -120,40 +127,33 @@ def count_num(features_list):
 
 
 def writer_worker(e, features_list, capacity, npy_names):
-    total_count = 0
     video_idx = 0
-    front_cut = 0
-    local_feature_list = []
+    local_feature = np.zeros((0, config.feature_dim), dtype=np.float32)
+    avail_video_subt = json.load(open(config.json_subtitle))
     while True:
         if len(features_list) > 0:
-            local_feature_list.append(features_list.pop(0))
-            total_count += local_feature_list[-1].shape[0]
-            if total_count >= capacity[video_idx]:
-                end_cut = (capacity[video_idx] + front_cut) % batch_size
-                list_bound = int(math.floor((capacity[video_idx] + front_cut) / batch_size))
-                concat = [local_feature_list[0][front_cut:]] + \
-                         local_feature_list[1:list_bound] + \
-                         [local_feature_list[list_bound][:end_cut]] if end_cut > 0 else \
-                    [local_feature_list[0][front_cut:]] + \
-                    local_feature_list[1:list_bound]
-                final_features = np.concatenate(concat, 0)
-                print(npy_names[video_idx], final_features.shape, capacity[video_idx], len(local_feature_list))
+            local_feature = np.concatenate([local_feature, features_list.pop(0)])
+            if local_feature.shape[0] >= capacity[video_idx]:
+                final_features = local_feature[:capacity[video_idx]]
+                assert final_features.shape[0] == capacity[video_idx], \
+                    "%s Both frames are not same!" % npy_names[video_idx]
+                assert final_features.shape[0] == len(
+                    avail_video_subt[get_base_name_without_ext(npy_names[video_idx])]), \
+                    "%s Frames and subtitles are not same!" % npy_names[video_idx]
+                print(npy_names[video_idx], final_features.shape, capacity[video_idx], len(local_feature))
                 np.save(npy_names[video_idx], final_features)
-                for i in range(list_bound):
-                    local_feature_list.pop(0)
-                front_cut = end_cut
-                total_count -= capacity[video_idx]
+                local_feature = local_feature[capacity[video_idx]:]
                 video_idx += 1
         else:
             time.sleep(0.5)
-        if len(features_list) == 0:
+        if len(features_list) == 0 and video_idx == len(avail_video_subt):
             e.set()
         else:
             e.clear()  # ['map', 'list', 'info', 'subtitle', 'unavailable']
 
 
 def main(_):
-    exist_make_dirs(FLAGS.feature_dir)
+    exist_make_dirs(config.feature_dir)
     filenames, capacity, npy_names = get_images_path()
     images = input_pipeline(filenames)
     # file_placeholder = tf.placeholder(tf.string, shape=[None])
@@ -167,10 +167,10 @@ def main(_):
     feature_tensor = models(images)
     print('Pipeline setup done !!')
     saver = tf.train.Saver(tf.global_variables())
-    config = tf.ConfigProto()  # allow_soft_placement=True, )
-    config.gpu_options.allow_growth = True
+    config_ = tf.ConfigProto()  # allow_soft_placement=True, )
+    config_.gpu_options.allow_growth = True
     print('Start extract !!')
-    with tf.Session(config=config) as sess, Manager() as manager:
+    with tf.Session(config=config_) as sess, Manager() as manager:
         e = Event()
         features_list = manager.list()
         p = Process(target=writer_worker, args=(e, features_list, capacity, npy_names))
@@ -189,6 +189,7 @@ def main(_):
                 features_list.append(sess.run(feature_tensor))
         except tf.errors.OutOfRangeError:
             print('done!')
+            time.sleep(3)
             e.wait()
             time.sleep(3)
             p.terminate()
@@ -201,14 +202,14 @@ def main(_):
 
 
 def test_time():
-    exist_make_dirs(FLAGS.tf_record_dir)
+    exist_make_dirs(config.feature_dir)
     filenames, capacity, npy_names = get_images_path()
     images = input_pipeline(filenames)
     print('Pipeline setup done !!')
-    config = tf.ConfigProto(allow_soft_placement=True, )
-    config.gpu_options.allow_growth = True
+    config_ = tf.ConfigProto(allow_soft_placement=True, )
+    config_.gpu_options.allow_growth = True
     print('Start extract !!')
-    with tf.Session(config=config) as sess:
+    with tf.Session(config=config_) as sess:
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
         coord = tf.train.Coordinator()
@@ -266,9 +267,9 @@ def test():
         sequence_features=sequence_features
     )
 
-    config = tf.ConfigProto(allow_soft_placement=True)
-    config.gpu_options.allow_growth = True
-    with tf.Session(config=config) as sess:
+    config_ = tf.ConfigProto(allow_soft_placement=True)
+    config_.gpu_options.allow_growth = True
+    with tf.Session(config=config_) as sess:
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
         l, exa = sess.run([context_parsed['label'], sequence_parsed['frame_feats']])

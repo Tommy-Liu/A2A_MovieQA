@@ -142,16 +142,13 @@ def float_feature_list(values):
 
 
 def qa_eval_feature_example(qa, feature_dir):
-    subtitle = []
-    for s in qa['encoded_subtitle']:
-        subtitle += s
-    length = [len(sent) for sent in subtitle]
+    length = [len(sent) for sent in qa['encoded_subtitle']]
     feat_name = [get_npy_name(feature_dir, get_base_name_without_ext(v)) for v in qa['video_clips']]
     feat = np.concatenate([np.load(name) for name in feat_name],
                           axis=0).astype(np.float32)
 
     feature_lists = tf.train.FeatureLists(feature_list={
-        "subt": to_feature(subtitle),
+        "subt": to_feature(qa['encoded_subtitle']),
         "feat": to_feature(feat),
         "ans": to_feature(qa['encoded_answer'])
     })
@@ -180,17 +177,16 @@ def qa_feature_parsed():
 
 
 def qa_feature_example(qa, feature_dir, ans_idx):
-    subtitle = []
-    for s in qa['encoded_subtitle']:
-        subtitle += s
-    subt_length = [len(sent) for sent in subtitle]
+    subt_length = [len(sent) for sent in qa['encoded_subtitle']]
     feat_name = [get_npy_name(feature_dir, get_base_name_without_ext(v)) for v in qa['video_clips']]
     feat = np.concatenate([np.load(name) for name in feat_name],
                           axis=0).astype(np.float32)
+    assert len(qa['encoded_subtitle']) == len(feat), \
+        "Fuck my life... %s" % ' '.join(qa['video_clips'])
     ans_length = [len(qa['encoded_answer'][qa['correct_index']]),
                   len(qa['encoded_answer'][ans_idx])]
     feature_lists = tf.train.FeatureLists(feature_list={
-        "subt": to_feature(subtitle),
+        "subt": to_feature(qa['encoded_subtitle']),
         "feat": to_feature(feat),
         "ans": to_feature([qa['encoded_answer'][qa['correct_index']],
                            qa['encoded_answer'][ans_idx]])

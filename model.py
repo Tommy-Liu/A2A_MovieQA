@@ -189,11 +189,14 @@ def main(_):
     with tf.Session(config=config) as sess:
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(coord=coord)
+        sess.run(data.iterator.initializer, feed_dict={
+            data.file_names_placeholder: data.file_names
+        })
+        # coord = tf.train.Coordinator()
+        # threads = tf.train.start_queue_runners(coord=coord)
         i = 1
         try:
-            while not coord.should_stop():
+            while True:
                 l, p = sess.run([model.logits, model.prediction])
                 print(l, p, sep='\n')
                 print('At [%5d/%5d]' % (i, data.num_samples))
@@ -203,8 +206,9 @@ def main(_):
         except KeyboardInterrupt:
             print()
         finally:
-            coord.request_stop()
-            coord.join(threads)
+            print(i)
+            # coord.request_stop()
+            # coord.join(threads)
             # qe, ae, se = sess.run([model.ques_lstm_outputs,
             #                        model.ans_lstm_outputs,
             #                        model.mean_subt])

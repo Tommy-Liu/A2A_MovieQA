@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from config import MovieQAConfig
 from data_utils import exist_make_dirs, get_base_name, \
-    get_base_name_without_ext, clean_token
+    get_base_name_without_ext, clean_token, exist_then_remove
 
 config = MovieQAConfig()
 data_dir = config.data_dir
@@ -178,7 +178,7 @@ def align_subtitle(video_clips,
                    avail_video_subt,
                    avail_video_list,
                    key):
-    print(key, 'start!')
+    # print(key, 'start!')
     frame_to_subtitle = map_frame_to_subtitle(key)
     for video in video_clips[key]:
         base_name = get_base_name_without_ext(video)
@@ -192,12 +192,17 @@ def align_subtitle(video_clips,
                 subt.append(frame_to_subtitle[
                                 min([start_frame + i,
                                      len(frame_to_subtitle) - 1])])
+            assert len(subt) == avail_video_info[base_name]['real_frames'], \
+                "Not align!"
             avail_video_subt[base_name] = subt
-    print(key, 'done!')
+            # print(key, 'done!')
 
 
 def check_video(video):
     img_list = []
+    flag = True
+    meta_data = None
+    nframes = 0
     try:
         base_name = get_base_name_without_ext(video)
         reader = imageio.get_reader(video)
@@ -210,14 +215,14 @@ def check_video(video):
                 img_list.append(img)
         flag = True
     except OSError:
-        print(get_base_name(video), 'failed.')
+        # print(get_base_name(video), 'failed.')
         meta_data = None
         flag = False
     except RuntimeError:
         if nframes - len(img_list) < allow_discard_offset:
             flag = True
         else:
-            print(get_base_name(video), 'failed.')
+            # print(get_base_name(video), 'failed.')
             flag = False
     except:
         print('Something fucked up !!')
@@ -279,14 +284,16 @@ def main():
                              shared_avail_video_list,
                              shared_avail_video_info,
                              shared_unavail_video_list)
-        with Pool(8) as p:
-            p.map(check_func, keys)
+        with Pool(8) as p, tqdm(total=len(keys), desc="Check and extract videos") as pbar:
+            for i, _ in enumerate(p.imap_unordered(check_func, keys)):
+                pbar.update()
 
         avail_video_metadata = {
             'list': list(shared_avail_video_list),
             'info': shared_avail_video_info.copy(),
             'unavailable': list(shared_unavail_video_list)
         }
+        exist_then_remove(json_metadata)
         json.dump(avail_video_metadata, open(json_metadata, 'w'))
 
         align_func = partial(align_subtitle,
@@ -294,8 +301,10 @@ def main():
                              shared_avail_video_info,
                              shared_avail_video_subt,
                              shared_avail_video_list)
-        with Pool(8) as p:
-            p.map(align_func, keys)
+        with Pool(8) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
+            for i, _ in enumerate(p.imap_unordered(align_func, keys)):
+                pbar.update()
+        exist_then_remove(json_subtitle)
         json.dump(shared_avail_video_subt.copy(), open(json_subtitle, 'w'))
 
 

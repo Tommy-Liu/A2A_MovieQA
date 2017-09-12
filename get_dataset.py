@@ -3,6 +3,7 @@ from os.path import join
 
 import numpy as np
 import tensorflow as tf
+import tensorflow.contrib.data as data
 
 from config import MovieQAConfig
 from data_utils import FILE_PATTERN, qa_feature_parsed
@@ -10,12 +11,6 @@ from data_utils import FILE_PATTERN, qa_feature_parsed
 flags = tf.app.flags
 flags.DEFINE_bool("is_training", True, "")
 FLAGS = flags.FLAGS
-
-
-TFRECORD_PATTERN = FILE_PATTERN.replace('%05d-of-%05d', '*')
-
-if FLAGS.is_training:
-    TFRECORD_PATTERN = 'training_' + TFRECORD_PATTERN
 
 
 def stack_batch(ques, ques_length, subt, subt_length, feat):
@@ -31,24 +26,24 @@ def stack_batch(ques, ques_length, subt, subt_length, feat):
 class MovieQAData(object):
     def __init__(self, is_training=True):
         self.config = MovieQAConfig()
-        self.file_names = glob(join(self.config.dataset_dir,
-                                    TFRECORD_PATTERN % (self.config.dataset_name, 'train')))
-        self.num_samples = 0
-        # self.get_sample_num()
-        file_name_queue = tf.train.string_input_producer(self.file_names,
-                                                         num_epochs=1, )
-        # min_after_dequeue = 64
-        # capacity = min_after_dequeue + (self.config.num_worker + 4) * self.config.batch_size
-        reader = tf.TFRecordReader()
-        _, example = reader.read(file_name_queue)
-        context_features, sequence_features = qa_feature_parsed()
-        context_parsed, sequence_parsed = tf.parse_single_sequence_example(
-            serialized=example,
-            context_features=context_features,
-            sequence_features=sequence_features
-        )
+        TFRECORD_PATTERN = FILE_PATTERN.replace('%05d-of-', '*')
         if is_training:
-            # self.sparse_ans = sequence_parsed['ans']
+            TFRECORD_PATTERN = 'training_' + TFRECORD_PATTERN
+        self.file_names = glob(join(self.config.dataset_dir,
+                                    TFRECORD_PATTERN % (self.config.dataset_name,
+                                                        'train', self.config.num_shards)))
+        self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
+        self.num_samples = 0
+
+        # self.get_sample_num()
+
+        def parser(record):
+            context_features, sequence_features = qa_feature_parsed()
+            context_parsed, sequence_parsed = tf.parse_single_sequence_example(
+                serialized=record,
+                context_features=context_features,
+                sequence_features=sequence_features
+            )
             ques = tf.sparse_tensor_to_dense(context_parsed['ques'])
             ques = tf.stack([ques, ques])
             ques_length = context_parsed['ques_length']
@@ -59,23 +54,58 @@ class MovieQAData(object):
             subt_length = tf.sparse_tensor_to_dense(context_parsed['subt_length'])
             feat = sequence_parsed['feat']
             label = tf.constant([1, 0], dtype=tf.int64)
-            # ques, ques_length, subt, subt_length, feat, label = \
-            #     tf.py_func(stack_batch, [ques, ques_length, subt, subt_length, sequence_parsed['feat']],
-            #                [tf.int64, tf.int64, tf.int64, tf.int64, tf.float32, tf.int64])
-            self.ques, self.ques_length, self.ans, self.ans_length, \
-            self.subt, self.subt_length, self.feat, self.label = \
-                ques, ques_length, ans, ans_length, subt, subt_length, feat, label
 
-            # tensor_list = tf.train.shuffle_batch([ques, ans, subt, length, feat, label],
-            #                                      batch_size=self.config.batch_size,
-            #                                      capacity=min_after_dequeue +
-            #                                               (self.config.num_worker + 4) * self.config.batch_size,
-            #                                      min_after_dequeue=min_after_dequeue,
-            #                                      num_threads=self.config.num_worker,
-            #                                      enqueue_many=True,
-            #                                      allow_smaller_final_batch=True)
-            # self.ques, self.ans, self.subt, self.length, self.feat, self.label = tensor_list
-            # self._set_shape()
+            return ques, ques_length, ans, ans_length, subt, subt_length, feat, label
+
+        dataset = data.TFRecordDataset(self.file_names_placeholder)
+        dataset = dataset.map(parser)
+        dataset = dataset.shuffle(8)
+        self.iterator = dataset.make_initializable_iterator()
+        self.ques, self.ques_length, self.ans, self.ans_length, \
+        self.subt, self.subt_length, self.feat, self.label = \
+            self.iterator.get_next()
+
+        # file_name_queue = tf.train.string_input_producer(self.file_names,
+        #                                                  num_epochs=1, )
+        #
+        # reader = tf.TFRecordReader()
+        # _, example = reader.read(file_name_queue)
+        # context_features, sequence_features = qa_feature_parsed()
+        # context_parsed, sequence_parsed = tf.parse_single_sequence_example(
+        #     serialized=example,
+        #     context_features=context_features,
+        #     sequence_features=sequence_features
+        # )
+        # if is_training:
+        #     # self.sparse_ans = sequence_parsed['ans']
+        #     ques = tf.sparse_tensor_to_dense(context_parsed['ques'])
+        #     ques = tf.stack([ques, ques])
+        #     ques_length = context_parsed['ques_length']
+        #     ques_length = tf.stack([ques_length, ques_length])
+        #     ans = tf.sparse_tensor_to_dense(sequence_parsed['ans'])
+        #     ans_length = tf.sparse_tensor_to_dense(context_parsed['ans_length'])
+        #     subt = tf.sparse_tensor_to_dense(sequence_parsed['subt'])
+        #     subt_length = tf.sparse_tensor_to_dense(context_parsed['subt_length'])
+        #     feat = sequence_parsed['feat']
+        #     label = tf.constant([1, 0], dtype=tf.int64)
+        #     # ques, ques_length, subt, subt_length, feat, label = \
+        #     #     tf.py_func(stack_batch, [ques, ques_length, subt, subt_length, sequence_parsed['feat']],
+        #     #                [tf.int64, tf.int64, tf.int64, tf.int64, tf.float32, tf.int64])
+        #     self.ques, self.ques_length, self.ans, self.ans_length, \
+        #     self.subt, self.subt_length, self.feat, self.label = \
+        #         ques, ques_length, ans, ans_length, subt, subt_length, feat, label
+        # min_after_dequeue = 64
+        # capacity = min_after_dequeue + (self.config.num_worker + 4) * self.config.batch_size
+        # tensor_list = tf.train.shuffle_batch([ques, ans, subt, length, feat, label],
+        #                                      batch_size=self.config.batch_size,
+        #                                      capacity=min_after_dequeue +
+        #                                               (self.config.num_worker + 4) * self.config.batch_size,
+        #                                      min_after_dequeue=min_after_dequeue,
+        #                                      num_threads=self.config.num_worker,
+        #                                      enqueue_many=True,
+        #                                      allow_smaller_final_batch=True)
+        # self.ques, self.ans, self.subt, self.length, self.feat, self.label = tensor_list
+        # self._set_shape()
 
     def get_sample_num(self):
         for tfrecord_file in self.file_names:
@@ -94,8 +124,11 @@ def main(_):
     with tf.Session(config=config) as sess:
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(coord=coord)
+        sess.run(movieqa_data.iterator.initializer, feed_dict={
+            movieqa_data.file_names_placeholder: movieqa_data.file_names
+        })
+        # coord = tf.train.Coordinator()
+        # threads = tf.train.start_queue_runners(coord=coord)
         # for i in range(5):
         tensor_list = sess.run([movieqa_data.ques,
                                 movieqa_data.ques_length,
@@ -106,13 +139,14 @@ def main(_):
                                 movieqa_data.feat,
                                 movieqa_data.label])
         print(tensor_list)
-        coord.request_stop()
-        coord.join(threads)
+        # coord.request_stop()
+        # coord.join(threads)
 
 
 def test(_):
     config_ = MovieQAConfig()
-    print(TFRECORD_PATTERN % (config_.dataset_name, 'train'))
+    TFRECORD_PATTERN = FILE_PATTERN.replace('%05d-of-', '*')
+    print(TFRECORD_PATTERN % (config_.dataset_name, 'train', config_.num_shards))
     file_names = glob(join(config_.dataset_dir,
                            TFRECORD_PATTERN % (config_.dataset_name, 'train')))
 

@@ -99,7 +99,7 @@ def get_split(qa, avail_video_metadata):
            total_qa_train, total_qa_test, total_qa_val
 
 
-def tokenize_sentences(qa_list, subtitles, is_train=False):
+def tokenize_sentences(qa_list, subtitles, meta_data, is_train=False):
     counter_q = Counter()
     counter_a = Counter()
     counter_s = Counter()
@@ -109,22 +109,23 @@ def tokenize_sentences(qa_list, subtitles, is_train=False):
         tokenize_qa_ = {
             'tokenize_question': word_tokenize(qa_['question']),
             'tokenize_answer': [word_tokenize(aa) for aa in qa_['answers']],
-            'tokenize_video_subtitle': [
-                subtitles[get_base_name_without_ext(vid)]
-                for vid in qa_['video_clips']
-            ],
+            'tokenize_video_subtitle': [],
             'video_clips': qa_['video_clips'],
             'correct_index': qa_['correct_index']
         }
+        for vid in qa_['video_clips']:
+            tokenize_qa_['tokenize_video_subtitle'] += subtitles[get_base_name_without_ext(vid)]
+            assert len(subtitles[get_base_name_without_ext(vid)]) == \
+                   meta_data['info'][get_base_name_without_ext(vid)]['real_frames'], \
+                "%s's numbers of frames and subtitle are not same." % get_base_name_without_ext(vid)
         tokenize_qa_list.append(tokenize_qa_)
         if is_train:
             # Update counters
             counter_q.update(tokenize_qa_['tokenize_question'])
-            for tokens in tokenize_qa_['tokenize_answer']:
-                counter_a.update(tokens)
-            for subt in tokenize_qa_['tokenize_video_subtitle']:
-                for sent in subt:
-                    counter_s.update(sent)
+            for ans in tokenize_qa_['tokenize_answer']:
+                counter_a.update(ans)
+            for sent in tokenize_qa_['tokenize_video_subtitle']:
+                counter_s.update(sent)
     if is_train:
         counter_total = counter_q + counter_a + counter_s
         return tokenize_qa_list, counter_q, counter_a, counter_s, counter_total
@@ -145,10 +146,9 @@ def encode_sentences(qa_list, vocab_q, vocab_a, vocab_s):
             ],
             'encoded_subtitle': [
                 [
-                    [vocab_s[word] if word in vocab_s else vocab_s[UNK] for word in sent]
-                    if sent != [] else [vocab_s[UNK]] for sent in subt
-                ]
-                for subt in qa_['tokenize_video_subtitle']
+                    vocab_s[word] if word in vocab_s else vocab_s[UNK] for word in sent
+                ] if sent != [] else [vocab_s[UNK]]
+                for sent in qa_['tokenize_video_subtitle']
             ],
             'video_clips': qa_['video_clips'],
             'correct_index': qa_['correct_index']
@@ -181,6 +181,7 @@ def main():
     tokenize_qa_train, counter_q, counter_a, counter_s, counter_total = \
         tokenize_sentences(avail_qa_train,
                            avail_video_subtitle,
+                           avail_video_metadata,
                            is_train=True)
 
     # Build vocab
@@ -190,8 +191,8 @@ def main():
     vocab_total, inverse_vocab_total = build_vocab(counter_total)
 
     # encode sentences
-    tokenize_qa_test = tokenize_sentences(avail_qa_test, avail_video_subtitle)
-    tokenize_qa_val = tokenize_sentences(avail_qa_val, avail_video_subtitle)
+    tokenize_qa_test = tokenize_sentences(avail_qa_test, avail_video_subtitle, avail_video_metadata)
+    tokenize_qa_val = tokenize_sentences(avail_qa_val, avail_video_subtitle, avail_video_metadata)
     encode_qa_train = encode_sentences(tokenize_qa_train, vocab_q, vocab_a, vocab_s)
     encode_qa_test = encode_sentences(tokenize_qa_test, vocab_q, vocab_a, vocab_s)
     encode_qa_val = encode_sentences(tokenize_qa_val, vocab_q, vocab_a, vocab_s)
