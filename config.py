@@ -6,11 +6,6 @@ import json
 import os
 from glob import glob
 
-json_file = './avail_separate_vocab.json'
-info_file = './info.json'
-
-batch_size = 2
-
 
 class MovieQAConfig(object):
     """Wrapper class for all hyperparameters."""
@@ -22,38 +17,34 @@ class MovieQAConfig(object):
         self.data_dir = '../MovieQA_benchmark/story/video_clips'
         self.matidx_dir = '../MovieQA_benchmark/story/matidx'
         self.subt_dir = '../MovieQA_benchmark/story/subtt'
-        self.video_img = './video_img'
+        self.video_img_dir = './video_img'
         self.feature_dir = './features'
         self.dataset_dir = './dataset'
 
         # File names
-        self.json_metadata = './avail_video_metadata.json'
-        self.json_subtitle = './avail_video_subtitle.json'
-        self.qa_file_name = './avail_preprocessing_qa.json'
-        self.tokenize_file_name = './tokenize_qa.json'
-        self.encode_file_name = './encode_qa.json'
-        self.sep_vocab_file_name = './avail_separate_vocab.json'
-        self.all_vocab_file_name = './avail_all_vocab.json'
+        self.avail_video_metadata_file = './avail_video_metadata.json'
+        self.avail_video_subtitle_file = './avail_video_subtitle.json'
+        self.avail_split_qa_file = './avail_split_qa.json'
+        self.avail_tokenize_qa_file = './avail_tokenize_qa.json'
+        self.avail_encode_qa_file = './encode_qa.json'
+        self.sep_vocab_file = './avail_separate_vocab.json'
+        self.all_vocab_file = './avail_all_vocab.json'
         self.info_file = './info.json'
+        self.npy_files = glob(os.path.join(self.feature_dir, self.NPY_PATTERN_))
 
         # Names
         self.dataset_name = 'movieqa'
 
-        # tfrecord setting
+        # Tfrecord setting
         self.num_shards = 128
 
         # Language pre-process
         self.UNK = 'UNK'
+        # Training parameter
+        self.batch_size = 2
 
-        # File pattern of sharded TFRecord file containing SequenceExample protos.
-        # Must be provided in training and evaluation modes.
-        self.input_file_pattern = None
-
-        self.batch_size = batch_size
-
+        # Model parameter
         self.feature_dim = 1536
-        self.npy_files = glob(os.path.join(self.feature_dir, self.NPY_PATTERN_))
-
         self.min_filter_size = 3
         self.max_filter_size = 5
         self.filter_sizes = list(range(self.min_filter_size,
@@ -76,10 +67,7 @@ class MovieQAConfig(object):
 
         self.grab_info()
 
-        self.num_examples_per_epoch = 586363
         self.num_worker = 4
-        # Batch size.
-        self.batch_size = batch_size
         # Optimizer for training the model.
         self.optimizer = "SGD"
 
@@ -98,8 +86,8 @@ class MovieQAConfig(object):
         self.max_checkpoints_to_keep = 5
 
     def grab_info(self):
-        if not os.path.exists(info_file):
-            avail_preprocessing_qa = json.load(open(json_file, 'r'))
+        if not os.path.exists(self.info_file):
+            avail_preprocessing_qa = json.load(open(self.sep_vocab_file, 'r'))
             self.size_vocab_q = len(avail_preprocessing_qa['vocab_q'])
             self.size_vocab_a = len(avail_preprocessing_qa['vocab_a'])
             self.size_vocab_s = len(avail_preprocessing_qa['vocab_s'])
@@ -107,9 +95,9 @@ class MovieQAConfig(object):
                 'size_vocab_q': self.size_vocab_q,
                 'size_vocab_a': self.size_vocab_a,
                 'size_vocab_s': self.size_vocab_s,
-            }, open(info_file, 'w'))
+            }, open(self.info_file, 'w'))
         else:
-            info = json.load(open(info_file, 'r'))
+            info = json.load(open(self.info_file, 'r'))
             self.size_vocab_q = info['size_vocab_q']
             self.size_vocab_a = info['size_vocab_a']
             self.size_vocab_s = info['size_vocab_s']

@@ -10,16 +10,16 @@ from data_utils import clean_token, get_base_name_without_ext, \
     exist_then_remove
 
 config = MovieQAConfig()
-video_img = config.video_img
+video_img = config.video_img_dir
 UNK = config.UNK
 
 IMAGE_PATTERN_ = '*.jpg'
 
-qa_file_name = config.qa_file_name
-tokenize_file_name = config.tokenize_file_name
-encode_file_name = config.encode_file_name
-sep_vocab_file_name = config.sep_vocab_file_name
-all_vocab_file_name = config.all_vocab_file_name
+qa_file_name = config.avail_split_qa_file
+tokenize_file_name = config.avail_tokenize_qa_file
+encode_file_name = config.avail_encode_qa_file
+sep_vocab_file_name = config.sep_vocab_file
+all_vocab_file_name = config.all_vocab_file
 info_file = config.info_file
 
 
@@ -197,7 +197,7 @@ def main():
     encode_qa_test = encode_sentences(tokenize_qa_test, vocab_q, vocab_a, vocab_s)
     encode_qa_val = encode_sentences(tokenize_qa_val, vocab_q, vocab_a, vocab_s)
 
-    avail_preprocessing_qa = {
+    avail_split_qa = {
         'avail_qa_train': avail_qa_train,
         'avail_qa_test': avail_qa_test,
         'avail_qa_val': avail_qa_val,
@@ -234,7 +234,7 @@ def main():
     exist_then_remove(sep_vocab_file_name)
     exist_then_remove(all_vocab_file_name)
 
-    json.dump(avail_preprocessing_qa, open(qa_file_name, 'w'))
+    json.dump(avail_split_qa, open(qa_file_name, 'w'))
     json.dump(tokenize_qa, open(tokenize_file_name, 'w'))
     json.dump(encode_qa, open(encode_file_name, 'w'))
     json.dump(vocab_sep, open(sep_vocab_file_name, 'w'))

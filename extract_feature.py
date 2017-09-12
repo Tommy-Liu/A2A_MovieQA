@@ -58,7 +58,7 @@ def models(images):
 
 def get_images_path():
     if not os.path.exists(filename_json):
-        avail_video_metadata = json.load(open(config.json_metadata, 'r'))
+        avail_video_metadata = json.load(open(config.avail_video_metadata_file, 'r'))
         print('Load json file done !!')
         file_names = []
         file_names_sep = []
@@ -67,7 +67,7 @@ def get_images_path():
         for folder in tqdm(avail_video_metadata['list']):
             # if not os.path.exists(get_npy_name(folder)):
             npy_names.append(get_npy_name(config.feature_dir, folder))
-            imgs = glob(join(config.video_img, folder, IMAGE_PATTERN_))
+            imgs = glob(join(config.video_img_dir, folder, IMAGE_PATTERN_))
             imgs = sorted(imgs)
             capacity.append(len(imgs))
             file_names_sep.append(imgs)
@@ -129,7 +129,7 @@ def count_num(features_list):
 def writer_worker(e, features_list, capacity, npy_names):
     video_idx = 0
     local_feature = np.zeros((0, config.feature_dim), dtype=np.float32)
-    avail_video_subt = json.load(open(config.json_subtitle))
+    avail_video_subt = json.load(open(config.avail_video_subtitle_file))
     while True:
         if len(features_list) > 0:
             local_feature = np.concatenate([local_feature, features_list.pop(0)])

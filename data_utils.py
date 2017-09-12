@@ -141,24 +141,40 @@ def float_feature_list(values):
     return tf.train.FeatureList(feature=[float_feature(v) for v in values])
 
 
-def qa_eval_feature_example(qa, feature_dir):
-    length = [len(sent) for sent in qa['encoded_subtitle']]
-    feat_name = [get_npy_name(feature_dir, get_base_name_without_ext(v)) for v in qa['video_clips']]
-    feat = np.concatenate([np.load(name) for name in feat_name],
+def qa_eval_feature_example(example):
+    feat = np.concatenate([np.load(name) for name in example['feat']],
                           axis=0).astype(np.float32)
 
     feature_lists = tf.train.FeatureLists(feature_list={
-        "subt": to_feature(qa['encoded_subtitle']),
+        "subt": to_feature(example['subt']),
         "feat": to_feature(feat),
-        "ans": to_feature(qa['encoded_answer'])
+        "ans": to_feature(example['ans'])
     })
     context = tf.train.Features(feature={
-        "subt_length": to_feature(length),
-        "ques": to_feature(qa['encoded_question']),
-        "correct_index": to_feature(qa['correct_index'])
+        "subt_length": to_feature(example['subt_length']),
+        "ans_length": to_feature(example['ans_length']),
+        "ques": to_feature(example['ques']),
+        "ques_length": to_feature(example['ques_length']),
+        "correct_index": to_feature(example['correct_index'])
     })
     return tf.train.SequenceExample(context=context,
                                     feature_lists=feature_lists)
+
+
+def qa_eval_feature_parsed():
+    context_features = {
+        "subt_length": tf.VarLenFeature(dtype=tf.int64),
+        "ans_length": tf.VarLenFeature(dtype=tf.int64),
+        "ques": tf.VarLenFeature(dtype=tf.int64),
+        "ques_length": tf.FixedLenFeature([], dtype=tf.int64),
+        "correct_index": tf.FixedLenFeature([], dtype=tf.int64)
+    }
+    sequence_features = {
+        "subt": tf.VarLenFeature(dtype=tf.int64),
+        "feat": tf.FixedLenSequenceFeature([1536], dtype=tf.float32),
+        "ans": tf.VarLenFeature(dtype=tf.int64)
+    }
+    return context_features, sequence_features
 
 
 def qa_feature_parsed():
@@ -176,26 +192,21 @@ def qa_feature_parsed():
     return context_features, sequence_features
 
 
-def qa_feature_example(qa, feature_dir, ans_idx):
-    subt_length = [len(sent) for sent in qa['encoded_subtitle']]
-    feat_name = [get_npy_name(feature_dir, get_base_name_without_ext(v)) for v in qa['video_clips']]
-    feat = np.concatenate([np.load(name) for name in feat_name],
+def qa_feature_example(example):
+    feat = np.concatenate([np.load(name) for name in example['feat']],
                           axis=0).astype(np.float32)
-    assert len(qa['encoded_subtitle']) == len(feat), \
-        "Fuck my life... %s" % ' '.join(qa['video_clips'])
-    ans_length = [len(qa['encoded_answer'][qa['correct_index']]),
-                  len(qa['encoded_answer'][ans_idx])]
+    assert len(example['subt']) == len(feat), \
+        "Fuck my life... %s" % ' '.join(example['video_clips'])
     feature_lists = tf.train.FeatureLists(feature_list={
-        "subt": to_feature(qa['encoded_subtitle']),
+        "subt": to_feature(example['subt']),
         "feat": to_feature(feat),
-        "ans": to_feature([qa['encoded_answer'][qa['correct_index']],
-                           qa['encoded_answer'][ans_idx]])
+        "ans": to_feature(example['ans'])
     })
     context = tf.train.Features(feature={
-        "subt_length": to_feature(subt_length),
-        "ans_length": to_feature(ans_length),
-        "ques": to_feature(qa['encoded_question']),
-        "ques_length": to_feature(len(qa['encoded_question']))
+        "subt_length": to_feature(example['subt_length']),
+        "ans_length": to_feature(example['ans_length']),
+        "ques": to_feature(example['ques']),
+        "ques_length": to_feature(example['ques_length'])
     })
     return tf.train.SequenceExample(context=context,
                                     feature_lists=feature_lists)

@@ -38,24 +38,25 @@ class MovieQAData(object):
         # self.get_sample_num()
 
         def parser(record):
-            context_features, sequence_features = qa_feature_parsed()
-            context_parsed, sequence_parsed = tf.parse_single_sequence_example(
-                serialized=record,
-                context_features=context_features,
-                sequence_features=sequence_features
-            )
-            ques = tf.sparse_tensor_to_dense(context_parsed['ques'])
-            ques = tf.stack([ques, ques])
-            ques_length = context_parsed['ques_length']
-            ques_length = tf.stack([ques_length, ques_length])
-            ans = tf.sparse_tensor_to_dense(sequence_parsed['ans'])
-            ans_length = tf.sparse_tensor_to_dense(context_parsed['ans_length'])
-            subt = tf.sparse_tensor_to_dense(sequence_parsed['subt'])
-            subt_length = tf.sparse_tensor_to_dense(context_parsed['subt_length'])
-            feat = sequence_parsed['feat']
-            label = tf.constant([1, 0], dtype=tf.int64)
+            with tf.device('/cpu:0'):
+                context_features, sequence_features = qa_feature_parsed()
+                context_parsed, sequence_parsed = tf.parse_single_sequence_example(
+                    serialized=record,
+                    context_features=context_features,
+                    sequence_features=sequence_features
+                )
+                ques = tf.sparse_tensor_to_dense(context_parsed['ques'])
+                ques = tf.stack([ques, ques])
+                ques_length = context_parsed['ques_length']
+                ques_length = tf.stack([ques_length, ques_length])
+                ans = tf.sparse_tensor_to_dense(sequence_parsed['ans'])
+                ans_length = tf.sparse_tensor_to_dense(context_parsed['ans_length'])
+                subt = tf.sparse_tensor_to_dense(sequence_parsed['subt'])
+                subt_length = tf.sparse_tensor_to_dense(context_parsed['subt_length'])
+                feat = sequence_parsed['feat']
+                label = tf.constant([1, 0], dtype=tf.int64)
 
-            return ques, ques_length, ans, ans_length, subt, subt_length, feat, label
+                return ques, ques_length, ans, ans_length, subt, subt_length, feat, label
 
         dataset = data.TFRecordDataset(self.file_names_placeholder)
         dataset = dataset.map(parser)

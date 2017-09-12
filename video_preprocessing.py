@@ -22,9 +22,9 @@ config = MovieQAConfig()
 data_dir = config.data_dir
 matidx_dir = config.matidx_dir
 subt_dir = config.subt_dir
-video_img = config.video_img
-json_metadata = config.json_metadata
-json_subtitle = config.json_subtitle
+video_img = config.video_img_dir
+json_metadata = config.avail_video_metadata_file
+json_subtitle = config.avail_video_subtitle_file
 
 DIR_PATTERN_ = 'tt*'
 VIDEO_PATTERN_ = '*.mp4'
