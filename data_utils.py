@@ -9,6 +9,13 @@ FILE_PATTERN = '%s_%s_%05d-of-%05d.tfrecord'
 NPY_PATTERN_ = '%s.npy'
 
 
+def is_in(a, b):
+    """
+    Is a a subset of b ?
+    """
+    return set(a).issubset(set(b))
+
+
 def get_npy_name(feature_dir, video):
     return join(feature_dir, NPY_PATTERN_ % video)
 
@@ -141,7 +148,7 @@ def float_feature_list(values):
     return tf.train.FeatureList(feature=[float_feature(v) for v in values])
 
 
-def qa_eval_feature_example(example):
+def qa_eval_feature_example(example, split):
     feat = np.concatenate([np.load(name) for name in example['feat']],
                           axis=0).astype(np.float32)
 
@@ -150,16 +157,32 @@ def qa_eval_feature_example(example):
         "feat": to_feature(feat),
         "ans": to_feature(example['ans'])
     })
-    context = tf.train.Features(feature={
+    feature = {
         "subt_length": to_feature(example['subt_length']),
         "ans_length": to_feature(example['ans_length']),
         "ques": to_feature(example['ques']),
-        "ques_length": to_feature(example['ques_length']),
-        "correct_index": to_feature(example['correct_index'])
-    })
+        "ques_length": to_feature(example['ques_length'])
+    }
+    if split != 'test':
+        feature['correct_index'] = to_feature(example['correct_index'])
+    context = tf.train.Features(feature=feature)
     return tf.train.SequenceExample(context=context,
                                     feature_lists=feature_lists)
 
+
+def qa_test_feature_parsed():
+    context_features = {
+        "subt_length": tf.VarLenFeature(dtype=tf.int64),
+        "ans_length": tf.VarLenFeature(dtype=tf.int64),
+        "ques": tf.VarLenFeature(dtype=tf.int64),
+        "ques_length": tf.FixedLenFeature([], dtype=tf.int64)
+    }
+    sequence_features = {
+        "subt": tf.VarLenFeature(dtype=tf.int64),
+        "feat": tf.FixedLenSequenceFeature([1536], dtype=tf.float32),
+        "ans": tf.VarLenFeature(dtype=tf.int64)
+    }
+    return context_features, sequence_features
 
 def qa_eval_feature_parsed():
     context_features = {

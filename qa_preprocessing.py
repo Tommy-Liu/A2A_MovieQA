@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from config import MovieQAConfig
 from data_utils import clean_token, get_base_name_without_ext, \
-    exist_then_remove
+    exist_then_remove, is_in
 
 config = MovieQAConfig()
 video_img = config.video_img_dir
@@ -21,13 +21,6 @@ encode_file_name = config.avail_encode_qa_file
 sep_vocab_file_name = config.sep_vocab_file
 all_vocab_file_name = config.all_vocab_file
 info_file = config.info_file
-
-
-def is_in(a, b):
-    """
-    Is a a subset of b ?
-    """
-    return set(a).issubset(set(b))
 
 
 def get_imdb_key(d):
@@ -159,9 +152,9 @@ def encode_sentences(qa_list, vocab_q, vocab_a, vocab_s):
 
 
 def main():
-    avail_video_metadata = json.load(open('avail_video_metadata.json', 'r'))
-    avail_video_subtitle = json.load(open('avail_video_subtitle.json', 'r'))
-    qa = json.load(open('../MovieQA_benchmark/data/qa.json'))
+    avail_video_metadata = json.load(open(config.avail_video_metadata_file, 'r'))
+    avail_video_subtitle = json.load(open(config.avail_video_subtitle_file, 'r'))
+    qa = json.load(open(config.qa_file))
     print('Loading json file done!!')
     # split = json.load(open('../MovieQA_benchmark/data/splits.json'))
     # unavail_list = [get_base_name(d) for d in avail_video_metadata['unavailable']]
@@ -240,7 +233,12 @@ def main():
     json.dump(vocab_sep, open(sep_vocab_file_name, 'w'))
     json.dump(vocab_all, open(all_vocab_file_name, 'w'))
     # make sure to use new vocab
-    exist_then_remove(info_file)
+    # config.update_info(item={
+    #             'size_vocab_q': len(vocab_q),
+    #             'size_vocab_a': len(vocab_a),
+    #             'size_vocab_s': len(vocab_s),
+    #         })
+    # exist_then_remove(info_file)
 
 
 if __name__ == '__main__':

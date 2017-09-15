@@ -23,6 +23,7 @@ flags = tf.app.flags
 flags.DEFINE_integer('num_gpus', 1, '')
 flags.DEFINE_integer('per_batch_size', 64, '')
 flags.DEFINE_integer('num_worker', 8, '')
+flags.DEFINE_string('split', 'train', '')
 
 FLAGS = flags.FLAGS
 
@@ -56,42 +57,49 @@ def models(images):
     return end_points['PreLogitsFlatten']
 
 
-def get_images_path():
+def get_images_path(split):
+    file_names, capacity, npy_names = [], [], []
+    if os.path.exists(filename_json):
+        file_names_json = json.load(open(filename_json, 'r'))
+        print('Load json file done !!')
+        if file_names_json['split'] == split:
+
+            for idx, name in enumerate(tqdm(file_names_json['npy_names'])):
+                if not os.path.exists(name):
+                    file_names.extend(file_names_json['file_names'][idx])
+                    capacity.append(file_names_json['capacity'][idx])
+                    npy_names.append(name)
+                else:
+                    # In case there are shape-mismatched features.
+                    tensor = np.load(name)
+                    if tensor.shape[0] != file_names_json['capacity'][idx]:
+                        file_names.extend(file_names_json['file_names'][idx])
+                        capacity.append(file_names_json['capacity'][idx])
+                        npy_names.append(name)
+        else:
+            # Make the new split.
+            os.remove(filename_json)
+
     if not os.path.exists(filename_json):
         avail_video_metadata = json.load(open(config.avail_video_metadata_file, 'r'))
+        split_list = json.load(open(config.splits_file, 'r'))
         print('Load json file done !!')
-        file_names = []
         file_names_sep = []
-        capacity = []
-        npy_names = []
         for folder in tqdm(avail_video_metadata['list']):
-            # if not os.path.exists(get_npy_name(folder)):
-            npy_names.append(get_npy_name(config.feature_dir, folder))
-            imgs = glob(join(config.video_img_dir, folder, IMAGE_PATTERN_))
-            imgs = sorted(imgs)
-            capacity.append(len(imgs))
-            file_names_sep.append(imgs)
-            file_names.extend(imgs)
+            if folder.split('.')[0] in split_list[split] and \
+                    not os.path.exists(get_npy_name(config.feature_dir, folder)):
+                npy_names.append(get_npy_name(config.feature_dir, folder))
+                imgs = glob(join(config.video_img_dir, folder, IMAGE_PATTERN_))
+                imgs = sorted(imgs)
+                capacity.append(len(imgs))
+                file_names_sep.append(imgs)
+                file_names.extend(imgs)
         json.dump({
             'file_names': file_names_sep,
             'capacity': capacity,
             'npy_names': npy_names,
+            'split': split
         }, open(filename_json, 'w'))
-    else:
-        file_names_json = json.load(open(filename_json, 'r'))
-        print('Load json file done !!')
-        file_names, capacity, npy_names = [], [], []
-        for idx, name in enumerate(tqdm(file_names_json['npy_names'])):
-            if not os.path.exists(name):
-                file_names.extend(file_names_json['file_names'][idx])
-                capacity.append(file_names_json['capacity'][idx])
-                npy_names.append(name)
-            else:
-                tensor = np.load(name)
-                if tensor.shape[0] != file_names_json['capacity'][idx]:
-                    file_names.extend(file_names_json['file_names'][idx])
-                    capacity.append(file_names_json['capacity'][idx])
-                    npy_names.append(name)
 
     print(len(file_names), len(capacity))
     return file_names, capacity, npy_names
@@ -146,7 +154,7 @@ def writer_worker(e, features_list, capacity, npy_names):
                 video_idx += 1
         else:
             time.sleep(0.5)
-        if len(features_list) == 0 and video_idx == len(avail_video_subt):
+        if len(features_list) == 0 and video_idx == len(capacity):
             e.set()
         else:
             e.clear()  # ['map', 'list', 'info', 'subtitle', 'unavailable']
@@ -154,7 +162,7 @@ def writer_worker(e, features_list, capacity, npy_names):
 
 def main(_):
     exist_make_dirs(config.feature_dir)
-    filenames, capacity, npy_names = get_images_path()
+    filenames, capacity, npy_names = get_images_path(FLAGS.split)
     images = input_pipeline(filenames)
     # file_placeholder = tf.placeholder(tf.string, shape=[None])
     # dataset = tf.contrib.data.Dataset.from_tensor_slices(file_placeholder)
@@ -193,10 +201,13 @@ def main(_):
             e.wait()
             time.sleep(3)
             p.terminate()
+            time.sleep(1)
         except KeyboardInterrupt:
             print()
             p.terminate()
+            time.sleep(1)
         finally:
+            p.join()
             coord.request_stop()
             coord.join(threads)
 
