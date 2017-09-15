@@ -175,7 +175,7 @@ def qa_test_feature_parsed():
         "subt_length": tf.VarLenFeature(dtype=tf.int64),
         "ans_length": tf.VarLenFeature(dtype=tf.int64),
         "ques": tf.VarLenFeature(dtype=tf.int64),
-        "ques_length": tf.FixedLenFeature([], dtype=tf.int64)
+        "ques_length": tf.FixedLenFeature([], dtype=tf.int64),
     }
     sequence_features = {
         "subt": tf.VarLenFeature(dtype=tf.int64),
@@ -183,6 +183,7 @@ def qa_test_feature_parsed():
         "ans": tf.VarLenFeature(dtype=tf.int64)
     }
     return context_features, sequence_features
+
 
 def qa_eval_feature_parsed():
     context_features = {

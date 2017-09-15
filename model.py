@@ -3,6 +3,7 @@ import pprint
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.layers as l
+import tensorflow.contrib.slim as slim
 
 from config import MovieQAConfig
 from get_dataset import MovieQAData

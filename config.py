@@ -42,6 +42,7 @@ class MovieQAConfig(Config):
             self.qa_file = '../MovieQA_benchmark/data/qa.json'
             self.movies_file = '../MovieQA_benchmark/data/movies.json'
             self.splits_file = '../MovieQA_benchmark/data/splits.json'
+            self.exp_file = './exp.json'
             self.npy_files = glob(os.path.join(self.feature_dir, self.NPY_PATTERN_))
 
         # Names
