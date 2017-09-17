@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from os.path import join
@@ -5,8 +6,17 @@ from os.path import join
 import numpy as np
 import tensorflow as tf
 
+from config import MovieQAConfig
+
 FILE_PATTERN = '%s_%s_%05d-of-%05d.tfrecord'
 NPY_PATTERN_ = '%s.npy'
+
+
+class MovieQaDataLoader(object):
+    def __init__(self):
+        self.config = MovieQAConfig()
+        self.qa = json.load(open(self.config.qa_file, 'r'))
+        
 
 
 def is_in(a, b):

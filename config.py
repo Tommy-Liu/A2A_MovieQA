@@ -7,6 +7,7 @@ import json
 import os
 from contextlib import contextmanager
 from glob import glob
+from os.path import join
 
 
 class Config(object):
@@ -21,32 +22,43 @@ class MovieQAConfig(Config):
     def __init__(self):
         # Directory of data
         with self._create_group('directory'):
-            self.data_dir = '../MovieQA_benchmark/story/video_clips'
-            self.matidx_dir = '../MovieQA_benchmark/story/matidx'
-            self.subt_dir = '../MovieQA_benchmark/story/subtt'
-            self.video_img_dir = './video_img'
-            self.feature_dir = './features'
-            self.dataset_dir = './dataset'
+            self.movieqa_benchmark_dir = '../MovieQA_benchmark'
+            self.video_clips_dir = join(self.movieqa_benchmark_dir, 'story/video_clips')
+            self.matidx_dir = join(self.movieqa_benchmark_dir, 'story/matidx')
+            self.subt_dir = join(self.movieqa_benchmark_dir, 'story/subtt')
+            self.shot_boundary_dir = join(self.movieqa_benchmark_dir, 'story/shot_boundaries')
+            self.data_dir = './data'
+            self.video_img_dir = join(self.data_dir, 'video_img')
+            self.feature_dir = join(self.data_dir, 'features')
+            self.dataset_dir = join(self.data_dir, 'dataset')
             self.checkpoint_dir = './checkpoint'
             self.log_dir = './log'
         # File names
         with self._create_group('file_names'):
-            self.avail_video_metadata_file = './avail_video_metadata.json'
-            self.avail_video_subtitle_file = './avail_video_subtitle.json'
-            self.avail_split_qa_file = './avail_split_qa.json'
-            self.avail_tokenize_qa_file = './avail_tokenize_qa.json'
-            self.avail_encode_qa_file = './encode_qa.json'
-            self.sep_vocab_file = './avail_separate_vocab.json'
-            self.all_vocab_file = './avail_all_vocab.json'
-            self.info_file = './info.json'
-            self.qa_file = '../MovieQA_benchmark/data/qa.json'
-            self.movies_file = '../MovieQA_benchmark/data/movies.json'
-            self.splits_file = '../MovieQA_benchmark/data/splits.json'
+            self.avail_video_metadata_file = join(self.data_dir, 'avail_video_metadata.json')
+            self.avail_video_subtitle_file = join(self.data_dir, 'avail_video_subtitle.json')
+            self.avail_split_qa_file = join(self.data_dir, 'avail_split_qa.json')
+            self.total_split_qa_file = join(self.data_dir, 'total_split_qa.json')
+            self.avail_tokenize_qa_file = join(self.data_dir, 'avail_tokenize_qa.json')
+            self.avail_encode_qa_file = join(self.data_dir, 'encode_qa.json')
+            self.sep_vocab_file = join(self.data_dir, 'avail_separate_vocab.json')
+            self.all_vocab_file = join(self.data_dir, 'avail_all_vocab.json')
+            self.info_file = join(self.data_dir, 'info.json')
             self.exp_file = './exp.json'
+            self.qa_file = join(self.movieqa_benchmark_dir, 'data/qa.json')
+            self.movies_file = join(self.movieqa_benchmark_dir, 'data/movies.json')
+            self.splits_file = join(self.movieqa_benchmark_dir, 'data/splits.json')
             self.npy_files = glob(os.path.join(self.feature_dir, self.NPY_PATTERN_))
 
         # Names
         self.dataset_name = 'movieqa'
+
+        # Modality
+        with self._create_group('modality'):
+            self.num_fixed_sample = 25
+            self.num_fixed_interval = 5
+            self.num_shot_interval = 3
+            self.num_fixed_subt = 3
 
         # Tfrecord setting
         self.num_shards = 128
@@ -116,21 +128,10 @@ class MovieQAConfig(Config):
             super().__getattribute__(self._group_name).__setattr__(key, value)
 
     def load_vocab_size(self):
-        # if not os.path.exists(self.info_file):
         vocab_sep = json.load(open(self.sep_vocab_file, 'r'))
         self.size_vocab_q = len(vocab_sep['vocab_q'])
         self.size_vocab_a = len(vocab_sep['vocab_a'])
         self.size_vocab_s = len(vocab_sep['vocab_s'])
-        #     json.dump({
-        #         'size_vocab_q': self.size_vocab_q,
-        #         'size_vocab_a': self.size_vocab_a,
-        #         'size_vocab_s': self.size_vocab_s,
-        #     }, open(self.info_file, 'w'))
-        # else:
-        #     info = json.load(open(self.info_file, 'r'))
-        #     self.size_vocab_q = info['size_vocab_q']
-        #     self.size_vocab_a = info['size_vocab_a']
-        #     self.size_vocab_s = info['size_vocab_s']
 
     def load_info(self):
         info = json.load(open(self.info_file, 'r'))

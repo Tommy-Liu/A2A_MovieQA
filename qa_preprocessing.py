@@ -15,7 +15,8 @@ UNK = config.UNK
 
 IMAGE_PATTERN_ = '*.jpg'
 
-qa_file_name = config.avail_split_qa_file
+total_qa_file_name = config.total_split_qa_file
+avail_qa_file_name = config.avail_split_qa_file
 tokenize_file_name = config.avail_tokenize_qa_file
 encode_file_name = config.avail_encode_qa_file
 sep_vocab_file_name = config.sep_vocab_file
@@ -102,12 +103,12 @@ def tokenize_sentences(qa_list, subtitles, meta_data, is_train=False):
         tokenize_qa_ = {
             'tokenize_question': word_tokenize(qa_['question']),
             'tokenize_answer': [word_tokenize(aa) for aa in qa_['answers']],
-            'tokenize_video_subtitle': [],
+            'tokenize_video_subtitle': [subtitles[get_base_name_without_ext(vid)]
+                                        for vid in qa_['video_clips']],
             'video_clips': qa_['video_clips'],
             'correct_index': qa_['correct_index']
         }
         for vid in qa_['video_clips']:
-            tokenize_qa_['tokenize_video_subtitle'] += subtitles[get_base_name_without_ext(vid)]
             assert len(subtitles[get_base_name_without_ext(vid)]) == \
                    meta_data['info'][get_base_name_without_ext(vid)]['real_frames'], \
                 "%s's numbers of frames and subtitle are not same." % get_base_name_without_ext(vid)
@@ -190,6 +191,12 @@ def main():
     encode_qa_test = encode_sentences(tokenize_qa_test, vocab_q, vocab_a, vocab_s)
     encode_qa_val = encode_sentences(tokenize_qa_val, vocab_q, vocab_a, vocab_s)
 
+    total_split_qa = {
+        'total_qa_train': total_qa_train,
+        'total_qa_test': total_qa_test,
+        'total_qa_val': total_qa_val
+    }
+
     avail_split_qa = {
         'avail_qa_train': avail_qa_train,
         'avail_qa_test': avail_qa_test,
@@ -221,24 +228,19 @@ def main():
         'inverse_vocab_total': inverse_vocab_total
     }
 
-    exist_then_remove(qa_file_name)
+    exist_then_remove(tokenize_file_name)
+    exist_then_remove(avail_qa_file_name)
     exist_then_remove(tokenize_file_name)
     exist_then_remove(encode_file_name)
     exist_then_remove(sep_vocab_file_name)
     exist_then_remove(all_vocab_file_name)
 
-    json.dump(avail_split_qa, open(qa_file_name, 'w'))
+    json.dump(total_split_qa, open(total_qa_file_name, 'w'))
+    json.dump(avail_split_qa, open(avail_qa_file_name, 'w'))
     json.dump(tokenize_qa, open(tokenize_file_name, 'w'))
     json.dump(encode_qa, open(encode_file_name, 'w'))
     json.dump(vocab_sep, open(sep_vocab_file_name, 'w'))
     json.dump(vocab_all, open(all_vocab_file_name, 'w'))
-    # make sure to use new vocab
-    # config.update_info(item={
-    #             'size_vocab_q': len(vocab_q),
-    #             'size_vocab_a': len(vocab_a),
-    #             'size_vocab_s': len(vocab_s),
-    #         })
-    # exist_then_remove(info_file)
 
 
 if __name__ == '__main__':
