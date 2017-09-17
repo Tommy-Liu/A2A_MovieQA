@@ -16,8 +16,12 @@ class MovieQaDataLoader(object):
     def __init__(self):
         self.config = MovieQAConfig()
         self.qa = json.load(open(self.config.qa_file, 'r'))
-        
 
+
+def load_json(file_name):
+    with open(file_name, 'r') as f:
+        data = json.load(f)
+    return data
 
 def is_in(a, b):
     """

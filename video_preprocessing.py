@@ -227,6 +227,7 @@ def check_video(video):
         if not (nframes - meta_data['real_frames'] < allow_discard_offset):
             for img in reader:
                 img_list.append(img)
+            meta_data['real_frames'] = len(images)
         flag = True
     except OSError:
         # print(get_base_name(video), 'failed.')
@@ -252,8 +253,9 @@ def get_shot_boundary(base_name, num_frames):
                      encoding='utf-8', errors='ignore') as f:
         sbd = []
         for line in f:
-            comp = line.split(' ')
-            sbd.append((int(comp[0], int(comp[1]))))
+            comp = re.sub(r'[\n\r]', '', line).split(' ')
+            print(comp)
+            sbd.append((int(comp[0]), int(comp[1])))
     shot_boundary = []
     i = 0
     for frame_idx in range(num_frames):
@@ -265,9 +267,10 @@ def get_shot_boundary(base_name, num_frames):
 
 
 def check_and_extract_videos(videos_clips,
-                             avail_video_list,
-                             avail_video_info,
-                             unavail_video_list,
+                             video_data,
+                             # avail_video_list,
+                             # avail_video_info,
+                             # unavail_video_list,
                              key):
     """
 
@@ -277,20 +280,31 @@ def check_and_extract_videos(videos_clips,
     for video in videos_clips[key]:
         base_name = get_base_name_without_ext(video)
         flag, img_list, meta_data = check_video(video)
-
         if flag:
             if len(img_list) > 0:
                 exist_make_dirs(join(video_img, base_name))
                 for i, img in enumerate(img_list):
                     imageio.imwrite(join(video_img, base_name, 'img_%05d.jpg' % (i + 1)), img)
-            shot_boundary = get_shot_boundary(base_name, meta_data['real_frame'])
-            meta_data['sbd'] = shot_boundary
-            avail_video_list.append(base_name)
-            avail_video_info[base_name] = meta_data
+            shot_boundary = get_shot_boundary(base_name, meta_data['real_frames'])
+            print(shot_boundary)
+            assert len(shot_boundary) == meta_data['real_frames']
+            video_data[base_name] = {
+                'avail': True,
+                'data':{
+                    'num_frames': meta_data['real_frames'],
+                    'shot_boundary': shot_boundary,  # length is same as num_frames
+                    'image_size': meta_data['size'],
+                    'fps': meta_data['fps'],
+                    'duration': meta_data['duration'],
+                }
+            }
         else:
             if os.path.exists(join(video_img, base_name)):
                 os.system('rm -rf %s' % join(video_img, base_name))
-            unavail_video_list.append(video)
+            video_data[base_name] = {
+                'avail': False,
+                'data': {},
+            }
 
 
 # tt0109446.sf-046563.ef-056625.video.mp4
@@ -305,33 +319,39 @@ def main():
         shared_videos_clips = manager.dict(videos_clips)
         keys = list(iter(videos_clips.keys()))
         if not args.no_video:
-            shared_avail_video_list = manager.list()  # avail_video_metadata['list'])
-            shared_avail_video_info = manager.dict()  # avail_video_metadata['info'])
-            shared_unavail_video_list = manager.list()  # avail_video_metadata['unavailable'])
+            # shared_avail_video_list = manager.list()  # avail_video_metadata['list'])
+            # shared_avail_video_info = manager.dict()  # avail_video_metadata['info'])
+            # shared_unavail_video_list = manager.list()  # avail_video_metadata['unavailable'])
+            shared_video_data = manager.dict()
 
             check_func = partial(check_and_extract_videos,
                                  shared_videos_clips,
-                                 shared_avail_video_list,
-                                 shared_avail_video_info,
-                                 shared_unavail_video_list)
+                                 shared_video_data, )
+            # shared_avail_video_list,
+            # shared_avail_video_info,
+            # shared_unavail_video_list)
             with Pool(8) as p, tqdm(total=len(keys), desc="Check and extract videos") as pbar:
                 for i, _ in enumerate(p.imap_unordered(check_func, keys)):
                     pbar.update()
 
-            avail_video_metadata = {
-                'list': list(shared_avail_video_list),
-                'info': shared_avail_video_info.copy(),
-                'unavailable': list(shared_unavail_video_list)
-            }
-            exist_then_remove(json_metadata)
-            json.dump(avail_video_metadata, open(json_metadata, 'w'))
+            # avail_video_metadata = {
+            #     'list': list(shared_avail_video_list),
+            #     'info': shared_avail_video_info.copy(),
+            #     'unavailable': list(shared_unavail_video_list)
+            # }
+            # exist_then_remove(json_metadata)
+            # json.dump(avail_video_metadata, open(json_metadata, 'w'))
+            exist_then_remove(config.video_data_file)
+            json.dump(shared_video_data.copy(), open(config.video_data_file, 'w'))
         else:
-            avail_video_metadata = json.load(open(json_metadata, 'r'))
-            shared_avail_video_info = manager.dict(avail_video_metadata['info'])
-            shared_avail_video_list = manager.list(avail_video_metadata['list'])
+            shared_video_data = json.load(open(config.video_data_file, 'r'))
+            # avail_video_metadata = json.load(open(json_metadata, 'r'))
+            # shared_avail_video_info = manager.dict(avail_video_metadata['info'])
+            # shared_avail_video_list = manager.list(avail_video_metadata['list'])
 
         if not args.no_subt:
-            shared_avail_video_subt = manager.dict()
+            # shared_avail_video_subt = manager.dict()
+            shared_subtitle = manager.dict()
             align_func = partial(align_subtitle,
                                  shared_videos_clips,
                                  shared_avail_video_info,

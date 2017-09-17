@@ -35,6 +35,8 @@ class MovieQAConfig(Config):
             self.log_dir = './log'
         # File names
         with self._create_group('file_names'):
+            self.video_data_file = join(self.data_dir, 'video_data.json')
+            self.subtitle_file = join(self.data_dir, 'subtitle.json')
             self.avail_video_metadata_file = join(self.data_dir, 'avail_video_metadata.json')
             self.avail_video_subtitle_file = join(self.data_dir, 'avail_video_subtitle.json')
             self.avail_split_qa_file = join(self.data_dir, 'avail_split_qa.json')
