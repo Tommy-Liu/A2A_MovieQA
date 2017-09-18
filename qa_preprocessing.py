@@ -64,18 +64,18 @@ def cleans(subtitles):
     return subtitles
 
 
-def get_split(qa, avail_video_metadata):
+def get_split(qa, video_data):
     avail_qa_train = []
     total_qa_train = []
     avail_qa_test = []
     total_qa_test = []
     avail_qa_val = []
     total_qa_val = []
-
+    avail_video_list = [key for key in video_data if video_data[key]['avail']]
     for qa_ in tqdm(qa, desc='Get available split'):
         v_c = [get_base_name_without_ext(vid) for vid in qa_['video_clips']]
         if v_c:
-            if is_in(v_c, avail_video_metadata['list']):
+            if is_in(v_c, avail_video_list):
                 if qid_split(qa_) == 'train':
                     avail_qa_train.append(qa_)
                 elif qid_split(qa_) == 'test':
@@ -153,15 +153,15 @@ def encode_sentences(qa_list, vocab_q, vocab_a, vocab_s):
 
 
 def main():
-    avail_video_metadata = json.load(open(config.avail_video_metadata_file, 'r'))
-    avail_video_subtitle = json.load(open(config.avail_video_subtitle_file, 'r'))
+    video_data = json.load(open(config.video_data_file, 'r'))
+    video_subtitle = json.load(open(config.subtitle_file, 'r'))
     qa = json.load(open(config.qa_file))
     print('Loading json file done!!')
     # split = json.load(open('../MovieQA_benchmark/data/splits.json'))
     # unavail_list = [get_base_name(d) for d in avail_video_metadata['unavailable']]
 
     avail_qa_train, avail_qa_test, avail_qa_val, \
-    total_qa_train, total_qa_test, total_qa_val = get_split(qa, avail_video_metadata)
+    total_qa_train, total_qa_test, total_qa_val = get_split(qa, video_data)
 
     print('Available qa # : train | test | val ')
     print('                 %5d   %4d   %3d' % (len(avail_qa_train),
@@ -174,8 +174,8 @@ def main():
 
     tokenize_qa_train, counter_q, counter_a, counter_s, counter_total = \
         tokenize_sentences(avail_qa_train,
-                           avail_video_subtitle,
-                           avail_video_metadata,
+                           video_subtitle,
+                           video_data,
                            is_train=True)
 
     # Build vocab
@@ -185,8 +185,8 @@ def main():
     vocab_total, inverse_vocab_total = build_vocab(counter_total)
 
     # encode sentences
-    tokenize_qa_test = tokenize_sentences(avail_qa_test, avail_video_subtitle, avail_video_metadata)
-    tokenize_qa_val = tokenize_sentences(avail_qa_val, avail_video_subtitle, avail_video_metadata)
+    tokenize_qa_test = tokenize_sentences(avail_qa_test, video_subtitle, video_data)
+    tokenize_qa_val = tokenize_sentences(avail_qa_val, video_subtitle, video_data)
     encode_qa_train = encode_sentences(tokenize_qa_train, vocab_q, vocab_a, vocab_s)
     encode_qa_test = encode_sentences(tokenize_qa_test, vocab_q, vocab_a, vocab_s)
     encode_qa_val = encode_sentences(tokenize_qa_val, vocab_q, vocab_a, vocab_s)
