@@ -23,6 +23,7 @@ def load_json(file_name):
         data = json.load(f)
     return data
 
+
 def is_in(a, b):
     """
     Is a a subset of b ?
@@ -43,7 +44,7 @@ def clean_token(l):
     """
     Clean up Subrip tags.
     """
-    return re.sub(r'<.*?>', '', l)
+    return re.sub(r'<.+?>', '', l)
 
 
 def exist_make_dirs(d):

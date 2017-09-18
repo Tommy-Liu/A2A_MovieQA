@@ -5,22 +5,33 @@
 ### Video Information
 * Python dictionary:
 ```python
-data = {
+info = {
     'num_frames': 0,
-    'subtitle': [], # length is same as num_frames
-    'shot_boundary': [], # length is same as num_frames
-    'image_size': [], 
+    'image_size': [],
+    'fps': 0.0,
+    'duration': 0.0,
 }
-
 video_data = \
 {
     'video_base_name': 
     {
         'avail': True/False,
-        'data': data,
+        'shot_boundary': [],
+        'info': info,
     }
     # ...: {}
 }
+
+subtitle_data = \
+{
+    'video_base_name': {
+        'subtitle':[],
+        'subtitle_index': [],
+        'frame_time': [],
+    }
+    # ...: {}
+}
+
 
 ```
 

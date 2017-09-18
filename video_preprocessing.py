@@ -1,17 +1,18 @@
 import argparse
 import codecs
-import json
 import multiprocessing
 import os
 import re
 import sys
 import traceback
+import ujson as json
 from functools import partial
 from glob import glob
 from multiprocessing import Pool, Manager
 from os.path import join
 
 import imageio
+import pysrt
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 
@@ -112,6 +113,22 @@ def flush_print(s):
 
 
 def map_time_subtitle(imdb_key):
+    subs = pysrt.open(join(subt_dir, imdb_key + '.srt'), encoding='iso-8859-1')
+    times = []
+    subtitles = []
+    for sub in subs:
+        text = re.sub(r'[\n\r]', ' ', sub.text).strip()
+        text = clean_token(text).strip()
+        text = word_tokenize(text)  # ''|'<space>' -> []
+        if text:
+            subtitles.append(text)
+            start_time = sub.start.ordinal / 1000
+            end_time = sub.end.ordinal / 1000
+            times.append((start_time, end_time))
+    return times, subtitles
+
+
+def legacy_map_time_subtitle(imdb_key):
     """
     Map each line of subtitle to the interval of start time and end time.
     :param imdb_key: imdb name
@@ -165,51 +182,82 @@ def map_frame_to_subtitle(imdb_key):
     :return: a dictionary with key:frame #, value:a string of line.
     """
     # Time interval to subtitle
-    time_to_subtitle = map_time_subtitle(imdb_key)
+    times, subtitles = map_time_subtitle(imdb_key)
     # Frames map to times
     matidx = get_matidx(imdb_key)
 
     # Frames map to subtitle
-    frame_to_subtitle = []
-    tts_idx = 0
-    for time in matidx:
-        start_time, end_time = time_to_subtitle[tts_idx][0]
-        if time > end_time:
-            tts_idx += 1
-            start_time, end_time = time_to_subtitle[tts_idx][0]
 
-        if time < start_time:
-            frame_to_subtitle.append([])
-        elif start_time <= time <= end_time:
-            frame_to_subtitle.append(time_to_subtitle[tts_idx][1])
-        assert time <= end_time, "Exceed time."
-    assert len(matidx) == len(frame_to_subtitle), "Wrong alignment."
-    return frame_to_subtitle
+    frame_to_subtitle = [[] for _ in range(len(matidx))]
+    frame_to_subtitle_idx = [0 for _ in range(len(matidx))]
+    interval = matidx[-1] / len(matidx)
+    fts_idx = 1
+    for t_idx, time in enumerate(times):
+        start_time, end_time = time
+        start_time = min(max(start_time, matidx[0]), matidx[-1])
+        end_time = max(min(end_time, matidx[-1]), matidx[0])
+        start_frame = min(max(int(start_time / interval), 0), len(matidx) - 1)
+        end_frame = max(min(int(end_time / interval), len(matidx) - 1), 0)
+        # shift index of
+        while matidx[start_frame] < start_time:
+            start_frame += 1
+        while start_frame > 0 and matidx[start_frame - 1] >= start_time:
+            start_frame -= 1
+        while matidx[end_frame] > end_time:
+            end_frame -= 1
+        while end_frame < len(matidx) - 1 and matidx[end_frame + 1] <= end_time:
+            end_frame += 1
+        overlap_idx = []
+        for i in range(start_frame, end_frame + 1):
+            frame_to_subtitle[i] += subtitles[t_idx]
+            if frame_to_subtitle_idx[i] == 0:
+                frame_to_subtitle_idx[i] = fts_idx
+            else:
+                if not frame_to_subtitle_idx[i] in overlap_idx:
+                    overlap_idx.append(frame_to_subtitle_idx[i])
+                frame_to_subtitle_idx[i] = fts_idx + overlap_idx.index(frame_to_subtitle_idx[i]) + 1
+        fts_idx += len(overlap_idx) + 1
+    assert len(frame_to_subtitle) == len(frame_to_subtitle_idx) == len(matidx), \
+        "Numbers of frames are different %d, %d, %d" % (len(frame_to_subtitle), len(frame_to_subtitle_idx), len(matidx))
+    return frame_to_subtitle, frame_to_subtitle_idx, matidx
 
 
 def align_subtitle(video_clips,
-                   avail_video_info,
-                   avail_video_subt,
-                   avail_video_list,
+                   video_subtitle,
+                   video_data,
+                   # avail_video_info,
+                   # avail_video_subt,
+                   # avail_video_list,
                    key):
-    # print(key, 'start!')
-    frame_to_subtitle = map_frame_to_subtitle(key)
+    frame_to_subtitle, frame_to_subtitle_idx, matidx = map_frame_to_subtitle(key)
     for video in video_clips[key]:
         base_name = get_base_name_without_ext(video)
-        if base_name in avail_video_list:
+        if video_data[base_name]['avail']:
             start_frame, end_frame = get_start_and_end_frame(video)
-            avail_video_info[base_name]['start_frame'] = start_frame
-            avail_video_info[base_name]['end_frame'] = end_frame
-
-            subt = []
-            for i in range(avail_video_info[base_name]['real_frames']):
-                subt.append(frame_to_subtitle[
-                                min([start_frame + i,
-                                     len(frame_to_subtitle) - 1])])
-            assert len(subt) == avail_video_info[base_name]['real_frames'], \
+            video_subtitle[base_name] = {
+                'subtitle': [
+                    frame_to_subtitle[
+                        min(start_frame + i,
+                            len(frame_to_subtitle) - 1)]
+                    for i in range(video_data[base_name]['info']['num_frames'])
+                ],
+                'frame_time': [
+                    matidx[
+                        min(start_frame + i,
+                            len(frame_to_subtitle) - 1)]
+                    for i in range(video_data[base_name]['info']['num_frames'])
+                ],
+                'subtitle_index': [
+                    frame_to_subtitle_idx[
+                        min(start_frame + i,
+                            len(frame_to_subtitle) - 1)]
+                    for i in range(video_data[base_name]['info']['num_frames'])
+                ]
+            }
+            assert len(video_subtitle[base_name]['subtitle']) == video_data[base_name]['info']['num_frames'], \
                 "Not align!"
-            avail_video_subt[base_name] = subt
-            # print(key, 'done!')
+        else:
+            video_subtitle[base_name] = {}
 
 
 def check_video(video):
@@ -254,7 +302,7 @@ def get_shot_boundary(base_name, num_frames):
         sbd = []
         for line in f:
             comp = re.sub(r'[\n\r]', '', line).split(' ')
-            print(comp)
+            # print(comp)
             sbd.append((int(comp[0]), int(comp[1])))
     shot_boundary = []
     i = 0
@@ -286,13 +334,15 @@ def check_and_extract_videos(videos_clips,
                 for i, img in enumerate(img_list):
                     imageio.imwrite(join(video_img, base_name, 'img_%05d.jpg' % (i + 1)), img)
             shot_boundary = get_shot_boundary(base_name, meta_data['real_frames'])
-            print(shot_boundary)
+            # print(shot_boundary)
             assert len(shot_boundary) == meta_data['real_frames']
             video_data[base_name] = {
                 'avail': True,
-                'data':{
-                    'num_frames': meta_data['real_frames'],
+                'data': {
                     'shot_boundary': shot_boundary,  # length is same as num_frames
+                },
+                'info': {
+                    'num_frames': meta_data['real_frames'],
                     'image_size': meta_data['size'],
                     'fps': meta_data['fps'],
                     'duration': meta_data['duration'],
@@ -304,6 +354,7 @@ def check_and_extract_videos(videos_clips,
             video_data[base_name] = {
                 'avail': False,
                 'data': {},
+                'info': {},
             }
 
 
@@ -342,7 +393,7 @@ def main():
             # exist_then_remove(json_metadata)
             # json.dump(avail_video_metadata, open(json_metadata, 'w'))
             exist_then_remove(config.video_data_file)
-            json.dump(shared_video_data.copy(), open(config.video_data_file, 'w'))
+            json.dump(shared_video_data.copy(), open(config.video_data_file, 'w'), indent=4)
         else:
             shared_video_data = json.load(open(config.video_data_file, 'r'))
             # avail_video_metadata = json.load(open(json_metadata, 'r'))
@@ -351,17 +402,19 @@ def main():
 
         if not args.no_subt:
             # shared_avail_video_subt = manager.dict()
-            shared_subtitle = manager.dict()
+            shared_video_subtitle = manager.dict()
             align_func = partial(align_subtitle,
                                  shared_videos_clips,
-                                 shared_avail_video_info,
-                                 shared_avail_video_subt,
-                                 shared_avail_video_list)
+                                 shared_video_subtitle,
+                                 shared_video_data, )
+            # shared_avail_video_info,
+            # shared_avail_video_subt,
+            # shared_avail_video_list)
             with Pool(8) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
                 for i, _ in enumerate(p.imap_unordered(align_func, keys)):
                     pbar.update()
-            exist_then_remove(json_subtitle)
-            json.dump(shared_avail_video_subt.copy(), open(json_subtitle, 'w'))
+            exist_then_remove(config.subtitle_file)
+            json.dump(shared_video_subtitle.copy(), open(config.subtitle_file, 'w'), indent=4)
 
 
 if __name__ == '__main__':
