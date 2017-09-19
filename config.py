@@ -37,13 +37,10 @@ class MovieQAConfig(Config):
         with self._create_group('file_names'):
             self.video_data_file = join(self.data_dir, 'video_data.json')
             self.subtitle_file = join(self.data_dir, 'subtitle.json')
-            self.avail_video_metadata_file = join(self.data_dir, 'avail_video_metadata.json')
-            self.avail_video_subtitle_file = join(self.data_dir, 'avail_video_subtitle.json')
-            self.avail_split_qa_file = join(self.data_dir, 'avail_split_qa.json')
+            self.encode_subtitle_file = join(self.data_dir, 'encode_subtitle.json')
             self.total_split_qa_file = join(self.data_dir, 'total_split_qa.json')
             self.avail_tokenize_qa_file = join(self.data_dir, 'avail_tokenize_qa.json')
-            self.avail_encode_qa_file = join(self.data_dir, 'encode_qa.json')
-            self.sep_vocab_file = join(self.data_dir, 'avail_separate_vocab.json')
+            self.avail_encode_qa_file = join(self.data_dir, 'avail_encode_qa.json')
             self.all_vocab_file = join(self.data_dir, 'avail_all_vocab.json')
             self.info_file = join(self.data_dir, 'info.json')
             self.exp_file = './exp.json'
@@ -62,6 +59,12 @@ class MovieQAConfig(Config):
             self.num_shot_interval = 3
             self.num_fixed_subt = 3
 
+        # Vocabulary frequency threshold
+        self.vocab_thr = 0
+
+        # Size of vocabulary
+        self.size_vocab = 0
+
         # Tfrecord setting
         self.num_shards = 128
 
@@ -77,10 +80,6 @@ class MovieQAConfig(Config):
         self.initializer_scale = 0.08
 
         self.num_epochs = 20
-
-        self.size_vocab_q = 0
-        self.size_vocab_a = 0
-        self.size_vocab_s = 0
 
         self.load_vocab_size()
 
@@ -130,10 +129,9 @@ class MovieQAConfig(Config):
             super().__getattribute__(self._group_name).__setattr__(key, value)
 
     def load_vocab_size(self):
-        vocab_sep = json.load(open(self.sep_vocab_file, 'r'))
-        self.size_vocab_q = len(vocab_sep['vocab_q'])
-        self.size_vocab_a = len(vocab_sep['vocab_a'])
-        self.size_vocab_s = len(vocab_sep['vocab_s'])
+        if os.path.exists(self.all_vocab_file):
+            vocab = json.load(open(self.all_vocab_file, 'r'))
+            self.size_vocab = len(vocab['vocab'])
 
     def load_info(self):
         info = json.load(open(self.info_file, 'r'))

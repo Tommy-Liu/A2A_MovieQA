@@ -25,8 +25,6 @@ data_dir = config.video_clips_dir
 matidx_dir = config.matidx_dir
 subt_dir = config.subt_dir
 video_img = config.video_img_dir
-json_metadata = config.avail_video_metadata_file
-json_subtitle = config.avail_video_subtitle_file
 
 DIR_PATTERN_ = 'tt*'
 VIDEO_PATTERN_ = '*.mp4'
@@ -225,9 +223,6 @@ def map_frame_to_subtitle(imdb_key):
 def align_subtitle(video_clips,
                    video_subtitle,
                    video_data,
-                   # avail_video_info,
-                   # avail_video_subt,
-                   # avail_video_list,
                    key):
     frame_to_subtitle, frame_to_subtitle_idx, matidx = map_frame_to_subtitle(key)
     for video in video_clips[key]:
@@ -316,9 +311,6 @@ def get_shot_boundary(base_name, num_frames):
 
 def check_and_extract_videos(videos_clips,
                              video_data,
-                             # avail_video_list,
-                             # avail_video_info,
-                             # unavail_video_list,
                              key):
     """
 
@@ -366,50 +358,28 @@ def main():
     # frame_to_subtitle = map_frame_to_subtitle('tt1058017')
     # print(json.dumps(frame_to_subtitle[10000:10100], indent=4))
     with Manager() as manager:
-        # avail_video_metadata = json.load(open('./avail_video_metadata.json', 'r'))
         shared_videos_clips = manager.dict(videos_clips)
         keys = list(iter(videos_clips.keys()))
         if not args.no_video:
-            # shared_avail_video_list = manager.list()  # avail_video_metadata['list'])
-            # shared_avail_video_info = manager.dict()  # avail_video_metadata['info'])
-            # shared_unavail_video_list = manager.list()  # avail_video_metadata['unavailable'])
             shared_video_data = manager.dict()
 
             check_func = partial(check_and_extract_videos,
                                  shared_videos_clips,
                                  shared_video_data, )
-            # shared_avail_video_list,
-            # shared_avail_video_info,
-            # shared_unavail_video_list)
             with Pool(8) as p, tqdm(total=len(keys), desc="Check and extract videos") as pbar:
                 for i, _ in enumerate(p.imap_unordered(check_func, keys)):
                     pbar.update()
-
-            # avail_video_metadata = {
-            #     'list': list(shared_avail_video_list),
-            #     'info': shared_avail_video_info.copy(),
-            #     'unavailable': list(shared_unavail_video_list)
-            # }
-            # exist_then_remove(json_metadata)
-            # json.dump(avail_video_metadata, open(json_metadata, 'w'))
             exist_then_remove(config.video_data_file)
             json.dump(shared_video_data.copy(), open(config.video_data_file, 'w'), indent=4)
         else:
             shared_video_data = json.load(open(config.video_data_file, 'r'))
-            # avail_video_metadata = json.load(open(json_metadata, 'r'))
-            # shared_avail_video_info = manager.dict(avail_video_metadata['info'])
-            # shared_avail_video_list = manager.list(avail_video_metadata['list'])
 
         if not args.no_subt:
-            # shared_avail_video_subt = manager.dict()
             shared_video_subtitle = manager.dict()
             align_func = partial(align_subtitle,
                                  shared_videos_clips,
                                  shared_video_subtitle,
                                  shared_video_data, )
-            # shared_avail_video_info,
-            # shared_avail_video_subt,
-            # shared_avail_video_list)
             with Pool(8) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
                 for i, _ in enumerate(p.imap_unordered(align_func, keys)):
                     pbar.update()

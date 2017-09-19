@@ -1,6 +1,6 @@
-import json
 import os
 import re
+import ujson as json
 from os.path import join
 
 import numpy as np
@@ -16,6 +16,11 @@ class MovieQaDataLoader(object):
     def __init__(self):
         self.config = MovieQAConfig()
         self.qa = json.load(open(self.config.qa_file, 'r'))
+
+
+def write_json(obj, file_name):
+    with open(file_name, 'w') as f:
+        json.dump(obj, f, indent=4)
 
 
 def load_json(file_name):
