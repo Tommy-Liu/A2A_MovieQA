@@ -16,9 +16,8 @@ import pysrt
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 
+import data_utils as du
 from config import MovieQAConfig
-from data_utils import exist_make_dirs, get_base_name, \
-    get_base_name_without_ext, clean_token, exist_then_remove
 
 config = MovieQAConfig()
 data_dir = config.video_clips_dir
@@ -75,7 +74,7 @@ def get_videos_clips():
     """
     videos_clips = {}
     for d in tqdm(videos_dirs):
-        imdb = get_base_name(d)
+        imdb = du.get_base_name(d)
         videos_clips[imdb] = glob(os.path.join(d, VIDEO_PATTERN_))
     return videos_clips
 
@@ -116,7 +115,7 @@ def map_time_subtitle(imdb_key):
     subtitles = []
     for sub in subs:
         text = re.sub(r'[\n\r]', ' ', sub.text).strip()
-        text = clean_token(text).strip()
+        text = du.clean_token(text).strip()
         text = word_tokenize(text)  # ''|'<space>' -> []
         if text:
             subtitles.append(text)
@@ -165,7 +164,7 @@ def legacy_map_time_subtitle(imdb_key):
                 # Clean lines?? good or bad?
                 # Cuz it might be another clue.
                 # Update: Fuck those tokens.
-                lines = word_tokenize(clean_token(' '.join(lines)))
+                lines = word_tokenize(du.clean_token(' '.join(lines)))
                 time_to_subtitle.append(((start_time, end_time), lines))
     except Exception:
         error(traceback.format_exc())
@@ -226,7 +225,7 @@ def align_subtitle(video_clips,
                    key):
     frame_to_subtitle, frame_to_subtitle_idx, matidx = map_frame_to_subtitle(key)
     for video in video_clips[key]:
-        base_name = get_base_name_without_ext(video)
+        base_name = du.get_base_name_without_ext(video)
         if video_data[base_name]['avail']:
             start_frame, end_frame = get_start_and_end_frame(video)
             video_subtitle[base_name] = {
@@ -247,9 +246,12 @@ def align_subtitle(video_clips,
                         min(start_frame + i,
                             len(frame_to_subtitle) - 1)]
                     for i in range(video_data[base_name]['info']['num_frames'])
-                ]
+                ],
+                'shot_boundary': video_data[base_name]['shot_boundary'],
             }
-            assert len(video_subtitle[base_name]['subtitle']) == video_data[base_name]['info']['num_frames'], \
+            assert len(video_subtitle[base_name]['subtitle']) == \
+                   video_data[base_name]['info']['num_frames'] == \
+                   video_subtitle[base_name]['shot_boundary'], \
                 "Not align!"
         else:
             video_subtitle[base_name] = {}
@@ -261,7 +263,7 @@ def check_video(video):
     meta_data = None
     nframes = 0
     try:
-        base_name = get_base_name_without_ext(video)
+        base_name = du.get_base_name_without_ext(video)
         reader = imageio.get_reader(video)
         images = glob(join(video_img, base_name, IMAGE_PATTERN_))
         meta_data = reader.get_meta_data()
@@ -318,11 +320,11 @@ def check_and_extract_videos(videos_clips,
     """
     # print('Start %s !' % key)
     for video in videos_clips[key]:
-        base_name = get_base_name_without_ext(video)
+        base_name = du.get_base_name_without_ext(video)
         flag, img_list, meta_data = check_video(video)
         if flag:
             if len(img_list) > 0:
-                exist_make_dirs(join(video_img, base_name))
+                du.exist_make_dirs(join(video_img, base_name))
                 for i, img in enumerate(img_list):
                     imageio.imwrite(join(video_img, base_name, 'img_%05d.jpg' % (i + 1)), img)
             shot_boundary = get_shot_boundary(base_name, meta_data['real_frames'])
@@ -369,7 +371,7 @@ def main():
             with Pool(8) as p, tqdm(total=len(keys), desc="Check and extract videos") as pbar:
                 for i, _ in enumerate(p.imap_unordered(check_func, keys)):
                     pbar.update()
-            exist_then_remove(config.video_data_file)
+            du.exist_then_remove(config.video_data_file)
             json.dump(shared_video_data.copy(), open(config.video_data_file, 'w'), indent=4)
         else:
             shared_video_data = json.load(open(config.video_data_file, 'r'))
@@ -383,7 +385,7 @@ def main():
             with Pool(8) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
                 for i, _ in enumerate(p.imap_unordered(align_func, keys)):
                     pbar.update()
-            exist_then_remove(config.subtitle_file)
+            du.exist_then_remove(config.subtitle_file)
             json.dump(shared_video_subtitle.copy(), open(config.subtitle_file, 'w'), indent=4)
 
 

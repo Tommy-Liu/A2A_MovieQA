@@ -6,9 +6,8 @@ from collections import Counter
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 
+import data_utils as du
 from config import MovieQAConfig
-from data_utils import clean_token, get_base_name_without_ext, \
-    exist_then_remove, write_json
 
 config = MovieQAConfig()
 video_img = config.video_img_dir
@@ -54,15 +53,6 @@ def build_vocab(counter):
     return insert_unk(vocab, inverse_vocab)
 
 
-def cleans(subtitles):
-    for key in subtitles.keys():
-        subtitles[key] = [
-            clean_token(sent)
-            for sent in subtitles[key]
-        ]
-    return subtitles
-
-
 def get_split(qa, video_data):
     total_qa = {
         'train': [],
@@ -70,8 +60,8 @@ def get_split(qa, video_data):
         'val': [],
     }
     for qa_ in tqdm(qa, desc='Get available split'):
-        v_c = [get_base_name_without_ext(vid)
-               for vid in qa_['video_clips'] if video_data[get_base_name_without_ext(vid)]['avail']]
+        v_c = [du.get_base_name_without_ext(vid)
+               for vid in qa_['video_clips'] if video_data[du.get_base_name_without_ext(vid)]['avail']]
         total_qa[qid_split(qa_)].append({
             "qid": qa_['qid'],
             "question": qa_['question'],
@@ -202,17 +192,17 @@ def main():
         'inverse_vocab': inverse_vocab,
     }
 
-    exist_then_remove(total_qa_file_name)
-    exist_then_remove(tokenize_file_name)
-    exist_then_remove(encode_file_name)
-    exist_then_remove(all_vocab_file_name)
-    exist_then_remove(config.encode_subtitle_file)
+    du.exist_then_remove(total_qa_file_name)
+    du.exist_then_remove(tokenize_file_name)
+    du.exist_then_remove(encode_file_name)
+    du.exist_then_remove(all_vocab_file_name)
+    du.exist_then_remove(config.encode_subtitle_file)
 
-    write_json(total_qa, total_qa_file_name)
-    write_json(tokenize_qa, tokenize_file_name)
-    write_json(encode_qa, encode_file_name)
-    write_json(vocab_all, all_vocab_file_name)
-    write_json(encode_sub, config.encode_subtitle_file)
+    du.write_json(total_qa, total_qa_file_name)
+    du.write_json(tokenize_qa, tokenize_file_name)
+    du.write_json(encode_qa, encode_file_name)
+    du.write_json(vocab_all, all_vocab_file_name)
+    du.write_json(encode_sub, config.encode_subtitle_file)
 
 
 if __name__ == '__main__':

@@ -8,7 +8,7 @@ import tensorflow as tf
 
 from config import MovieQAConfig
 
-FILE_PATTERN = '%s_%s_%05d-of-%05d.tfrecord'
+FILE_PATTERN = '%s_%s_%s_%05d-of-%05d.tfrecord'
 NPY_PATTERN_ = '%s.npy'
 
 
@@ -168,7 +168,42 @@ def float_feature_list(values):
     return tf.train.FeatureList(feature=[float_feature(v) for v in values])
 
 
-def qa_eval_feature_example(example, split):
+def qa_feature_example(example, subt, modality):
+    for name in example['feat']:
+        f = np.load(name)
+        s = subt[get_base_name_without_ext(name)]['subtitle']
+        if modality[0] == 'fixed_num':
+            index = np.linspace(0, len(f) - 1, num=modality[1], dtype=np.int64)
+        elif modality[0] == 'fixed_interval':
+            index = np.arange(0, len(f), step=modality[1])
+        elif modality[0] == 'shot_major':
+            pass
+        elif modality[0] == 'subtitle_major':
+            pass
+        else:
+            raise ValueError("Wrong modality.")
+
+
+    feat = np.concatenate([np.load(name) for name in example['feat']],
+                          axis=0).astype(np.float32)
+    assert len(example['subt']) == len(feat), \
+        "Fuck my life... %s" % ' '.join(example['video_clips'])
+    feature_lists = tf.train.FeatureLists(feature_list={
+        "subt": to_feature(example['subt']),
+        "feat": to_feature(feat),
+        "ans": to_feature(example['ans'])
+    })
+    context = tf.train.Features(feature={
+        "subt_length": to_feature(example['subt_length']),
+        "ans_length": to_feature(example['ans_length']),
+        "ques": to_feature(example['ques']),
+        "ques_length": to_feature(example['ques_length'])
+    })
+    return tf.train.SequenceExample(context=context,
+                                    feature_lists=feature_lists)
+
+
+def qa_eval_feature_example(example, subt, split, modality):
     feat = np.concatenate([np.load(name) for name in example['feat']],
                           axis=0).astype(np.float32)
 
@@ -236,31 +271,9 @@ def qa_feature_parsed():
     return context_features, sequence_features
 
 
-def qa_feature_example(example):
-    feat = np.concatenate([np.load(name) for name in example['feat']],
-                          axis=0).astype(np.float32)
-    assert len(example['subt']) == len(feat), \
-        "Fuck my life... %s" % ' '.join(example['video_clips'])
-    feature_lists = tf.train.FeatureLists(feature_list={
-        "subt": to_feature(example['subt']),
-        "feat": to_feature(feat),
-        "ans": to_feature(example['ans'])
-    })
-    context = tf.train.Features(feature={
-        "subt_length": to_feature(example['subt_length']),
-        "ans_length": to_feature(example['ans_length']),
-        "ques": to_feature(example['ques']),
-        "ques_length": to_feature(example['ques_length'])
-    })
-    return tf.train.SequenceExample(context=context,
-                                    feature_lists=feature_lists)
-
-
-def get_dataset_name(d, name, split, shard_id, num_shards, is_training=False):
-    if is_training:
-        return join(d, 'training_' + FILE_PATTERN % (name, split, shard_id, num_shards))
-    else:
-        return join(d, FILE_PATTERN % (name, split, shard_id, num_shards))
+def get_dataset_name(d, name, split, modality, shard_id, num_shards, is_training=False):
+    return join(d, 'training_' if is_training else '' + FILE_PATTERN %
+                                                        (name, split, modality, shard_id, num_shards))
 
 
 def frame_feature_example(features):

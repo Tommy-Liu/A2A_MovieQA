@@ -2,7 +2,7 @@
 
 ## Video Part
 
-### Video Information
+### Video data
 * Python dictionary:
 ```python
 info = {
@@ -21,17 +21,23 @@ video_data = \
     }
     # ...: {}
 }
-
+```
+### Subtitle data
+* Python dictionary:
+```python
 subtitle_data = \
 {
     'video_base_name': {
         'subtitle':[],
         'subtitle_index': [],
         'frame_time': [],
+        'shot_boundary': [],
     }
     # ...: {}
 }
-
-
 ```
+
+
+
+
 

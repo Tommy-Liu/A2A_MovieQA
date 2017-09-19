@@ -53,11 +53,12 @@ class MovieQAConfig(Config):
         self.dataset_name = 'movieqa'
 
         # Modality
-        with self._create_group('modality'):
-            self.num_fixed_sample = 25
-            self.num_fixed_interval = 5
-            self.num_shot_interval = 3
-            self.num_fixed_subt = 3
+        self.modality = {
+            'fixed_num': 25,
+            'fixed_interval': 5,
+            'shot_major': 3,
+            'subtitle_major': 3,
+        }
 
         # Vocabulary frequency threshold
         self.vocab_thr = 0
