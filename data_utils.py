@@ -18,6 +18,18 @@ class MovieQaDataLoader(object):
         self.qa = json.load(open(self.config.qa_file, 'r'))
 
 
+def pad_list_numpy(l, length):
+    if isinstance(l[0], list):
+        arr = np.zeros((len(l), length), dtype=np.int64)
+        for idx, item in enumerate(l):
+            arr[idx][:len(item)] = item
+    else:
+        arr = np.zeros(length, dtype=np.int64)
+        arr[:len(l)] = l
+
+    return arr
+
+
 def write_json(obj, file_name):
     with open(file_name, 'w') as f:
         json.dump(obj, f, indent=4)
@@ -87,11 +99,16 @@ def get_base_name(p):
 
 
 def to_feature(value):
+    """
+    Wrapper of tensorflow feature
+    :param value:
+    :return:
+    """
     if isinstance(value, np.ndarray):
         # value is ndarray
         if value.dtype == np.int64 or value.dtype == np.int32:
             # value is int
-            if value.shape[0] > 1:
+            if value.ndim > 1:
                 # 2-d array
                 return int64_feature_list(value)
             else:
@@ -169,32 +186,53 @@ def float_feature_list(values):
 
 
 def qa_feature_example(example, subt, modality):
+    example_feat = np.zeros((0, 1536), dtype=np.float32)
+    example_subt = np.zeros((0, 41), dtype=np.int64)
     for name in example['feat']:
         f = np.load(name)
-        s = subt[get_base_name_without_ext(name)]['subtitle']
+        s = subt[get_base_name_without_ext(name)]
         if modality[0] == 'fixed_num':
-            index = np.linspace(0, len(f) - 1, num=modality[1], dtype=np.int64)
+            if len(f) < modality[1]:
+                index = np.arange(len(f))
+            else:
+                index = np.linspace(0, len(f) - 1, num=modality[1], dtype=np.int64)
         elif modality[0] == 'fixed_interval':
             index = np.arange(0, len(f), step=modality[1])
         elif modality[0] == 'shot_major':
-            pass
+            num_shot = np.amax(s['shot_boundary']) + 1
+            index = np.array([])
+            for i in range(num_shot):
+                arg = np.where(s['shot_boundary'] == i)
+                if len(arg) < modality[1]:
+                    index = np.concatenate([index, arg])
+                else:
+                    arg = np.choose(arg, np.linspace(0, len(arg) - 1, num=modality[1]))
+                    index = np.concatenate([index, arg])
         elif modality[0] == 'subtitle_major':
-            pass
+            uniques = np.unique(s['subtitle_index'])
+            index = np.array([])
+            for idx in uniques:
+                arg = np.where(s['subtitle_index'] == idx)
+                if len(arg) < modality[1]:
+                    index = np.concatenate([index, arg])
+                else:
+                    arg = np.choose(arg, np.linspace(0, len(arg) - 1, num=modality[1]))
+                    index = np.concatenate([index, arg])
         else:
             raise ValueError("Wrong modality.")
-
-
+        example_feat = np.concatenate([example_feat, f[index]])
+        example_subt = np.concatenate([example_subt, ])
     feat = np.concatenate([np.load(name) for name in example['feat']],
                           axis=0).astype(np.float32)
     assert len(example['subt']) == len(feat), \
         "Fuck my life... %s" % ' '.join(example['video_clips'])
     feature_lists = tf.train.FeatureLists(feature_list={
-        "subt": to_feature(example['subt']),
-        "feat": to_feature(feat),
+        # "subt": to_feature(example['subt']),
+        # "feat": to_feature(feat),
         "ans": to_feature(example['ans'])
     })
     context = tf.train.Features(feature={
-        "subt_length": to_feature(example['subt_length']),
+        # "subt_length": to_feature(example['subt_length']),
         "ans_length": to_feature(example['ans_length']),
         "ques": to_feature(example['ques']),
         "ques_length": to_feature(example['ques_length'])
@@ -258,22 +296,22 @@ def qa_eval_feature_parsed():
 
 def qa_feature_parsed():
     context_features = {
-        "subt_length": tf.VarLenFeature(dtype=tf.int64),
-        "ans_length": tf.VarLenFeature(dtype=tf.int64),
-        "ques": tf.VarLenFeature(dtype=tf.int64),
+        # "subt_length": tf.VarLenFeature(dtype=tf.int64),
+        "ans_length": tf.FixedLenFeature([2], dtype=tf.int64),
+        "ques": tf.FixedLenFeature([25], dtype=tf.int64),
         "ques_length": tf.FixedLenFeature([], dtype=tf.int64)
     }
     sequence_features = {
-        "subt": tf.VarLenFeature(dtype=tf.int64),
-        "feat": tf.FixedLenSequenceFeature([1536], dtype=tf.float32),
-        "ans": tf.VarLenFeature(dtype=tf.int64)
+        # "subt": tf.VarLenFeature(dtype=tf.int64),
+        # "feat": tf.FixedLenSequenceFeature([1536], dtype=tf.float32),
+        "ans": tf.FixedLenSequenceFeature([34], dtype=tf.int64)
     }
     return context_features, sequence_features
 
 
 def get_dataset_name(d, name, split, modality, shard_id, num_shards, is_training=False):
-    return join(d, 'training_' if is_training else '' + FILE_PATTERN %
-                                                        (name, split, modality, shard_id, num_shards))
+    return join(d, ('training_' if is_training else '') + FILE_PATTERN %
+                (name, split, modality, shard_id, num_shards))
 
 
 def frame_feature_example(features):

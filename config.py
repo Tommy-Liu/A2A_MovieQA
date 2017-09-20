@@ -54,11 +54,16 @@ class MovieQAConfig(Config):
 
         # Modality
         self.modality = {
-            'fixed_num': 25,
-            'fixed_interval': 5,
-            'shot_major': 3,
-            'subtitle_major': 3,
+            'fixed_num': 85,
+            'fixed_interval': 20,
+            'shot_major': 4,
+            'subtitle_major': 4,
         }
+
+        # Sequences max length
+        self.subt_max_length = 41
+        self.ans_max_length = 34
+        self.ques_max_length = 25
 
         # Vocabulary frequency threshold
         self.vocab_thr = 0

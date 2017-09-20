@@ -247,12 +247,14 @@ def align_subtitle(video_clips,
                             len(frame_to_subtitle) - 1)]
                     for i in range(video_data[base_name]['info']['num_frames'])
                 ],
-                'shot_boundary': video_data[base_name]['shot_boundary'],
+                'shot_boundary': video_data[base_name]['data']['shot_boundary'],
             }
             assert len(video_subtitle[base_name]['subtitle']) == \
                    video_data[base_name]['info']['num_frames'] == \
-                   video_subtitle[base_name]['shot_boundary'], \
-                "Not align!"
+                   len(video_subtitle[base_name]['shot_boundary']), \
+                "Not align! %d %d %d" % (len(video_subtitle[base_name]['subtitle']),
+                                         video_data[base_name]['info']['num_frames'],
+                                         len(video_subtitle[base_name]['shot_boundary']))
         else:
             video_subtitle[base_name] = {}
 
@@ -274,6 +276,7 @@ def check_video(video):
                 img_list.append(img)
             meta_data['real_frames'] = len(images)
         flag = True
+        assert meta_data['real_frames'], "FUCK FUCK FUCK!!!!"
     except OSError:
         # print(get_base_name(video), 'failed.')
         meta_data = None
@@ -307,7 +310,7 @@ def get_shot_boundary(base_name, num_frames):
         if sbd[i][1] - sbd[0][0] < frame_idx and i < len(sbd) - 1:
             i += 1
         shot_boundary.append(i)
-
+    assert shot_boundary, "Strange... Shot boundary fucked up."
     return shot_boundary
 
 

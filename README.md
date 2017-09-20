@@ -11,12 +11,15 @@ info = {
     'fps': 0.0,
     'duration': 0.0,
 }
+data = {
+    'shot_boundary': [],
+}
 video_data = \
 {
     'video_base_name': 
     {
         'avail': True/False,
-        'shot_boundary': [],
+        'data': data,
         'info': info,
     }
     # ...: {}

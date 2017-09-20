@@ -5,9 +5,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.data as data
 
+import data_utils as du
 from config import MovieQAConfig
-from data_utils import FILE_PATTERN, qa_feature_parsed, \
-    qa_eval_feature_parsed, qa_test_feature_parsed
 
 flags = tf.app.flags
 flags.DEFINE_bool("is_training", True, "")
@@ -15,7 +14,7 @@ FLAGS = flags.FLAGS
 
 
 def train_parser(record):
-    context_features, sequence_features = qa_feature_parsed()
+    context_features, sequence_features = du.qa_feature_parsed()
     context_parsed, sequence_parsed = tf.parse_single_sequence_example(
         serialized=record,
         context_features=context_features,
@@ -36,7 +35,7 @@ def train_parser(record):
 
 
 def eval_parser(record):
-    context_features, sequence_features = qa_eval_feature_parsed()
+    context_features, sequence_features = du.qa_eval_feature_parsed()
     context_parsed, sequence_parsed = tf.parse_single_sequence_example(
         serialized=record,
         context_features=context_features,
@@ -57,7 +56,7 @@ def eval_parser(record):
 
 
 def test_parser(record):
-    context_features, sequence_features = qa_test_feature_parsed()
+    context_features, sequence_features = du.qa_test_feature_parsed()
     context_parsed, sequence_parsed = tf.parse_single_sequence_example(
         serialized=record,
         context_features=context_features,
@@ -77,11 +76,11 @@ def test_parser(record):
 
 
 class MovieQAData(object):
-    TFRECORD_PATTERN = FILE_PATTERN.replace('%05d-of-', '*')
+    TFRECORD_PATTERN = du.FILE_PATTERN.replace('%05d-of-', '*')
 
     def __init__(self, config, split, is_training=True, dummy=False):
         self.config = config
-        self.TFRECORD_PATTERN = 'training_' if is_training else '' + self.TFRECORD_PATTERN
+        self.TFRECORD_PATTERN = ('training_' if is_training else '') + self.TFRECORD_PATTERN
         self.file_names = glob(join(self.config.dataset_dir,
                                     self.TFRECORD_PATTERN % (self.config.dataset_name,
                                                              split, self.config.num_shards)))
@@ -165,7 +164,7 @@ def main(_):
 
 def test(_):
     config_ = MovieQAConfig()
-    TFRECORD_PATTERN = FILE_PATTERN.replace('%05d-of-', '*')
+    TFRECORD_PATTERN = du.FILE_PATTERN.replace('%05d-of-', '*')
     print(TFRECORD_PATTERN % (config_.dataset_name, 'train', config_.num_shards))
     file_names = glob(join(config_.dataset_dir,
                            TFRECORD_PATTERN % (config_.dataset_name, 'train')))
@@ -173,7 +172,7 @@ def test(_):
     file_name_queue = tf.train.string_input_producer(file_names)
     reader = tf.TFRecordReader()
     _, example = reader.read(file_name_queue)
-    context_features, sequence_features = qa_feature_parsed()
+    context_features, sequence_features = du.qa_feature_parsed()
     context_parsed, sequence_parsed = tf.parse_single_sequence_example(
         serialized=example,
         context_features=context_features,

@@ -1,7 +1,9 @@
 import math
 import ujson as json
 from functools import partial
+from glob import glob
 from multiprocessing import Pool, Manager
+from os.path import join
 
 import tensorflow as tf
 from tqdm import tqdm
@@ -11,11 +13,6 @@ from config import MovieQAConfig
 
 config = MovieQAConfig()
 
-flags = tf.app.flags
-flags.DEFINE_string('split', 'train', '')
-flags.DEFINE_string('modality', 'fixed_sample', '')
-FLAGS = flags.FLAGS
-
 
 # 1: dataset name, 2:split name, 3: shard id, 4: total shard number
 
@@ -23,6 +20,7 @@ FLAGS = flags.FLAGS
 # ['qid', 'question', 'answers', 'imdb_key', 'correct_index', 'plot_alignment',
 # 'video_clips', 'tokenize_question', 'tokenize_answer', 'tokenize_video_subtitle',
 # 'encoded_answer', 'encoded_question', 'encoded_subtitle']
+
 
 def create_one_tfrecord(split, modality, num_per_shard, example_list, subt, is_training, shard_id):
     output_filename = du.get_dataset_name(config.dataset_dir,
@@ -60,9 +58,9 @@ def get_total_example(qas, split, is_training=False):
                         "feat": [du.get_npy_name(config.feature_dir,
                                                  du.get_base_name_without_ext(v))
                                  for v in qa['video_clips']],
-                        "ques": qa['encoded_question'],
-                        "ans": [qa['encoded_answer'][qa['correct_index']],
-                                qa['encoded_answer'][ans_idx]],
+                        "ques": du.pad_list_numpy(qa['encoded_question'], config.ques_max_length),
+                        "ans": du.pad_list_numpy([qa['encoded_answer'][qa['correct_index']],
+                                                  qa['encoded_answer'][ans_idx]], config.ans_max_length),
                         "ques_length": len(qa['encoded_question']),
                         "ans_length": [len(qa['encoded_answer'][qa['correct_index']]),
                                        len(qa['encoded_answer'][ans_idx])],
@@ -115,7 +113,7 @@ def create_tfrecord(qas, subt, split, modality, is_training=False):
         func = partial(create_one_tfrecord,
                        split,
                        modality,
-                       num_per_shard,
+                       3,
                        shared_example_list,
                        shared_subt,
                        is_training)
@@ -124,21 +122,60 @@ def create_tfrecord(qas, subt, split, modality, is_training=False):
                 pbar.update()
 
 
+def test():
+    config_ = MovieQAConfig()
+    TFRECORD_PATTERN = du.FILE_PATTERN.replace('%05d-of-', '*')
+    TFRECORD_PATTERN = ('training_' if FLAGS.is_training else '') + TFRECORD_PATTERN
+    print(TFRECORD_PATTERN % (config_.dataset_name, 'train', 'fixed_num', config_.num_shards))
+    file_names = glob(join(config_.dataset_dir,
+                           TFRECORD_PATTERN % (config_.dataset_name, 'train', 'fixed_num', config_.num_shards)))
+
+    file_name_queue = tf.train.string_input_producer(file_names)
+    reader = tf.TFRecordReader()
+    _, example = reader.read(file_name_queue)
+    context_features, sequence_features = du.qa_feature_parsed()
+    context_parsed, sequence_parsed = tf.parse_single_sequence_example(
+        serialized=example,
+        context_features=context_features,
+        sequence_features=sequence_features
+    )
+    config = tf.ConfigProto(allow_soft_placement=True)
+    config.gpu_options.allow_growth = True
+    with tf.Session(config=config) as sess:
+        tf.global_variables_initializer().run()
+        tf.local_variables_initializer().run()
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(coord=coord)
+        for i in range(10):
+            q, ql, al, a = sess.run([context_parsed['ques'],
+                                     context_parsed['ques_length'],
+                                     context_parsed['ans_length'],
+                                     sequence_parsed['ans']])
+            print(q, ql, al, a, sep='\n')
+        coord.request_stop()
+        coord.join(threads)
+
+
 def main(_):
-    encode_qa = du.load_json(config.avail_encode_qa_file)
-    encode_subtitle = du.load_json(config.encode_subtitle_file)
-    print('Json file loading done !!')
-    du.exist_make_dirs(config.dataset_dir)
-    create_tfrecord(encode_qa['encode_qa_%s' % FLAGS.split],
-                    encode_subtitle,
-                    split=FLAGS.split,
-                    modality=FLAGS.modality,
-                    is_training=FLAGS.is_training)
+    if FLAGS.is_test:
+        test()
+    else:
+        encode_qa = du.load_json(config.avail_encode_qa_file)
+        encode_subtitle = du.load_json(config.encode_subtitle_file)
+        print('Json file loading done !!')
+        du.exist_make_dirs(config.dataset_dir)
+        create_tfrecord(encode_qa['encode_qa_%s' % FLAGS.split],
+                        encode_subtitle,
+                        split=FLAGS.split,
+                        modality=FLAGS.modality,
+                        is_training=FLAGS.is_training)
 
 
 if __name__ == '__main__':
     flags = tf.app.flags
     flags.DEFINE_string("split", "train", "")
-    flags.DEFINE_bool("is_training", False, "")
+    flags.DEFINE_string("modality", "fixed_num", "")
+    flags.DEFINE_bool("is_training", True, "")
+    flags.DEFINE_bool("is_test", False, "")
     FLAGS = flags.FLAGS
     tf.app.run()
