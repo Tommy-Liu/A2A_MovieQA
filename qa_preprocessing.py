@@ -60,19 +60,17 @@ def get_split(qa, video_data):
         'val': [],
     }
     for qa_ in tqdm(qa, desc='Get available split'):
-        v_c = [du.get_base_name_without_ext(vid)
-               for vid in qa_['video_clips'] if video_data[du.get_base_name_without_ext(vid)]['avail']]
         total_qa[qid_split(qa_)].append({
             "qid": qa_['qid'],
             "question": qa_['question'],
             "answers": qa_['answers'],
             "imdb_key": qa_['imdb_key'],
             "correct_index": qa_['correct_index'],
-            "video_clips": v_c,
-            "avail": v_c != []
-
+            "mv+sub": qa_['video_clips'] != [],
+            "video_clips": [du.get_base_name_without_ext(vid)
+                            for vid in qa_['video_clips'] if video_data[du.get_base_name_without_ext(vid)]['avail']],
         })
-
+        total_qa[qid_split(qa_)][-1]['avail'] = (total_qa[qid_split(qa_)][-1]['video_clips'] != [])
     return total_qa
 
 
@@ -153,6 +151,10 @@ def main():
     print('                 %5d   %4d   %3d' % (len([0 for qa_ in total_qa['train'] if qa_['avail']]),
                                                 len([0 for qa_ in total_qa['test'] if qa_['avail']]),
                                                 len([0 for qa_ in total_qa['val'] if qa_['avail']])))
+    print('Mv+Sub qa # :    train | test | val ')
+    print('                 %5d   %4d   %3d' % (len([0 for qa_ in total_qa['train'] if qa_['mv+sub']]),
+                                                len([0 for qa_ in total_qa['test'] if qa_['mv+sub']]),
+                                                len([0 for qa_ in total_qa['val'] if qa_['mv+sub']])))
     print('Total qa # :     train | test | val ')
     print('                 %5d   %4d   %3d' % (len(total_qa['train']),
                                                 len(total_qa['test']),

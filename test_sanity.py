@@ -1,7 +1,6 @@
-import tensorflow as tf
-
 from os.path import join
 
+import tensorflow as tf
 
 flags = tf.app.flags
 

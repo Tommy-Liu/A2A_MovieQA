@@ -188,16 +188,26 @@ def float_feature_list(values):
 def qa_feature_example(example, subt, modality):
     example_feat = np.zeros((0, 1536), dtype=np.float32)
     example_subt = np.zeros((0, 41), dtype=np.int64)
+    example_subt_length = []
     for name in example['feat']:
         f = np.load(name)
         s = subt[get_base_name_without_ext(name)]
+
+        assert len(f) == len(s['subtitle']), \
+            "%s Video frames and subtitle are not aligned." % \
+            get_base_name_without_ext(name)
+
         if modality[0] == 'fixed_num':
             if len(f) < modality[1]:
                 index = np.arange(len(f))
             else:
-                index = np.linspace(0, len(f) - 1, num=modality[1], dtype=np.int64)
+                index = np.linspace(0, len(f) - 1,
+                                    num=modality[1],
+                                    dtype=np.int64)
+
         elif modality[0] == 'fixed_interval':
             index = np.arange(0, len(f), step=modality[1])
+
         elif modality[0] == 'shot_major':
             num_shot = np.amax(s['shot_boundary']) + 1
             index = np.array([])
@@ -206,8 +216,10 @@ def qa_feature_example(example, subt, modality):
                 if len(arg) < modality[1]:
                     index = np.concatenate([index, arg])
                 else:
-                    arg = np.choose(arg, np.linspace(0, len(arg) - 1, num=modality[1]))
+                    arg = np.choose(arg, np.linspace(0, len(arg) - 1,
+                                                     num=modality[1]))
                     index = np.concatenate([index, arg])
+
         elif modality[0] == 'subtitle_major':
             uniques = np.unique(s['subtitle_index'])
             index = np.array([])
@@ -218,21 +230,21 @@ def qa_feature_example(example, subt, modality):
                 else:
                     arg = np.choose(arg, np.linspace(0, len(arg) - 1, num=modality[1]))
                     index = np.concatenate([index, arg])
+
         else:
             raise ValueError("Wrong modality.")
+
         example_feat = np.concatenate([example_feat, f[index]])
-        example_subt = np.concatenate([example_subt, ])
-    feat = np.concatenate([np.load(name) for name in example['feat']],
-                          axis=0).astype(np.float32)
-    assert len(example['subt']) == len(feat), \
-        "Fuck my life... %s" % ' '.join(example['video_clips'])
+        example_subt = np.concatenate([example_subt, pad_list_numpy(s['subtitle'], 41)[index]])
+        example_subt_length += [len(s['subtitle'][idx]) for idx in index]
+
     feature_lists = tf.train.FeatureLists(feature_list={
-        # "subt": to_feature(example['subt']),
-        # "feat": to_feature(feat),
+        "subt": to_feature(example_subt),
+        "feat": to_feature(example_feat),
         "ans": to_feature(example['ans'])
     })
     context = tf.train.Features(feature={
-        # "subt_length": to_feature(example['subt_length']),
+        "subt_length": to_feature(example_subt_length),
         "ans_length": to_feature(example['ans_length']),
         "ques": to_feature(example['ques']),
         "ques_length": to_feature(example['ques_length'])
@@ -242,22 +254,70 @@ def qa_feature_example(example, subt, modality):
 
 
 def qa_eval_feature_example(example, subt, split, modality):
-    feat = np.concatenate([np.load(name) for name in example['feat']],
-                          axis=0).astype(np.float32)
+    example_feat = np.zeros((0, 1536), dtype=np.float32)
+    example_subt = np.zeros((0, 41), dtype=np.int64)
+    example_subt_length = []
+    for name in example['feat']:
+        f = np.load(name)
+        s = subt[get_base_name_without_ext(name)]
+
+        assert len(f) == len(s['subtitle']), \
+            "%s Video frames and subtitle are not aligned." % \
+            get_base_name_without_ext(name)
+
+        if modality[0] == 'fixed_num':
+            if len(f) < modality[1]:
+                index = np.arange(len(f))
+            else:
+                index = np.linspace(0, len(f) - 1,
+                                    num=modality[1],
+                                    dtype=np.int64)
+
+        elif modality[0] == 'fixed_interval':
+            index = np.arange(0, len(f), step=modality[1])
+
+        elif modality[0] == 'shot_major':
+            num_shot = np.amax(s['shot_boundary']) + 1
+            index = np.array([])
+            for i in range(num_shot):
+                arg = np.where(s['shot_boundary'] == i)
+                if len(arg) < modality[1]:
+                    index = np.concatenate([index, arg])
+                else:
+                    arg = np.choose(arg, np.linspace(0, len(arg) - 1,
+                                                     num=modality[1]))
+                    index = np.concatenate([index, arg])
+
+        elif modality[0] == 'subtitle_major':
+            uniques = np.unique(s['subtitle_index'])
+            index = np.array([])
+            for idx in uniques:
+                arg = np.where(s['subtitle_index'] == idx)
+                if len(arg) < modality[1]:
+                    index = np.concatenate([index, arg])
+                else:
+                    arg = np.choose(arg, np.linspace(0, len(arg) - 1, num=modality[1]))
+                    index = np.concatenate([index, arg])
+
+        else:
+            raise ValueError("Wrong modality.")
+
+        example_feat = np.concatenate([example_feat, f[index]])
+        example_subt = np.concatenate([example_subt, pad_list_numpy(s['subtitle'], 41)[index]])
+        example_subt_length += [len(s['subtitle'][idx]) for idx in index]
 
     feature_lists = tf.train.FeatureLists(feature_list={
         "subt": to_feature(example['subt']),
-        "feat": to_feature(feat),
+        "feat": to_feature(example_feat),
         "ans": to_feature(example['ans'])
     })
     feature = {
         "subt_length": to_feature(example['subt_length']),
         "ans_length": to_feature(example['ans_length']),
         "ques": to_feature(example['ques']),
-        "ques_length": to_feature(example['ques_length'])
+        "ques_length": to_feature(example['ques_length']),
+        "correct_index": to_feature(example['correct_index'])
     }
-    if split != 'test':
-        feature['correct_index'] = to_feature(example['correct_index'])
     context = tf.train.Features(feature=feature)
     return tf.train.SequenceExample(context=context,
                                     feature_lists=feature_lists)
@@ -312,15 +372,3 @@ def qa_feature_parsed():
 def get_dataset_name(d, name, split, modality, shard_id, num_shards, is_training=False):
     return join(d, ('training_' if is_training else '') + FILE_PATTERN %
                 (name, split, modality, shard_id, num_shards))
-
-
-def frame_feature_example(features):
-    frame_feats = float_feature_list([feats.tolist() for feats in features])
-    context = tf.train.Features(feature={
-        "number": int64_feature(len(features))
-    })
-    feature_lists = tf.train.FeatureLists(feature_list={
-        "frame_feats": frame_feats
-    })
-    return tf.train.SequenceExample(
-        context=context, feature_lists=feature_lists)

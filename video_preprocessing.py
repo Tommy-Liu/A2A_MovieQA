@@ -29,7 +29,7 @@ DIR_PATTERN_ = 'tt*'
 VIDEO_PATTERN_ = '*.mp4'
 IMAGE_PATTERN_ = '*.jpg'
 ALIGN_SUBTITLE_PATTERN_ = '\r>> Align subtitles  %d/%d IMDB: %s'
-allow_discard_offset = 10
+allow_discard_offset = 3
 videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.isdir(d)]
 
 

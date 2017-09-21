@@ -30,7 +30,9 @@ def create_one_tfrecord(split, modality, num_per_shard, example_list, subt, is_t
                                           shard_id + 1,
                                           config.num_shards,
                                           is_training)
-    du.exist_then_remove(output_filename)
+    du.exist_then_remove(
+
+    )
     # print('Start writing %s.' % output_filename)
     with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
         start_ndx = shard_id * num_per_shard
@@ -77,9 +79,16 @@ def get_total_example(qas, split, is_training=False):
                 for _ in range(5 - len(ans)):
                     ans.append(ans[0])
             else:
-                ans = [a for a in qa['encoded_answer'] if a]
+                ans = []
+                correct_index = []
+                for idx, a in enumerate(qa['encoded_answer']):
+                    if a:
+                        ans.append(a)
+                        correct_index.append(idx)
+
                 for _ in range(5 - len(ans)):
                     ans.append(ans[0])
+                    correct_index.append(correct_index[0])
                 assert all(ans), "Empty answer occurs!\n %s" % json.dumps(qa, indent=4)
             ans_length = [len(a) for a in ans]
 
@@ -92,9 +101,8 @@ def get_total_example(qas, split, is_training=False):
                 "video_clips": qa['video_clips'],
                 "ans": ans,
                 "ans_length": ans_length,
+                "correct_index": correct_index
             })
-            if split != 'test':
-                example_list[-1]["correct_index"] = correct_index
     return example_list
 
 
