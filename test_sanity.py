@@ -1,13 +1,19 @@
 from os.path import join
 
+import numpy as np
 import tensorflow as tf
+from tqdm import tqdm
+
+import data_utils as du
+from config import MovieQAConfig
+
+config = MovieQAConfig()
 
 flags = tf.app.flags
 
 flags.DEFINE_string('tfrecord_dir', './tfrecords', '')
 
 FLAGS = flags.FLAGS
-
 
 tfrecord = 'tt0780571.sf-021027.ef-024026.video.tfrecord'
 
@@ -32,14 +38,21 @@ def check_tfrecord():
     print(s['frame_feats'].shape)
     print(s['frame_feats'])
 
-def test():
-    writer = tf.python_io.TFRecordWriter('./test.tfrecord')
 
+def test_npy():
+    video_data = du.load_json(config.video_data_file)
+
+    for key in tqdm(video_data.keys(),
+                    desc="Check sanity of features"):
+        if video_data[key]['avail']:
+            feat = np.load(du.get_npy_name(config.feature_dir, key))
+            assert len(feat) == video_data[key]['info']['num_frames'], \
+                "Previous feature - %s is not aligned." % key
 
 
 def main(_):
-    test()
+    test_npy()
+
 
 if __name__ == '__main__':
     tf.app.run()
-

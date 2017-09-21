@@ -30,9 +30,7 @@ def create_one_tfrecord(split, modality, num_per_shard, example_list, subt, is_t
                                           shard_id + 1,
                                           config.num_shards,
                                           is_training)
-    du.exist_then_remove(
-
-    )
+    du.exist_then_remove(output_filename)
     # print('Start writing %s.' % output_filename)
     with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
         start_ndx = shard_id * num_per_shard
@@ -57,8 +55,7 @@ def get_total_example(qas, split, is_training=False):
             for ans_idx in range(len(qa['encoded_answer'])):
                 if ans_idx != qa['correct_index'] and qa['encoded_answer'][ans_idx]:
                     example_list.append({
-                        "feat": [du.get_npy_name(config.feature_dir,
-                                                 du.get_base_name_without_ext(v))
+                        "feat": [du.get_npy_name(config.feature_dir, v)
                                  for v in qa['video_clips']],
                         "ques": du.pad_list_numpy(qa['encoded_question'], config.ques_max_length),
                         "ans": du.pad_list_numpy([qa['encoded_answer'][qa['correct_index']],
@@ -93,8 +90,7 @@ def get_total_example(qas, split, is_training=False):
             ans_length = [len(a) for a in ans]
 
             example_list.append({
-                "feat": [du.get_npy_name(config.feature_dir,
-                                         du.get_base_name_without_ext(v))
+                "feat": [du.get_npy_name(config.feature_dir, v)
                          for v in qa['video_clips']],
                 "ques": qa['encoded_question'],
                 "ques_length": len(qa['encoded_question']),
