@@ -151,17 +151,22 @@ def test():
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord)
         for i in range(10):
-            q, ql, al, a = sess.run([context_parsed['ques'],
-                                     context_parsed['ques_length'],
-                                     context_parsed['ans_length'],
-                                     sequence_parsed['ans']])
+            q, ql, al, a = sess.run([
+                context_parsed['feat'],
+                context_parsed['subt'],
+                context_parsed['subt_length'],
+                context_parsed['ques'],
+                context_parsed['ques_length'],
+                context_parsed['ans_length'],
+                sequence_parsed['ans']])
             print(q, ql, al, a, sep='\n')
         coord.request_stop()
         coord.join(threads)
 
 
 def main(_):
-    if FLAGS.is_test:
+    if FLAGS.test:
+        print('Test tfrecords.')
         test()
     else:
         encode_qa = du.load_json(config.avail_encode_qa_file)
@@ -180,6 +185,6 @@ if __name__ == '__main__':
     flags.DEFINE_string("split", "train", "")
     flags.DEFINE_string("modality", "fixed_num", "")
     flags.DEFINE_bool("is_training", True, "")
-    flags.DEFINE_bool("is_test", False, "")
+    flags.DEFINE_bool("test", False, "")
     FLAGS = flags.FLAGS
     tf.app.run()

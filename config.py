@@ -54,7 +54,7 @@ class MovieQAConfig(Config):
 
         # Modality
         self.modality = {
-            'fixed_num': 85,
+            'fixed_num': 105,
             'fixed_interval': 20,
             'shot_major': 4,
             'subtitle_major': 4,
