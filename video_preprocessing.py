@@ -1,10 +1,8 @@
 import argparse
 import codecs
-import multiprocessing
 import os
 import re
 import sys
-import traceback
 import ujson as json
 from functools import partial
 from glob import glob
@@ -31,10 +29,6 @@ IMAGE_PATTERN_ = '*.jpg'
 ALIGN_SUBTITLE_PATTERN_ = '\r>> Align subtitles  %d/%d IMDB: %s'
 allow_discard_offset = 3
 videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.isdir(d)]
-
-
-def error(msg, *args):
-    return multiprocessing.get_logger().error(msg, *args)
 
 
 def get_start_and_end_time(l):
@@ -131,44 +125,40 @@ def legacy_map_time_subtitle(imdb_key):
     :param imdb_key: imdb name
     :return: a list containing tuples: (time tuple: (start time, end time), list of line: [words])
     """
-    try:
-        line_list = []
-        # Read all subtitles from file.
-        with codecs.open(join(subt_dir, imdb_key + '.srt'), 'r',
-                         encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                line_list.append(re.sub(r'[\n\r]', '', line))
-            # Some of subtitles don't have the last new line.
-            # So, we add one.
-            if line_list[-1] != '':
-                line_list.append('')
+    line_list = []
+    # Read all subtitles from file.
+    with codecs.open(join(subt_dir, imdb_key + '.srt'), 'r',
+                     encoding='utf-8', errors='ignore') as f:
+        for line in f:
+            line_list.append(re.sub(r'[\n\r]', '', line))
+        # Some of subtitles don't have the last new line.
+        # So, we add one.
+        if line_list[-1] != '':
+            line_list.append('')
 
-        # i for subtitle line number.
-        # j for frame number.
-        i = 0
-        time_to_subtitle = []
-        while i < len(line_list):
+    # i for subtitle line number.
+    # j for frame number.
+    i = 0
+    time_to_subtitle = []
+    while i < len(line_list):
+        line, i = get_line(line_list, i)
+        lines = []
+        # The first line of each line is a digit.
+        if line.isdigit():
             line, i = get_line(line_list, i)
-            lines = []
-            # The first line of each line is a digit.
-            if line.isdigit():
+            # The second line of each line is time interval.
+            start_time, end_time = get_start_and_end_time(line)
+            line, i = get_line(line_list, i)
+            # Then, the true subtitle lines.
+            # When encounter '', stop collect lines.
+            while line != '':
+                lines.append(line)
                 line, i = get_line(line_list, i)
-                # The second line of each line is time interval.
-                start_time, end_time = get_start_and_end_time(line)
-                line, i = get_line(line_list, i)
-                # Then, the true subtitle lines.
-                # When encounter '', stop collect lines.
-                while line != '':
-                    lines.append(line)
-                    line, i = get_line(line_list, i)
-                # Clean lines?? good or bad?
-                # Cuz it might be another clue.
-                # Update: Fuck those tokens.
-                lines = word_tokenize(du.clean_token(' '.join(lines)))
-                time_to_subtitle.append(((start_time, end_time), lines))
-    except Exception:
-        error(traceback.format_exc())
-        raise Exception(imdb_key)
+            # Clean lines?? good or bad?
+            # Cuz it might be another clue.
+            # Update: Fuck those tokens.
+            lines = word_tokenize(du.clean_token(' '.join(lines)))
+            time_to_subtitle.append(((start_time, end_time), lines))
     return time_to_subtitle
 
 

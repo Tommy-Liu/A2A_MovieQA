@@ -307,12 +307,12 @@ def qa_eval_feature_example(example, subt, split, modality):
         example_subt_length += [len(s['subtitle'][idx]) for idx in index]
 
     feature_lists = tf.train.FeatureLists(feature_list={
-        "subt": to_feature(example['subt']),
+        "subt": to_feature(example_subt),
         "feat": to_feature(example_feat),
         "ans": to_feature(example['ans'])
     })
     feature = {
-        "subt_length": to_feature(example['subt_length']),
+        "subt_length": to_feature(example_subt_length),
         "ans_length": to_feature(example['ans_length']),
         "ques": to_feature(example['ques']),
         "ques_length": to_feature(example['ques_length']),
@@ -326,14 +326,15 @@ def qa_eval_feature_example(example, subt, split, modality):
 def qa_test_feature_parsed():
     context_features = {
         "subt_length": tf.VarLenFeature(dtype=tf.int64),
-        "ans_length": tf.VarLenFeature(dtype=tf.int64),
-        "ques": tf.VarLenFeature(dtype=tf.int64),
+        "ans_length": tf.FixedLenFeature([5], dtype=tf.int64),
+        "ques": tf.FixedLenFeature([25], dtype=tf.int64),
         "ques_length": tf.FixedLenFeature([], dtype=tf.int64),
+        "correct_index": tf.FixedLenFeature([5], dtype=tf.int64)
     }
     sequence_features = {
-        "subt": tf.VarLenFeature(dtype=tf.int64),
+        "subt": tf.FixedLenSequenceFeature([41], dtype=tf.int64),
         "feat": tf.FixedLenSequenceFeature([1536], dtype=tf.float32),
-        "ans": tf.VarLenFeature(dtype=tf.int64)
+        "ans": tf.FixedLenSequenceFeature([34], dtype=tf.int64)
     }
     return context_features, sequence_features
 
@@ -341,15 +342,15 @@ def qa_test_feature_parsed():
 def qa_eval_feature_parsed():
     context_features = {
         "subt_length": tf.VarLenFeature(dtype=tf.int64),
-        "ans_length": tf.VarLenFeature(dtype=tf.int64),
-        "ques": tf.VarLenFeature(dtype=tf.int64),
+        "ans_length": tf.FixedLenFeature([5], dtype=tf.int64),
+        "ques": tf.FixedLenFeature([25], dtype=tf.int64),
         "ques_length": tf.FixedLenFeature([], dtype=tf.int64),
         "correct_index": tf.FixedLenFeature([], dtype=tf.int64)
     }
     sequence_features = {
-        "subt": tf.VarLenFeature(dtype=tf.int64),
+        "subt": tf.FixedLenSequenceFeature([41], dtype=tf.int64),
         "feat": tf.FixedLenSequenceFeature([1536], dtype=tf.float32),
-        "ans": tf.VarLenFeature(dtype=tf.int64)
+        "ans": tf.FixedLenSequenceFeature([34], dtype=tf.int64)
     }
     return context_features, sequence_features
 

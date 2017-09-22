@@ -3,7 +3,6 @@ import pprint
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.layers as l
-import tensorflow.contrib.slim as slim
 
 from config import MovieQAConfig
 from get_dataset import MovieQAData
@@ -75,14 +74,13 @@ class VLLabMemoryModel(object):
 
     def build_seq_embedding(self):
         with tf.variable_scope("SeqEmbedding"):
+            with tf.device("/cpu:0"):
+                embedding_matrix = tf.get_variable(
+                    name="embedding_matrix",
+                    shape=[self.config.size_vocab, self.config.embedding_size],
+                    initializer=self.initializer)
             with tf.variable_scope("QuesEmbedding"):
-                with tf.device("/cpu:0"):
-                    embedding_map = tf.get_variable(
-                        name="map",
-                        shape=[self.config.size_vocab_q, self.config.embedding_size],
-                        initializer=self.initializer)
-                    seq_embeddings = tf.nn.embedding_lookup(embedding_map, self.data.ques)
-                    self.ques_embeddings = seq_embeddings
+                self.ques_embeddings = tf.nn.embedding_lookup(embedding_matrix, self.data.ques)
                 lstm_cell = tf.nn.rnn_cell.LSTMCell(self.config.num_lstm_units,
                                                     initializer=self.initializer)
                 lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell,
@@ -98,13 +96,7 @@ class VLLabMemoryModel(object):
                                                               dtype=tf.float32)
 
             with tf.variable_scope("AnsEmbedding"):
-                with tf.device("/cpu:0"):
-                    embedding_map = tf.get_variable(
-                        name="map",
-                        shape=[self.config.size_vocab_a, self.config.embedding_size],
-                        initializer=self.initializer)
-                    seq_embeddings = tf.nn.embedding_lookup(embedding_map, self.data.ans)
-                    self.ans_embeddings = seq_embeddings
+                self.ans_embeddings = tf.nn.embedding_lookup(embedding_matrix, self.data.ans)
                 lstm_cell = tf.nn.rnn_cell.LSTMCell(self.config.num_lstm_units,
                                                     initializer=self.initializer)
                 lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell,
@@ -120,13 +112,7 @@ class VLLabMemoryModel(object):
                                                              dtype=tf.float32)
 
             with tf.variable_scope("SubtEmbedding"):
-                with tf.device("/cpu:0"):
-                    embedding_map = tf.get_variable(
-                        name="map",
-                        shape=[self.config.size_vocab_s, self.config.embedding_size],
-                        initializer=self.initializer)
-                    seq_embeddings = tf.nn.embedding_lookup(embedding_map, self.data.subt)
-                    self.subt_embedding = seq_embeddings
+                self.subt_embedding = tf.nn.embedding_lookup(embedding_matrix, self.data.subt)
                 subt_mask = tf.tile(tf.expand_dims(tf.sequence_mask(self.data.subt_length), axis=2),
                                     [1, 1, self.config.embedding_size])
                 zeros = tf.zeros_like(self.subt_embedding)
@@ -134,21 +120,6 @@ class VLLabMemoryModel(object):
 
                 self.mean_subt = tf.divide(tf.reduce_sum(masked_subt, axis=1),
                                            tf.expand_dims(tf.cast(self.data.subt_length, tf.float32), axis=1))
-                # _, self.subt_partition = tf.dynamic_partition(self.subt_embedding, subt_mask,
-                #                                               num_partitions=2)
-                # lstm_cell = tf.nn.rnn_cell.LSTMCell(self.config.num_lstm_units,
-                #                                     initializer=self.initializer)
-                # lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell,
-                #                                           input_keep_prob=self.config.lstm_dropout_keep_prob,
-                #                                           output_keep_prob=self.config.lstm_dropout_keep_prob)
-                # zero_state = lstm_cell.zero_state(
-                #     batch_size=self.config.batch_size, dtype=tf.float32)
-                #
-                # _, self.subt_lstm_outputs = tf.nn.dynamic_rnn(cell=lstm_cell,
-                #                                               inputs=self.subt_embedding,
-                #                                               sequence_length=self.data.subt_length,
-                #                                               initial_state=zero_state,
-                #                                               dtype=tf.float32)
 
     def build_sliding_conv(self, layers=1):
         x = [self.movie_feature_repr]

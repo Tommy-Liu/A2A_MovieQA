@@ -92,10 +92,10 @@ def get_total_example(qas, split, is_training=False):
             example_list.append({
                 "feat": [du.get_npy_name(config.feature_dir, v)
                          for v in qa['video_clips']],
-                "ques": qa['encoded_question'],
+                "ques": du.pad_list_numpy(qa['encoded_question'], config.ques_max_length),
                 "ques_length": len(qa['encoded_question']),
                 "video_clips": qa['video_clips'],
-                "ans": ans,
+                "ans": du.pad_list_numpy(ans, config.ans_max_length),
                 "ans_length": ans_length,
                 "correct_index": correct_index
             })
@@ -117,11 +117,12 @@ def create_tfrecord(qas, subt, split, modality, is_training=False):
         func = partial(create_one_tfrecord,
                        split,
                        modality,
-                       3,
+                       num_per_shard,
                        shared_example_list,
                        shared_subt,
                        is_training)
-        with Pool(8) as p, tqdm(total=config.num_shards, desc="Write tfrecords") as pbar:
+        with Pool(8) as p, tqdm(total=config.num_shards,
+                                desc="Write tfrecords") as pbar:
             for i, _ in enumerate(p.imap_unordered(func, shard_id_list)):
                 pbar.update()
 
@@ -130,14 +131,22 @@ def test():
     config_ = MovieQAConfig()
     TFRECORD_PATTERN = du.FILE_PATTERN.replace('%05d-of-', '*')
     TFRECORD_PATTERN = ('training_' if FLAGS.is_training else '') + TFRECORD_PATTERN
-    print(TFRECORD_PATTERN % (config_.dataset_name, 'train', 'fixed_num', config_.num_shards))
+    print(TFRECORD_PATTERN % (config_.dataset_name, FLAGS.split,
+                              FLAGS.modality, config_.num_shards))
     file_names = glob(join(config_.dataset_dir,
-                           TFRECORD_PATTERN % (config_.dataset_name, 'train', 'fixed_num', config_.num_shards)))
+                           TFRECORD_PATTERN % (config_.dataset_name, FLAGS.split,
+                                               FLAGS.modality, config_.num_shards)))
 
-    file_name_queue = tf.train.string_input_producer(file_names)
+    file_name_queue = tf.train.string_input_producer(file_names, num_epochs=1)
     reader = tf.TFRecordReader()
     _, example = reader.read(file_name_queue)
-    context_features, sequence_features = du.qa_feature_parsed()
+    if FLAGS.is_training:
+        context_features, sequence_features = du.qa_feature_parsed()
+    elif FLAGS.split != 'test':
+        context_features, sequence_features = du.qa_eval_feature_parsed()
+    else:
+        context_features, sequence_features = du.qa_test_feature_parsed()
+
     context_parsed, sequence_parsed = tf.parse_single_sequence_example(
         serialized=example,
         context_features=context_features,
@@ -145,23 +154,40 @@ def test():
     )
     config = tf.ConfigProto(allow_soft_placement=True)
     config.gpu_options.allow_growth = True
-    with tf.Session(config=config) as sess:
+    with tf.Session(config=config) as sess, tqdm(total=con):
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord)
-        for i in range(10):
-            q, ql, al, a = sess.run([
-                context_parsed['feat'],
-                context_parsed['subt'],
-                context_parsed['subt_length'],
-                context_parsed['ques'],
-                context_parsed['ques_length'],
-                context_parsed['ans_length'],
-                sequence_parsed['ans']])
-            print(q, ql, al, a, sep='\n')
-        coord.request_stop()
-        coord.join(threads)
+        i = 0
+        try:
+            while not coord.should_stop():
+                sess.run([
+                    sequence_parsed['feat'],
+                    sequence_parsed['subt'],
+                    context_parsed['subt_length'],
+                    context_parsed['ques'],
+                    context_parsed['ques_length'],
+                    context_parsed['ans_length'],
+                    sequence_parsed['ans']])
+                i += 1
+        except tf.errors.OutOfRangeError:
+            print("Example #: %d" % i)
+            print("Expected example #: %d" % (128 * 3))
+            print("Done!")
+        finally:
+            coord.request_stop()
+            coord.join(threads)
+            # for i in range(3):
+            #     f, s, sl, q, ql, al, a = sess.run([
+            #         sequence_parsed['feat'],
+            #         sequence_parsed['subt'],
+            #         context_parsed['subt_length'],
+            #         context_parsed['ques'],
+            #         context_parsed['ques_length'],
+            #         context_parsed['ans_length'],
+            #         sequence_parsed['ans']])
+            #     print(f[:3], s[:3], sl, q, ql, al, a, sep='\n')
 
 
 def main(_):
