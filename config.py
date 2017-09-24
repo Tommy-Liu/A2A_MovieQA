@@ -115,6 +115,8 @@ class MovieQAConfig(Config):
             # Optimizer for training the model.
             self.optimizer = "Adam"
 
+            # Number of sliding convolution layer
+            self.num_layers = 1
             # Learning rate for the initial phase of training.
             self.initial_learning_rate = 0.002
             self.learning_rate_decay_factor = 0.87

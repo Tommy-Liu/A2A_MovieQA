@@ -16,7 +16,7 @@ def npy_read_func(file_name):
 
 
 class VLLabMemoryModel(MovieQAConfig):
-    def __init__(self, data, is_training=True):
+    def __init__(self, data, num_layers=1, is_training=True):
         super(VLLabMemoryModel, self).__init__()
         self.data = data
         self.initializer = tf.random_uniform_initializer(
@@ -38,6 +38,7 @@ class VLLabMemoryModel(MovieQAConfig):
         self.logits = None
         self.prediction = None
         # self.subt_lstm_outputs = None
+        self.num_layers = num_layers
 
         self.build_model()
 
@@ -124,13 +125,13 @@ class VLLabMemoryModel(MovieQAConfig):
                 self.mean_subt = tf.divide(tf.reduce_sum(masked_subt, axis=1),
                                            tf.expand_dims(tf.cast(self.data.subt_length, tf.float32), axis=1))
 
-    def build_sliding_conv(self, num_layers=1):
+    def build_sliding_conv(self):
         x = [self.movie_feature_repr]
         input_channel = self.feature_dim + self.embedding_size
         conv_outputs = []
-        for layer in range(1, num_layers + 1):
+        for layer in range(1, self.num_layers + 1):
             conv_outputs = []
-            output_channel = self.sliding_dim * (2 ** (num_layers - layer))
+            output_channel = self.sliding_dim * (2 ** (self.num_layers - layer))
             with tf.variable_scope("SlideConv-%s" % layer):
                 for inp in x:
                     for filter_size in self.filter_sizes:
