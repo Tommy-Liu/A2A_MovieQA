@@ -105,9 +105,10 @@ def get_total_example(qas, split, is_training=False):
 def create_tfrecord(qas, subt, split, modality, is_training=False):
     example_list = get_total_example(qas, split, is_training)
     config.update_info({
-        "num_%s%s_examples" %
+        config.NUMEXAMPLE_PATTERN_ %
         ("training_" if is_training else "",
-         split): len(example_list)
+         config.dataset_name,
+         split, modality): len(example_list)
     })
     num_per_shard = int(math.ceil(len(example_list) / float(config.num_shards)))
     shard_id_list = list(range(config.num_shards))

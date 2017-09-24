@@ -71,13 +71,11 @@ def test_parser(record):
 
 
 class MovieQAData(object):
-    TFRECORD_PATTERN = du.FILE_PATTERN.replace('%05d-of-', '*')
-
     def __init__(self, config, split, modality='fixed_num', is_training=True, dummy=False):
         self.config = config
-        self.TFRECORD_PATTERN = ('training_' if is_training else '') + self.TFRECORD_PATTERN
         self.file_names = glob(join(self.config.dataset_dir,
-                                    self.TFRECORD_PATTERN % (self.config.dataset_name,
+                                    self.config.TFRECORD_FILE_PATTERN_ % (i
+        self.config.dataset_name,
                                                              split, modality, self.config.num_shards)))
         if not dummy:
             self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
@@ -158,7 +156,7 @@ def main(_):
                 i += 1
         except tf.errors.OutOfRangeError:
             print(i)
-            print(128 * 3)
+            print(config_.get_num_example(FLAGS.split, FLAGS.modality, FLAGS.is_training))
             print("Done!")
             # coord.request_stop()
             # coord.join(threads)

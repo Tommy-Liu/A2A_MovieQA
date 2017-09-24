@@ -17,6 +17,10 @@ class Config(object):
 class MovieQAConfig(Config):
     """Wrapper class for all hyperparameters."""
     NPY_PATTERN_ = '*.npy'
+    DATASET_PATTERN_ = '%s%s_%s_%s'  # 1. is_training 2. datasetname 3. split 4. modality
+    TFRECORD_PATTERN_ = DATASET_PATTERN_ + '_%05d-of-%05d.tfrecord'
+    TFRECORD_FILE_PATTERN_ = TFRECORD_PATTERN_.replace('%05d-of-', '*')
+    NUMEXAMPLE_PATTERN_ = 'num_' + DATASET_PATTERN_ + '_example'
     _group_name = None
 
     def __init__(self):
@@ -120,7 +124,12 @@ class MovieQAConfig(Config):
 
         self.filter_sizes = list(range(self.min_filter_size,
                                        self.max_filter_size + 1))
+        self.info = {}
         self.load_info()
+
+    def get_num_example(self, split, modality, is_training):
+        return self.info[self.NUMEXAMPLE_PATTERN_ %
+                         ("training" if is_training else "", split, modality)]
 
     @contextmanager
     def _create_group(self, group_name):
@@ -140,24 +149,18 @@ class MovieQAConfig(Config):
             self.size_vocab = len(vocab['vocab'])
 
     def load_info(self):
-        info = json.load(open(self.info_file, 'r'))
-        self.__dict__.update(info)
+        if os.path.exists(self.info_file):
+            self.info.update(json.load(open(self.info_file, 'r')))
 
     def update_info(self, item=None, file=None, keys=None):
-        if os.path.exists(self.info_file):
-            info = json.load(open(self.info_file, 'r'))
-        else:
-            info = {}
         if file:
             item = json.load(open(file, 'r'))
         if keys:
             for key in keys:
-                info[key] = item[key]
-                self.__setattr__(key, item[key])
+                self.info[key] = item[key]
         else:
-            info.update(item)
-            self.__dict__.update(item)
-        json.dump(info, open(self.info_file, 'w'))
+            self.info.update(item)
+        json.dump(self.info, open(self.info_file, 'w'), indent=4)
 
 
 def main():

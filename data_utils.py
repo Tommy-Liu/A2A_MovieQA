@@ -8,7 +8,7 @@ import tensorflow as tf
 
 from config import MovieQAConfig
 
-FILE_PATTERN = '%s_%s_%s_%05d-of-%05d.tfrecord'
+FILE_PATTERN = MovieQAConfig.TFRECORD_PATTERN_
 NPY_PATTERN_ = '%s.npy'
 
 
@@ -371,5 +371,9 @@ def qa_feature_parsed():
 
 
 def get_dataset_name(d, name, split, modality, shard_id, num_shards, is_training=False):
-    return join(d, ('training_' if is_training else '') + FILE_PATTERN %
-                (name, split, modality, shard_id, num_shards))
+    return join(d, FILE_PATTERN %
+                (('training_' if is_training else ''),
+                 name, split, modality, shard_id, num_shards))
+
+
+def get_file_pattern():

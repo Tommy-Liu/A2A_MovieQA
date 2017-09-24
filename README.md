@@ -22,7 +22,7 @@ video_data = \
         'data': data,
         'info': info,
     }
-    # ...: {}
+    # ... '': {}
 }
 ```
 ### Subtitle data
@@ -31,17 +31,69 @@ video_data = \
 subtitle_data = \
 {
     'video_base_name': {
-        'subtitle':[],
+        'subtitle':[[]],
         'subtitle_index': [],
         'frame_time': [],
         'shot_boundary': [],
     }
-    # ...: {}
+    # ... '': {}
 }
 ```
-### QA data
-* 
+### Total QA data
+* Python dictionary:
+```python
+qa_list = [
+    {
+        "qid": '',
+        "question": '',
+        "answers": [],
+        "imdb_key": '',
+        "correct_index": 0,
+        "mv+sub": bool,
+        "video_clips": []
+    }
+    # ...: {}
+]
+total_qa = {
+        'train': qa_list,
+        'test': qa_list,
+        'val': qa_list,
+    }
+```
+### Tokenize QA data
+```python
+tokenize_qa = [
+    {
+        'tokenize_question': [],
+        'tokenize_answer': [[]],
+        'video_clips': [],
+        'correct_index': 0
+    }
+    # ...: {}
+]
+```
+### Encoded QA data 
+```python
+encode_qa = [
+    {
+        'encoded_answer': [[]],
+        'encoded_question': [],
+        'video_clips': [],
+        'correct_index': 0
+    }
+    # ...: {}
+]
+encode_sub = {
+    "video_base_name":{
+        'subtitle': [[]],
+        'subtitle_index': [],
+        'frame_time': [],
+    }
+    # ... '': {}
+}
+```
 
+### 
 
 
 
