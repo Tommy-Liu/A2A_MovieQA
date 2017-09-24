@@ -2,7 +2,7 @@ import pprint
 
 import numpy as np
 import tensorflow as tf
-import tensorflow.contrib.layers as l
+import tensorflow.contrib.layers as layers
 
 from config import MovieQAConfig
 from get_dataset import MovieQAData
@@ -15,13 +15,13 @@ def npy_read_func(file_name):
     return np.load(file_name.decode('utf-8'))
 
 
-class VLLabMemoryModel(object):
-    def __init__(self, data, config, is_training=True):
+class VLLabMemoryModel(MovieQAConfig):
+    def __init__(self, data, is_training=True):
+        super(VLLabMemoryModel, self).__init__()
         self.data = data
-        self.config = config
         self.initializer = tf.random_uniform_initializer(
-            minval=-self.config.initializer_scale,
-            maxval=self.config.initializer_scale)
+            minval=-self.initializer_scale,
+            maxval=self.initializer_scale)
 
         self.ques_embeddings = None
         self.ans_embeddings = None
@@ -57,19 +57,19 @@ class VLLabMemoryModel(object):
     def build_movie_feature(self):
         with tf.variable_scope('MovieRepr'):
             concat_feature_repr = tf.concat([self.data.feat, self.mean_subt], axis=1)
-            concat_feature_repr = tf.stack([concat_feature_repr for _ in range(self.config.batch_size)])
+            concat_feature_repr = tf.stack([concat_feature_repr for _ in range(self.batch_size)])
             self.movie_feature_repr = tf.expand_dims(concat_feature_repr, axis=3)
 
     def multilayer_perceptron(self):
         with tf.variable_scope("MLP"):
-            x = l.dropout(self.final_repr, keep_prob=self.config.lstm_dropout_keep_prob)
-            fc1 = l.fully_connected(x, 2048)
-            fc1 = l.dropout(fc1, keep_prob=self.config.lstm_dropout_keep_prob)
-            fc2 = l.fully_connected(fc1, 1024)
-            fc2 = l.dropout(fc2, keep_prob=self.config.lstm_dropout_keep_prob)
-            fc3 = l.fully_connected(fc2, 512)
-            fc3 = l.dropout(fc3, keep_prob=self.config.lstm_dropout_keep_prob)
-            self.logits = l.fully_connected(fc3, 1, activation_fn=None)
+            x = layers.dropout(self.final_repr, keep_prob=self.lstm_dropout_keep_prob)
+            fc1 = layers.fully_connected(x, 2048)
+            fc1 = layers.dropout(fc1, keep_prob=self.lstm_dropout_keep_prob)
+            fc2 = layers.fully_connected(fc1, 1024)
+            fc2 = layers.dropout(fc2, keep_prob=self.lstm_dropout_keep_prob)
+            fc3 = layers.fully_connected(fc2, 512)
+            fc3 = layers.dropout(fc3, keep_prob=self.lstm_dropout_keep_prob)
+            self.logits = layers.fully_connected(fc3, 1, activation_fn=None)
             self.prediction = tf.nn.sigmoid(self.logits)
 
     def build_seq_embedding(self):
@@ -77,17 +77,17 @@ class VLLabMemoryModel(object):
             with tf.device("/cpu:0"):
                 embedding_matrix = tf.get_variable(
                     name="embedding_matrix",
-                    shape=[self.config.size_vocab, self.config.embedding_size],
+                    shape=[self.size_vocab, self.embedding_size],
                     initializer=self.initializer)
             with tf.variable_scope("QuesEmbedding"):
                 self.ques_embeddings = tf.nn.embedding_lookup(embedding_matrix, self.data.ques)
-                lstm_cell = tf.nn.rnn_cell.LSTMCell(self.config.num_lstm_units,
+                lstm_cell = tf.nn.rnn_cell.LSTMCell(self.num_lstm_units,
                                                     initializer=self.initializer)
                 lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell,
-                                                          input_keep_prob=self.config.lstm_dropout_keep_prob,
-                                                          output_keep_prob=self.config.lstm_dropout_keep_prob)
+                                                          input_keep_prob=self.lstm_dropout_keep_prob,
+                                                          output_keep_prob=self.lstm_dropout_keep_prob)
                 zero_state = lstm_cell.zero_state(
-                    batch_size=self.config.batch_size, dtype=tf.float32)
+                    batch_size=self.batch_size, dtype=tf.float32)
 
                 _, self.ques_lstm_outputs = tf.nn.dynamic_rnn(cell=lstm_cell,
                                                               inputs=self.ques_embeddings,
@@ -97,13 +97,13 @@ class VLLabMemoryModel(object):
 
             with tf.variable_scope("AnsEmbedding"):
                 self.ans_embeddings = tf.nn.embedding_lookup(embedding_matrix, self.data.ans)
-                lstm_cell = tf.nn.rnn_cell.LSTMCell(self.config.num_lstm_units,
+                lstm_cell = tf.nn.rnn_cell.LSTMCell(self.num_lstm_units,
                                                     initializer=self.initializer)
                 lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell,
-                                                          input_keep_prob=self.config.lstm_dropout_keep_prob,
-                                                          output_keep_prob=self.config.lstm_dropout_keep_prob)
+                                                          input_keep_prob=self.lstm_dropout_keep_prob,
+                                                          output_keep_prob=self.lstm_dropout_keep_prob)
                 zero_state = lstm_cell.zero_state(
-                    batch_size=self.config.batch_size, dtype=tf.float32)
+                    batch_size=self.batch_size, dtype=tf.float32)
 
                 _, self.ans_lstm_outputs = tf.nn.dynamic_rnn(cell=lstm_cell,
                                                              inputs=self.ans_embeddings,
@@ -113,35 +113,38 @@ class VLLabMemoryModel(object):
 
             with tf.variable_scope("SubtEmbedding"):
                 self.subt_embedding = tf.nn.embedding_lookup(embedding_matrix, self.data.subt)
-                subt_mask = tf.tile(tf.expand_dims(tf.sequence_mask(self.data.subt_length), axis=2),
-                                    [1, 1, self.config.embedding_size])
+                subt_mask = tf.tile(
+                    tf.expand_dims(
+                        tf.sequence_mask(self.data.subt_length,
+                                         maxlen=self.subt_max_length), axis=2),
+                    [1, 1, self.embedding_size])
                 zeros = tf.zeros_like(self.subt_embedding)
                 masked_subt = tf.where(subt_mask, self.subt_embedding, zeros)
 
                 self.mean_subt = tf.divide(tf.reduce_sum(masked_subt, axis=1),
                                            tf.expand_dims(tf.cast(self.data.subt_length, tf.float32), axis=1))
 
-    def build_sliding_conv(self, layers=1):
+    def build_sliding_conv(self, num_layers=1):
         x = [self.movie_feature_repr]
-        input_channel = self.config.feature_dim + self.config.embedding_size
+        input_channel = self.feature_dim + self.embedding_size
         conv_outputs = []
-        for layer in range(1, layers + 1):
+        for layer in range(1, num_layers + 1):
             conv_outputs = []
-            output_channel = self.config.sliding_dim * (2 ** (layers - layer))
+            output_channel = self.sliding_dim * (2 ** (num_layers - layer))
             with tf.variable_scope("SlideConv-%s" % layer):
                 for inp in x:
-                    for filter_size in self.config.filter_sizes:
+                    for filter_size in self.filter_sizes:
                         with tf.variable_scope("Conv-%s" % filter_size):
-                            conv = l.conv2d(inp, output_channel,
-                                            [filter_size, input_channel],
-                                            padding='VALID')
-                            conv = l.dropout(conv, self.config.lstm_dropout_keep_prob)
+                            conv = layers.conv2d(inp, output_channel,
+                                                 [filter_size, input_channel],
+                                                 padding='VALID')
+                            conv = layers.dropout(conv, self.lstm_dropout_keep_prob)
                             conv_outputs.append(conv)
             x = conv_outputs
         with tf.variable_scope("Avgpool"):
             pooled_outputs = []
             for conv in conv_outputs:
-                # Max-pooling over the outputs
+                # Mean-pooling over the outputs
                 pooled = tf.reduce_mean(conv, axis=1, keep_dims=True)
                 pooled_outputs.append(pooled)
 
@@ -154,7 +157,7 @@ class VLLabMemoryModel(object):
 def main(_):
     config_ = MovieQAConfig()
     data = MovieQAData(config_)
-    model = VLLabMemoryModel(data, config_)
+    model = VLLabMemoryModel(data)
     config = tf.ConfigProto(allow_soft_placement=True, )
     config.gpu_options.allow_growth = True
     # print('Start extract !!')
@@ -166,19 +169,19 @@ def main(_):
         })
         # coord = tf.train.Coordinator()
         # threads = tf.train.start_queue_runners(coord=coord)
-        i = 1
+        i = 0
         try:
             while True:
-                l, p = sess.run([model.logits, model.prediction])
-                print(l, p, sep='\n')
-                print('At [%5d/%5d]' % (i, config_.num_training_train_examples))
+                loss, p = sess.run([model.logits, model.prediction])
+                print(loss, p, sep='\n')
+                print('At [%5d/%5d]' % (i, config_.get_num_example(config_.dataset_name, )))
                 i += 1
         except tf.errors.OutOfRangeError:
             print('Done!')
         except KeyboardInterrupt:
             print()
         finally:
-            print(i)
+            print(i, config_.get_num_example(config_.dataset_name, ))
             # coord.request_stop()
             # coord.join(threads)
             # qe, ae, se = sess.run([model.ques_lstm_outputs,

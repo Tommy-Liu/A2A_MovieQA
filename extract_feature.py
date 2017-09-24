@@ -81,12 +81,11 @@ def get_images_path(split):
             os.remove(filename_json)
 
     if not os.path.exists(filename_json):
-        avail_video_metadata = json.load(open(config.avail_video_metadata_file, 'r'))
-        split_list = json.load(open(config.splits_file, 'r'))
+        avail_video_metadata = json.load(open(config.video_data_file, 'r'))[split]
         print('Load json file done !!')
         file_names_sep = []
-        for folder in tqdm(avail_video_metadata['list']):
-            if folder.split('.')[0] in split_list[split] and \
+        for folder in tqdm(avail_video_metadata.keys()):
+            if avail_video_metadata[folder]['avail'] and \
                     not os.path.exists(get_npy_name(config.feature_dir, folder)):
                 npy_names.append(get_npy_name(config.feature_dir, folder))
                 imgs = glob(join(config.video_img_dir, folder, IMAGE_PATTERN_))
@@ -137,7 +136,7 @@ def count_num(features_list):
 def writer_worker(e, features_list, capacity, npy_names):
     video_idx = 0
     local_feature = np.zeros((0, config.feature_dim), dtype=np.float32)
-    avail_video_subt = json.load(open(config.avail_video_subtitle_file))
+    video_subt = json.load(open(config.subtitle_file))
     while True:
         if len(features_list) > 0:
             local_feature = np.concatenate([local_feature, features_list.pop(0)])
@@ -145,8 +144,8 @@ def writer_worker(e, features_list, capacity, npy_names):
                 final_features = local_feature[:capacity[video_idx]]
                 assert final_features.shape[0] == capacity[video_idx], \
                     "%s Both frames are not same!" % npy_names[video_idx]
-                assert final_features.shape[0] == len(
-                    avail_video_subt[get_base_name_without_ext(npy_names[video_idx])]), \
+                assert final_features.shape[0] == \
+                       len(video_subt[get_base_name_without_ext(npy_names[video_idx])]['subtitle']), \
                     "%s Frames and subtitles are not same!" % npy_names[video_idx]
                 print(npy_names[video_idx], final_features.shape, capacity[video_idx], len(local_feature))
                 np.save(npy_names[video_idx], final_features)

@@ -70,12 +70,14 @@ def test_parser(record):
     return ques, ques_length, ans, ans_length, subt, subt_length, feat, index
 
 
-class MovieQAData(object):
-    def __init__(self, config, split, modality='fixed_num', is_training=True, dummy=False):
-        self.config = config
-        self.file_names = glob(du.get_file_pattern(self.config.dataset_dir,
-                                                   self.config.dataset_name,
-                                                   split, modality, self.config.num_shards,
+class MovieQAData(MovieQAConfig):
+    def __init__(self, split='train',
+                 modality='fixed_num',
+                 is_training=True, dummy=False):
+        super(MovieQAData, self).__init__()
+        self.file_names = glob(du.get_file_pattern(self.dataset_dir,
+                                                   self.dataset_name,
+                                                   split, modality, self.num_shards,
                                                    is_training))
         if not dummy:
             self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
@@ -87,7 +89,7 @@ class MovieQAData(object):
                 parser = test_parser
             dataset = data.TFRecordDataset(self.file_names_placeholder)
             dataset = dataset.map(parser)
-            dataset = dataset.shuffle(8)
+            dataset = dataset.shuffle(self.size_shuffle_buffer)
             self.iterator = dataset.make_initializable_iterator()
         self.unpack_data(dummy, split)
 
@@ -108,14 +110,14 @@ class MovieQAData(object):
     def get_dummy(self):
         outputs = [
             tf.convert_to_tensor(
-                np.tile(np.random.randint(self.config.size_vocab_q, size=(1, 10)), (self.config.batch_size, 1)),
+                np.tile(np.random.randint(self.size_vocab, size=(1, 10)), (self.batch_size, 1)),
                 dtype=tf.int64),
             tf.convert_to_tensor([10, 10], dtype=tf.int64),
             tf.convert_to_tensor(
-                np.tile(np.random.randint(self.config.size_vocab_q, size=(1, 10)), (self.config.batch_size, 1)),
+                np.tile(np.random.randint(self.size_vocab, size=(1, 10)), (self.batch_size, 1)),
                 dtype=tf.int64),
             tf.convert_to_tensor([10, 10], dtype=tf.int64),
-            tf.convert_to_tensor(np.tile(np.random.randint(self.config.size_vocab_q, size=(1, 10)), (10, 1)),
+            tf.convert_to_tensor(np.tile(np.random.randint(self.size_vocab, size=(1, 10)), (10, 1)),
                                  dtype=tf.int64),
             tf.convert_to_tensor([10 for _ in range(10)], dtype=tf.int64),
             tf.convert_to_tensor(np.random.rand(10, 1536), dtype=tf.float32),
@@ -123,42 +125,38 @@ class MovieQAData(object):
         ]
         return outputs
 
-    def _set_shape(self):
-        self.ques.set_shape([self.config.batch_size, None])
-        self.ans.set_shape([self.config.batch_size, None])
 
 
 def main(_):
     config_ = MovieQAConfig()
-    movieqa_data = MovieQAData(config_, FLAGS.split, FLAGS.modality, is_training=FLAGS.is_training)
-    print(config_.get_num_example(config_.dataset_name, FLAGS.split, FLAGS.modality, FLAGS.is_training))
-    # config = tf.ConfigProto(allow_soft_placement=True)
-    # config.gpu_options.allow_growth = True
-    # with tf.Session(config=config) as sess:
-    #     tf.global_variables_initializer().run()
-    #     tf.local_variables_initializer().run()
-    #     sess.run(movieqa_data.iterator.initializer, feed_dict={
-    #         movieqa_data.file_names_placeholder: movieqa_data.file_names
-    #     })
-    #     i = 0
-    #     try:
-    #         while True:
-    #             # coord = tf.train.Coordinator()
-    #             # threads = tf.train.start_queue_runners(coord=coord)
-    #             # for i in range(5):
-    #             tensor_list = sess.run([movieqa_data.ques,
-    #                                     movieqa_data.ques_length,
-    #                                     movieqa_data.ans,
-    #                                     movieqa_data.ans_length,
-    #                                     movieqa_data.subt,
-    #                                     movieqa_data.subt_length,
-    #                                     movieqa_data.feat,
-    #                                     movieqa_data.label])
-    #             i += 1
-    #     except tf.errors.OutOfRangeError:
-    #         print(i)
-    #         print(config_.get_num_example(FLAGS.split, FLAGS.modality, FLAGS.is_training))
-    #         print("Done!")
+    movieqa_data = MovieQAData(FLAGS.split, FLAGS.modality, is_training=FLAGS.is_training)
+    config = tf.ConfigProto(allow_soft_placement=True)
+    config.gpu_options.allow_growth = True
+    with tf.Session(config=config) as sess:
+        tf.global_variables_initializer().run()
+        tf.local_variables_initializer().run()
+        sess.run(movieqa_data.iterator.initializer, feed_dict={
+            movieqa_data.file_names_placeholder: movieqa_data.file_names
+        })
+        i = 0
+        try:
+            while True:
+                # coord = tf.train.Coordinator()
+                # threads = tf.train.start_queue_runners(coord=coord)
+                # for i in range(5):
+                tensor_list = sess.run([movieqa_data.ques,
+                                        movieqa_data.ques_length,
+                                        movieqa_data.ans,
+                                        movieqa_data.ans_length,
+                                        movieqa_data.subt,
+                                        movieqa_data.subt_length,
+                                        movieqa_data.feat,
+                                        movieqa_data.label])
+                i += 1
+        except tf.errors.OutOfRangeError:
+            print(i)
+            print(config_.get_num_example(config_.dataset_name, FLAGS.split, FLAGS.modality, FLAGS.is_training))
+            print("Done!")
             # coord.request_stop()
             # coord.join(threads)
 

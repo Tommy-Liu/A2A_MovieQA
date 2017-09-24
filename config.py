@@ -25,6 +25,7 @@ class MovieQAConfig(Config):
 
     def __init__(self):
         # Directory of data
+        self.directory = Config()
         with self._create_group('directory'):
             self.movieqa_benchmark_dir = '../MovieQA_benchmark'
             self.video_clips_dir = join(self.movieqa_benchmark_dir, 'story/video_clips')
@@ -38,6 +39,7 @@ class MovieQAConfig(Config):
             self.checkpoint_dir = './checkpoint'
             self.log_dir = './log'
         # File names
+        self.file_names = Config()
         with self._create_group('file_names'):
             self.video_data_file = join(self.data_dir, 'video_data.json')
             self.subtitle_file = join(self.data_dir, 'subtitle.json')
@@ -82,23 +84,22 @@ class MovieQAConfig(Config):
         self.UNK = 'UNK'
         # Training parameter
         self.batch_size = 2
-
+        # Train shuffle buffer size
+        self.size_shuffle_buffer = 16
         # Model parameter
         self.feature_dim = 1536
 
         # Scale used to initialize model variables.
         self.initializer_scale = 0.08
 
-        self.num_epochs = 20
-
+        # Load vocabulary size
         self.load_vocab_size()
-
-        self.num_worker = 4
 
         self.num_training_train_examples = 0
         # How many model checkpoints to keep.
         self.max_checkpoints_to_keep = 5
 
+        self.tunable_parameter = Config()
         with self._create_group('tunable_parameter'):
             self.min_filter_size = 3
             self.max_filter_size = 5
@@ -122,18 +123,22 @@ class MovieQAConfig(Config):
             # If not None, clip gradients to this value.
             self.clip_gradients = 5.0
 
+            # Number of epochs
+            self.num_epochs = 20
+
         self.filter_sizes = list(range(self.min_filter_size,
                                        self.max_filter_size + 1))
         self.info = {}
         self.load_info()
 
-    def get_num_example(self, dataset_name, split, modality, is_training):
+    def get_num_example(self, dataset_name, split='train',
+                        modality='fixed_num', is_training=True):
         return self.info[self.NUMEXAMPLE_PATTERN_ %
-                         (("training_" if is_training else ""), dataset_name, split, modality)]
+                         (("training_" if is_training else ""),
+                          dataset_name, split, modality)]
 
     @contextmanager
     def _create_group(self, group_name):
-        super().__setattr__(group_name, Config())
         super().__setattr__('_group_name', group_name)
         yield
         super().__setattr__('_group_name', None)

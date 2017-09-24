@@ -12,29 +12,17 @@ from get_dataset import MovieQAData
 from model import VLLabMemoryModel
 
 
-class TrainManager(object):
+class TrainManager(MovieQAConfig):
     def __init__(self):
-        self.config = MovieQAConfig()
+        super(TrainManager, self).__init__()
         self.exp = {}
         self._load_exp()
         self._new_exp()
 
-    def _get_model(self, train_data, val_data, ):
-        train_model = VLLabMemoryModel(train_data, self.config)
-        with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-            val_model = VLLabMemoryModel(val_data, self.config)
-        return train_model, val_model
-
-    def _get_accuracy(self, predictions, label, name):
-        accuracy, accuracy_update = tf.contrib.metrics.streaming_accuracy(predictions, label, name=name)
-        accuracy_init = tf.group(
-            *[v.initializer for v in tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES, scope=name)])
-        return accuracy, accuracy_update, accuracy_init
-
     def train(self):
         start_time = time.time()
-        train_data = MovieQAData(self.config, 'train', dummy=True)
-        val_data = MovieQAData(self.config, 'val', dummy=True)
+        train_data = MovieQAData('train', dummy=True)
+        val_data = MovieQAData('val', dummy=True)
         train_model, val_model = self._get_model(train_data, val_data)
         loss = tf.losses.sigmoid_cross_entropy(train_data.label,
                                                train_model.logits)
@@ -51,11 +39,11 @@ class TrainManager(object):
 
         global_step = tf.train.get_or_create_global_step()
 
-        learning_rate = tf.train.exponential_decay(self.config.initial_learning_rate,
+        learning_rate = tf.train.exponential_decay(self.initial_learning_rate,
                                                    global_step,
-                                                   self.config.num_epochs_per_decay *
-                                                   self.config.num_training_train_examples,
-                                                   self.config.learning_rate_decay_factor,
+                                                   self.num_epochs_per_decay *
+                                                   self.num_training_train_examples,
+                                                   self.learning_rate_decay_factor,
                                                    staircase=True)
 
         optimizer = tf.train.AdamOptimizer(learning_rate)
@@ -87,7 +75,7 @@ class TrainManager(object):
         config.gpu_options.allow_growth = True
 
         with sv.managed_session(config=config) as sess:
-            for i in range(self.config.num_epochs):
+            for i in range(self.num_epochs):
                 sess.run([train_data.iterator.initializer, init_metric_op], feed_dict={
                     train_data.file_names_placeholder: train_data.file_names
                 })
@@ -95,7 +83,7 @@ class TrainManager(object):
                 try:
                     while True:
                         _, l, step, accu = sess.run([train_op, loss, global_step, train_accu_update])
-                        logging.info("[%s/%s] loss: %.3f accu: %.3f", i + 1, self.config.num_epochs, l, accu)
+                        logging.info("[%s/%s] loss: %.3f accu: %.3f", i + 1, self.num_epochs, l, accu)
                         if step % 10 == 0:
                             summary = sess.run(train_summaries_op)
                             sv.summary_computed(sess, summary, global_step)
@@ -112,33 +100,45 @@ class TrainManager(object):
                 finally:
                     sv.saver.save(sess, self._checkpoint_dir, global_step)
 
+    def _get_model(self, train_data, val_data, ):
+        train_model = VLLabMemoryModel(train_data)
+        with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+            val_model = VLLabMemoryModel(val_data)
+        return train_model, val_model
+
+    def _get_accuracy(self, predictions, label, name):
+        accuracy, accuracy_update = tf.contrib.metrics.streaming_accuracy(predictions, label, name=name)
+        accuracy_init = tf.group(
+            *[v.initializer for v in tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES, scope=name)])
+        return accuracy, accuracy_update, accuracy_init
+
     @property
     def _log_dir(self):
-        return os.path.join(self.config.log_dir, self._exp_hash_code)
+        return os.path.join(self.log_dir, self._exp_hash_code)
 
     @property
     def _checkpoint_dir(self):
-        return os.path.join(self.config.checkpoint_dir, self._exp_hash_code)
+        return os.path.join(self.checkpoint_dir, self._exp_hash_code)
 
     @property
     def _exp_hash_code(self):
-        param = json.dumps(self.config.tunable_parameter.__dict__, indent=4)
+        param = json.dumps(self.tunable_parameter.__dict__, indent=4)
         h = hashlib.new('ripemd160')
         h.update(param.encode())
         return h.hexdigest()
 
     def _new_exp(self):
         self._update_exp({
-            self._exp_hash_code: self.config.tunable_parameter.__dict__
+            self._exp_hash_code: self.tunable_parameter.__dict__
         })
 
     def _load_exp(self):
-        if os.path.exists(self.config.exp_file):
-            self.exp.update(json.load(open(self.config.exp_file, 'r')))
+        if os.path.exists(self.exp_file):
+            self.exp.update(json.load(open(self.exp_file, 'r')))
 
     def _update_exp(self, item):
         self.exp.update(item)
-        json.dump(self.exp, open(self.config.exp_file, 'w'), indent=4)
+        json.dump(self.exp, open(self.exp_file, 'w'), indent=4)
 
 
 def main(_):
@@ -147,5 +147,8 @@ def main(_):
 
 
 if __name__ == '__main__':
+    flags = tf.app.flags
+    flags.DEFINE_string("modality", "fixed_num",
+                        "fixed_num, fixed_interval, shot_major, subtitle_major")
     tf.logging.set_verbosity(tf.logging.INFO)
     tf.app.run()
