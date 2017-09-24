@@ -20,7 +20,7 @@ class MovieQAConfig(Config):
     DATASET_PATTERN_ = '%s%s_%s_%s'  # 1. is_training 2. datasetname 3. split 4. modality
     TFRECORD_PATTERN_ = DATASET_PATTERN_ + '_%05d-of-%05d.tfrecord'
     TFRECORD_FILE_PATTERN_ = TFRECORD_PATTERN_.replace('%05d-of-', '*')
-    NUMEXAMPLE_PATTERN_ = 'num_' + DATASET_PATTERN_ + '_example'
+    NUMEXAMPLE_PATTERN_ = 'num_' + DATASET_PATTERN_ + '_examples'
     _group_name = None
 
     def __init__(self):
@@ -127,9 +127,9 @@ class MovieQAConfig(Config):
         self.info = {}
         self.load_info()
 
-    def get_num_example(self, split, modality, is_training):
+    def get_num_example(self, dataset_name, split, modality, is_training):
         return self.info[self.NUMEXAMPLE_PATTERN_ %
-                         ("training" if is_training else "", split, modality)]
+                         (("training_" if is_training else ""), dataset_name, split, modality)]
 
     @contextmanager
     def _create_group(self, group_name):

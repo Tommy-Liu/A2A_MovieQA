@@ -376,4 +376,7 @@ def get_dataset_name(d, name, split, modality, shard_id, num_shards, is_training
                  name, split, modality, shard_id, num_shards))
 
 
-def get_file_pattern():
+def get_file_pattern(d, dataset_name, split, modality, num_shards, is_training):
+    return join(d, MovieQAConfig.TFRECORD_FILE_PATTERN_ %
+                (('training_' if is_training else ''),
+                 dataset_name, split, modality, num_shards))
