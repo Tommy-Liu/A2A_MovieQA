@@ -3,18 +3,18 @@ import os
 import time
 
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 from tensorflow.python.platform import tf_logging as logging
 
+import data_utils as du
 from config import MovieQAConfig
 from get_dataset import MovieQAData
 from model import VLLabMemoryModel
-import data_utils as du
+
+config = MovieQAConfig()
 
 
-class TrainManager(MovieQAConfig):
+class TrainManager(object):
     def __init__(self, param):
-        super(TrainManager, self).__init__()
         self.param = param
         self.exp = {}
         self._load_exp()
@@ -23,14 +23,17 @@ class TrainManager(MovieQAConfig):
         du.exist_make_dirs(self._checkpoint_dir)
         du.exist_make_dirs(self._log_dir)
         start_time = time.time()
+        now_epoch = self.param.now_epoch
         train_data = MovieQAData('train', modality=self.param.modality)
         eval_train_data = MovieQAData('train', modality=self.param.modality, is_training=False)
         val_data = MovieQAData('val', modality=self.param.modality, is_training=False)
         train_model, eval_train_model, val_model = self._get_model(train_data, eval_train_data, val_data)
+
         loss = tf.losses.sigmoid_cross_entropy(train_data.label,
                                                train_model.logits)
 
-        val_loss = tf.losses.sigmoid_cross_entropy(val_data.label,
+        val_loss = tf.losses.sigmoid_cross_entropy(tf.expand_dims(tf.one_hot(val_data.label,
+                                                                             val_model.batch_size), 1),
                                                    val_model.logits)
         train_accu, train_accu_update, train_accu_init = \
             self._get_accuracy(train_model.prediction,
@@ -38,12 +41,12 @@ class TrainManager(MovieQAConfig):
                                'train_accuracy')
 
         eval_train_accu, eval_train_accu_update, eval_train_accu_init = \
-            self._get_accuracy(tf.arg_max(eval_train_model.prediction, 0),
+            self._get_accuracy(tf.argmax(eval_train_model.prediction, 0),
                                eval_train_data.label,
                                'train_accuracy')
 
         val_accu, val_accu_update, val_accu_init = \
-            self._get_accuracy(tf.arg_max(val_model.prediction, 0),
+            self._get_accuracy(tf.argmax(val_model.prediction, 0),
                                val_data.label,
                                'val_accuracy')
 
@@ -51,18 +54,23 @@ class TrainManager(MovieQAConfig):
 
         global_step = tf.train.get_or_create_global_step()
 
-        learning_rate = tf.train.exponential_decay(self.initial_learning_rate,
+        learning_rate = tf.train.exponential_decay(config.initial_learning_rate,
                                                    global_step,
-                                                   self.num_epochs_per_decay *
-                                                   self.num_training_train_examples,
-                                                   self.learning_rate_decay_factor,
+                                                   config.num_epochs_per_decay *
+                                                   config.get_num_example(
+                                                       config.dataset_name, ),
+                                                   config.learning_rate_decay_factor,
                                                    staircase=True)
 
-        optimizer = tf.train.AdamOptimizer(learning_rate)
-        train_op = slim.learning.create_train_op(loss, optimizer, global_step, )
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+        grads_and_vars = optimizer.compute_gradients(loss, tf.trainable_variables())
+        capped_grad_and_vars = [(tf.clip_by_value(g, config.clip_gradients, -config.clip_gradients), v)
+                                for g, v in grads_and_vars]
+        train_op = optimizer.apply_gradients(capped_grad_and_vars, global_step)
+        check_op = tf.add_check_numerics_ops()
         saver = tf.train.Saver(tf.global_variables(), )
 
-        logging.info('Preparing training done with time %2f s', start_time - time.time())
+        logging.info('Preparing training done with time %2f s', time.time() - start_time)
 
         # Summary
         train_summaries = []
@@ -83,60 +91,96 @@ class TrainManager(MovieQAConfig):
         val_summaries_op = tf.summary.merge(val_summaries)
 
         checkpoint_file = tf.train.latest_checkpoint(self._checkpoint_dir)
-
-        def restore_fn(_sess):
-            return saver.restore(_sess, checkpoint_file)
+        restore_fn = (lambda _sess: saver.restore(_sess, checkpoint_file)) \
+            if checkpoint_file else None
 
         sv = tf.train.Supervisor(logdir=self._log_dir, summary_op=None,
                                  init_fn=restore_fn, save_model_secs=0,
                                  saver=saver, global_step=global_step)
 
         # clip_gradient_norm=self.config.clip_gradients)
-        config = tf.ConfigProto(allow_soft_placement=True, )
-        config.gpu_options.allow_growth = True
+        config_ = tf.ConfigProto(allow_soft_placement=True, )
+        config_.gpu_options.allow_growth = True
 
-        with sv.managed_session(config=config) as sess:
+        with sv.managed_session(config=config_) as sess:
             # Training loop
             def train_loop(epoch):
-                logging.info("Training Loop Epoch %d", epoch)
+                logging.info("Training Loop Epoch %d", epoch + 1)
                 try:
                     while True:
-                        _, l, step, accu = sess.run([train_op, loss, global_step, train_accu_update])
-                        logging.info("[%s/%s] loss: %.3f accu: %.3f", epoch + 1, self.num_epochs, l, accu)
+                        # print(sess.run([train_data.label, train_model.prediction, train_model.logits]))
+                        # q, qh, a, ah = sess.run([train_model.ques_lstm_outputs,
+                        #                          train_model.ques_lstm_final.h,
+                        #                          train_model.ans_lstm_outputs,
+                        #                          train_model.ans_lstm_final.h])
+                        # print(a, qh, a, ah, sep='\n')
+                        # print(sess.run([capped_grad_and_vars]))
+                        _, l, step, accu, pred, qe, ae \
+                            = sess.run([train_op, loss, global_step, train_accu_update,
+                                        train_model.prediction, train_model.ques_embeddings,
+                                        train_model.ans_embeddings])
+                        logging.info("[%s/%s] step: %d loss: %.3f accu: %.3f pred: %s",
+                                     epoch + 1, config.num_epochs, step, l, accu, pred)
+                        print(qe, ae, sep='\n')
                         if step % 10 == 0:
                             summary = sess.run(train_summaries_op)
                             sv.summary_computed(sess, summary, global_step)
-                        if step % 1000 == 0:
-                            sv.saver.save(sess, self._checkpoint_dir, global_step)
+                        if step % 3000 == 0:
+                            sv.saver.save(sess, self._checkpoint_file, global_step)
+                            eval_train_loop(epoch)
+                            val_loop(epoch)
 
                 except tf.errors.OutOfRangeError:
-                    logging.info("Training Loop Epoch %d Done...", epoch)
-                except KeyboardInterrupt:
+                    logging.info("Training Loop Epoch %d Done...", epoch + 1)
+                    sv.saver.save(sess, self._checkpoint_file, global_step)
+                except KeyboardInterrupt as e:
+                    sv.saver.save(sess, self._checkpoint_file, global_step)
                     print()
-                    sv.saver.save(sess, self._checkpoint_dir, global_step)
-                finally:
-                    sv.saver.save(sess, self._checkpoint_dir, global_step)
+                    raise e
+
             # Evaluation training loop
-            def eval_train_loop():
+            def eval_train_loop(epoch):
+                sess.run([eval_train_data.iterator.initializer, eval_train_accu_init], feed_dict={
+                    eval_train_data.file_names_placeholder: eval_train_data.file_names,
+                })
+                accu = 0
                 try:
                     while True:
-                        _, l, step, accu = sess.run([train_op, loss, global_step, train_accu_update])
-                        logging.info("[%s/%s] loss: %.3f accu: %.3f", epoch + 1, self.num_epochs, l, accu)
-                        if step % 10 == 0:
-                            summary = sess.run(train_summaries_op)
-                            sv.summary_computed(sess, summary, global_step)
-                        if step % 1000 == 0:
-                            sv.saver.save(sess, self._checkpoint_dir, global_step)
+                        accu = sess.run([eval_train_accu])
+                except tf.errors.OutOfRangeError:
+                    summary = sess.run(eval_train_summaries_op)
+                    sv.summary_computed(sess, summary, global_step)
+                    logging.info("[%s/%s] evaluation train accuracy: %.3f", epoch + 1, config.num_epochs, accu)
+                    logging.info("Evaluation Training Loop Epoch %d Done...", epoch + 1)
+                except KeyboardInterrupt as e:
+                    print()
+                    raise e
+
+            # Validation loop
+            def val_loop(epoch):
+                sess.run([eval_train_data.iterator.initializer, val_accu_init], feed_dict={
+                    eval_train_data.file_names_placeholder: eval_train_data.file_names,
+                })
+                accu = 0
+                try:
+                    while True:
+                        l, accu = sess.run([val_loss, val_accu])
 
                 except tf.errors.OutOfRangeError:
-                    logging.info("Evaluation Training Loop Epoch %d Done...", epoch)
-                except KeyboardInterrupt:
-                    print()
-                    sv.saver.save(sess, self._checkpoint_dir, global_step)
-                finally:
-                    sv.saver.save(sess, self._checkpoint_dir, global_step)
+                    summary = sess.run(val_summaries_op)
+                    sv.summary_computed(sess, summary, global_step)
+                    logging.info("[%s/%s] validation accuracy: %.3f", epoch + 1, config.num_epochs, accu)
+                    logging.info("Evaluation Training Loop Epoch %d Done...", epoch + 1)
 
-            for epoch in range(self.num_epochs):
+                except KeyboardInterrupt as e:
+                    print()
+                    raise e
+
+            for epoch in range(now_epoch, config.num_epochs):
+                self.param.now_epoch = epoch
+                self._update_exp({
+                    self._exp_name: self.param.__dict__
+                })
                 sess.run([train_data.iterator.initializer, init_metric_op,
                           eval_train_data.iterator.initializer,
                           val_data.iterator.initializer], feed_dict={
@@ -145,13 +189,15 @@ class TrainManager(MovieQAConfig):
                     val_data.file_names_placeholder: val_data.file_names
                 })
                 train_loop(epoch)
+                # eval_train_loop(epoch)
+                # val_loop(epoch)
 
     def _get_model(self, train_data, eval_train_data, val_data, ):
         train_model = VLLabMemoryModel(train_data)
         with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-            val_model = VLLabMemoryModel(val_data)
+            val_model = VLLabMemoryModel(val_data, is_training=False)
         with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-            eval_train_model = VLLabMemoryModel(eval_train_data)
+            eval_train_model = VLLabMemoryModel(eval_train_data, is_training=False)
         return train_model, eval_train_model, val_model
 
     def _get_accuracy(self, predictions, label, name):
@@ -162,11 +208,11 @@ class TrainManager(MovieQAConfig):
 
     @property
     def _log_dir(self):
-        return os.path.join(self.log_dir, self._exp_name)
+        return os.path.join(config.log_dir, self._exp_name)
 
     @property
     def _checkpoint_dir(self):
-        return os.path.join(self.checkpoint_dir, self._exp_name)
+        return os.path.join(config.checkpoint_dir, self._exp_name)
 
     @property
     def _checkpoint_file(self):
@@ -174,10 +220,10 @@ class TrainManager(MovieQAConfig):
 
     @property
     def _exp_name(self):
-        name = [self.dataset_name, self.param.modality]
-        for param in self.tunable_parameter.__dict__.keys():
+        name = [config.dataset_name, self.param.modality]
+        for param in config.tunable_parameter.__dict__.keys():
             if self.param.__dict__.get(param, None) and \
-                            self.tunable_parameter.__dict__[param] != self.param.__dict__[param]:
+                            config.tunable_parameter.__dict__[param] != self.param.__dict__[param]:
                 name.append("%s_%s" % (param, self.param.__dict__[param]))
         return '_'.join(name)
 
@@ -188,16 +234,18 @@ class TrainManager(MovieQAConfig):
         })
 
     def _load_exp(self):
-        if os.path.exists(self.exp_file):
-            self.exp.update(json.load(open(self.exp_file, 'r')))
+        if os.path.exists(config.exp_file):
+            self.exp.update(json.load(open(config.exp_file, 'r')))
             if self.exp.get(self._exp_name, None):
                 self.param.__dict__.update(self.exp[self._exp_name])
             else:
                 self._new_exp()
+        else:
+            self._new_exp()
 
     def _update_exp(self, item):
         self.exp.update(item)
-        json.dump(self.exp, open(self.exp_file, 'w'), indent=4)
+        json.dump(self.exp, open(config.exp_file, 'w'), indent=4)
 
 
 def main(_):
