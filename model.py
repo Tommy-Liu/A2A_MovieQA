@@ -148,29 +148,35 @@ class VLLabMemoryModel(object):
 
     def build_sliding_conv(self):
         x = [self.movie_repr]
+        print(self.movie_repr.shape)
         conv_outputs = []
+        width = config.feature_dim + config.num_lstm_units
         for layer in range(1, self.num_layers + 1):
             conv_outputs = []
             output_channel = config.sliding_dim * (2 ** (self.num_layers - layer))
+
             with tf.variable_scope("slide_conv_%s" % layer):
                 for inp in x:
-                    width = tf.shape(inp)[2]
                     for filter_size in config.filter_sizes:
                         with tf.variable_scope("conv_%s" % filter_size):
                             conv = layers.conv2d(inp, output_channel,
                                                  [filter_size, width],
                                                  padding='VALID')
                             conv = layers.dropout(conv, config.lstm_dropout_keep_prob)
+                            conv = tf.transpose(conv, perm=[0, 1, 3, 2])
+                            print(conv.shape)
                             conv_outputs.append(conv)
+            width = output_channel
             x = conv_outputs
         with tf.variable_scope("avgpool"):
             pooled_outputs = []
             for conv in conv_outputs:
                 # Mean-pooling over the outputs
-                pooled = tf.reduce_mean(conv, axis=1, keep_dims=True)
+                pooled = tf.reduce_mean(conv, axis=1)
+                print(pooled.shape)
                 pooled_outputs.append(pooled)
 
-            concat_pool = tf.concat(pooled_outputs, axis=3)
+            concat_pool = tf.concat(pooled_outputs, axis=1)
             concat_pool = tf.squeeze(concat_pool)
         self.movie_convpool = concat_pool
         self.final_repr = tf.concat([self.movie_convpool,

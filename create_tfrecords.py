@@ -39,11 +39,11 @@ def create_one_tfrecord(split, modality, num_per_shard, example_list, subt, is_t
             # trange(start_ndx, end_ndx,  #
             #         desc="shard %d" % (shard_id + 1)):
             if is_training:
-                example = du.qa_feature_example(example_list[i], subt, (modality, config.modality[modality]))
+                example = du.qa_feature_example(example_list[i], subt, (modality, config.modality_config[modality]))
                 tfrecord_writer.write(example.SerializeToString())
             else:
                 example = du.qa_eval_feature_example(example_list[i], subt, split,
-                                                     (modality, config.modality[modality]))
+                                                     (modality, config.modality_config[modality]))
                 tfrecord_writer.write(example.SerializeToString())
                 # print('Writing %s done!' % output_filename)
 
@@ -153,9 +153,11 @@ def test():
         context_features=context_features,
         sequence_features=sequence_features
     )
-    config = tf.ConfigProto(allow_soft_placement=True)
-    config.gpu_options.allow_growth = True
-    with tf.Session(config=config) as sess, tqdm(total=con):
+    config_ = tf.ConfigProto(allow_soft_placement=True)
+    config_.gpu_options.allow_growth = True
+    with tf.Session(config=config_) as sess, \
+            tqdm(total=config.get_num_example(FLAGS.split, FLAGS.modality, FLAGS.is_training),
+                 desc="Test sanity of tfrecords") as pbar:
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
         coord = tf.train.Coordinator()
@@ -172,6 +174,7 @@ def test():
                     context_parsed['ans_length'],
                     sequence_parsed['ans']])
                 i += 1
+                pbar.update()
         except tf.errors.OutOfRangeError:
             print("Example #: %d" % i)
             print("Expected example #: %d" % (128 * 3))

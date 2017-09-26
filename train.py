@@ -4,6 +4,7 @@ import time
 
 import tensorflow as tf
 from tensorflow.python.platform import tf_logging as logging
+from tqdm import tqdm
 
 import data_utils as du
 from config import MovieQAConfig
@@ -15,12 +16,20 @@ config = MovieQAConfig()
 
 class TrainManager(object):
     def __init__(self, param):
+        du.exist_make_dirs(config.exp_dir)
         self.param = param
         self.exp = {}
         self._load_exp()
 
     def train(self):
-        if self.param.now_epoch < self.param.num_epochs - 1:
+        if self.param.reset:
+            self._new_exp()
+            if os.path.exists(self._checkpoint_dir):
+                os.system('rm -rf %s' % self._checkpoint_dir)
+            if os.path.exists(self._log_dir):
+                os.system('rm -rf %s' % self._log_dir)
+            self._train()
+        elif self.param.now_epoch < self.param.num_epochs - 1:
             self._train()
         else:
             print("The experiment of this setting finished.")
@@ -64,15 +73,21 @@ class TrainManager(object):
                                                    global_step,
                                                    config.num_epochs_per_decay *
                                                    config.get_num_example(
-                                                       config.dataset_name, ),
+                                                       'train',
+                                                       self.param.modality,
+                                                       is_training=True
+                                                   ),
                                                    config.learning_rate_decay_factor,
                                                    staircase=True)
 
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-        grads_and_vars = optimizer.compute_gradients(loss, tf.trainable_variables())
-        capped_grad_and_vars = [(g, v) if g is None else
-                                (tf.clip_by_value(g, config.clip_gradients, -config.clip_gradients), v)
-                                for g, v in grads_and_vars]
+        optimizer = tf.train.AdamOptimizer(learning_rate)
+        grads_and_vars = optimizer.compute_gradients(loss)
+        gradients, variables = list(zip(*grads_and_vars))
+        # capped_grad_and_vars = [(g, v) if g is None else
+        #                         (tf.clip_by_value(g, config.clip_gradients, -config.clip_gradients), v)
+        #                         for g, v in grads_and_vars]
+        gradients, _ = tf.clip_by_global_norm(gradients, config.clip_gradients)
+        capped_grad_and_vars = list(zip(gradients, variables))
         train_op = optimizer.apply_gradients(capped_grad_and_vars, global_step)
         check_op = tf.add_check_numerics_ops()
         saver = tf.train.Saver(tf.global_variables(), )
@@ -115,23 +130,16 @@ class TrainManager(object):
                 logging.info("Training Loop Epoch %d", epoch + 1)
                 try:
                     while True:
-                        # print(sess.run([train_data.label, train_model.prediction, train_model.logits]))
-                        # q, qh, a, ah = sess.run([train_model.ques_lstm_outputs,
-                        #                          train_model.ques_lstm_final.h,
-                        #                          train_model.ans_lstm_outputs,
-                        #                          train_model.ans_lstm_final.h])
-                        # print(a, qh, a, ah, sep='\n')
-                        # print(sess.run([capped_grad_and_vars]))
                         _, l, step, accu, pred \
                             = sess.run([train_op, loss, global_step, train_accu_update,
                                         train_model.prediction, ])
-                        logging.info("[%s/%s] step: %d loss: %.3f accu: %.3f pred: %s",
-                                     epoch + 1, config.num_epochs, step, l, accu, pred)
+                        logging.info("[%s/%s] step: %d loss: %.3f accu: %.3f pred: %.2f, %.2f",
+                                     epoch + 1, config.num_epochs, step, l, accu, pred[0], pred[1])
                         if step % 10 == 0:
                             summary = sess.run(train_summaries_op)
                             sv.summary_computed(sess, summary,
                                                 tf.train.global_step(sess, global_step))
-                        if step % 3000 == 0:
+                        if step % 100 == 0:
                             sv.saver.save(sess, self._checkpoint_file,
                                           tf.train.global_step(sess, global_step))
                             eval_train_loop(epoch)
@@ -154,8 +162,12 @@ class TrainManager(object):
                 })
                 accu = 0
                 try:
-                    while True:
-                        accu = sess.run([eval_train_accu])
+                    with tqdm(total=config.get_num_example('train', self.param.modality)) as pbar:
+                        while True:
+                            accu = sess.run(eval_train_accu_update)
+                            pbar.update()
+                            pbar.set_description("[%s/%s] eval train accuracy: %.3f" %
+                                                 (epoch + 1, config.num_epochs, accu))
                 except tf.errors.OutOfRangeError:
                     summary = sess.run(eval_train_summaries_op)
                     sv.summary_computed(sess, summary,
@@ -172,15 +184,19 @@ class TrainManager(object):
                     eval_train_data.file_names_placeholder: eval_train_data.file_names,
                 })
                 accu = 0
+                l = 0
                 try:
-                    while True:
-                        l, accu = sess.run([val_loss, val_accu])
-
+                    with tqdm(total=config.get_num_example('val', self.param.modality)) as pbar:
+                        while True:
+                            l, accu = sess.run([val_loss, val_accu_update])
+                            pbar.update()
+                            pbar.set_description("[%s/%s] val accuracy: %.3f loss: %.3f" %
+                                                 (epoch + 1, config.num_epochs, accu, l))
                 except tf.errors.OutOfRangeError:
                     summary = sess.run(val_summaries_op)
                     sv.summary_computed(sess, summary,
                                         tf.train.global_step(sess, global_step))
-                    logging.info("[%s/%s] validation accuracy: %.3f", epoch + 1, config.num_epochs, accu)
+                    logging.info("[%s/%s] validation accuracy: %.3f loss: %.3f", epoch + 1, config.num_epochs, accu, l)
                     logging.info("Evaluation Training Loop Epoch %d Done...", epoch + 1)
 
                 except KeyboardInterrupt as e:
@@ -200,8 +216,8 @@ class TrainManager(object):
                     val_data.file_names_placeholder: val_data.file_names
                 })
                 train_loop(epoch)
-                # eval_train_loop(epoch)
-                # val_loop(epoch)
+                eval_train_loop(epoch)
+                val_loop(epoch)
 
     def _get_model(self, train_data, eval_train_data, val_data, ):
         train_model = VLLabMemoryModel(train_data)
@@ -240,9 +256,7 @@ class TrainManager(object):
 
     def _new_exp(self):
         self.param.now_epoch = 0
-        self._update_exp({
-            self._exp_name: self.param.__dict__
-        })
+        self._update_now_exp()
 
     def _load_exp(self):
         if os.path.exists(config.exp_file):
@@ -254,9 +268,14 @@ class TrainManager(object):
         else:
             self._new_exp()
 
+    def _update_now_exp(self):
+        self._update_exp({
+            self._exp_name: self.param.__dict__
+        })
+
     def _update_exp(self, item):
         self.exp.update(item)
-        json.dump(self.exp, open(config.exp_file, 'w'), indent=4)
+        du.write_json(self.exp, config.exp_file)
 
 
 def main(_):
@@ -291,7 +310,7 @@ if __name__ == '__main__':
 
     # If not None, clip gradients to this value.
     flags.DEFINE_float("clip_gradients", 5.0, "")
-
+    flags.DEFINE_bool("reset", False, "")
     # Number of epochs
     flags.DEFINE_integer("num_epochs", 20, "")
     FLAGS = flags.FLAGS

@@ -38,6 +38,7 @@ class MovieQAConfig(Config):
             self.dataset_dir = join(self.data_dir, 'dataset')
             self.checkpoint_dir = './checkpoint'
             self.log_dir = './log'
+            self.exp_dir = './exp'
         # File names
         self.file_names = Config()
         with self._create_group('file_names'):
@@ -49,7 +50,7 @@ class MovieQAConfig(Config):
             self.avail_encode_qa_file = join(self.data_dir, 'avail_encode_qa.json')
             self.all_vocab_file = join(self.data_dir, 'avail_all_vocab.json')
             self.info_file = join(self.data_dir, 'info.json')
-            self.exp_file = './exp.json'
+            self.exp_file = join(self.exp_dir, './exp.json')
             self.qa_file = join(self.movieqa_benchmark_dir, 'data/qa.json')
             self.movies_file = join(self.movieqa_benchmark_dir, 'data/movies.json')
             self.splits_file = join(self.movieqa_benchmark_dir, 'data/splits.json')
@@ -58,8 +59,8 @@ class MovieQAConfig(Config):
         # Names
         self.dataset_name = 'movieqa'
 
-        # Modality
-        self.modality = {
+        # Modality configuration
+        self.modality_config = {
             'fixed_num': 105,
             'fixed_interval': 20,
             'shot_major': 4,
@@ -118,13 +119,14 @@ class MovieQAConfig(Config):
             # Number of sliding convolution layer
             self.num_layers = 1
             # Learning rate for the initial phase of training.
-            self.initial_learning_rate = 0.002
+            self.initial_learning_rate = 0.0001
             self.learning_rate_decay_factor = 0.87
             self.num_epochs_per_decay = 1.0
 
             # If not None, clip gradients to this value.
-            self.clip_gradients = 5.0
-
+            self.clip_gradients = 1.0
+            # Default modality
+            self.modality = 'fixed_num'
             # Number of epochs
             self.num_epochs = 20
 
@@ -133,11 +135,11 @@ class MovieQAConfig(Config):
         self.info = {}
         self.load_info()
 
-    def get_num_example(self, dataset_name, split='train',
-                        modality='fixed_num', is_training=True):
+    def get_num_example(self, split='train', modality='fixed_num',
+                        is_training=False):
         return self.info[self.NUMEXAMPLE_PATTERN_ %
                          (("training_" if is_training else ""),
-                          dataset_name, split, modality)]
+                          self.dataset_name, split, modality)]
 
     @contextmanager
     def _create_group(self, group_name):
