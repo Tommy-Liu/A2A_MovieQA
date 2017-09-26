@@ -8,6 +8,8 @@ import tensorflow.contrib.data as data
 import data_utils as du
 from config import MovieQAConfig
 
+config = MovieQAConfig()
+
 
 def train_parser(record):
     context_features, sequence_features = du.qa_feature_parsed()
@@ -25,7 +27,7 @@ def train_parser(record):
     subt = sequence_parsed['subt']
     subt_length = tf.sparse_tensor_to_dense(context_parsed['subt_length'])
     feat = sequence_parsed['feat']
-    label = tf.constant([1, 0], dtype=tf.int64, shape=(2, 1))
+    label = tf.convert_to_tensor(np.expand_dims(np.array([1, 0]), 1), dtype=tf.int64)
 
     return ques, ques_length, ans, ans_length, subt, subt_length, feat, label
 
@@ -70,14 +72,13 @@ def test_parser(record):
     return ques, ques_length, ans, ans_length, subt, subt_length, feat, index
 
 
-class MovieQAData(MovieQAConfig):
+class MovieQAData(object):
     def __init__(self, split='train',
                  modality='fixed_num',
                  is_training=True, dummy=False):
-        super(MovieQAData, self).__init__()
-        self.file_names = glob(du.get_file_pattern(self.dataset_dir,
-                                                   self.dataset_name,
-                                                   split, modality, self.num_shards,
+        self.file_names = glob(du.get_file_pattern(config.dataset_dir,
+                                                   config.dataset_name,
+                                                   split, modality, config.num_shards,
                                                    is_training))
         if not dummy:
             self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
@@ -89,7 +90,7 @@ class MovieQAData(MovieQAConfig):
                 parser = test_parser
             dataset = data.TFRecordDataset(self.file_names_placeholder)
             dataset = dataset.map(parser)
-            dataset = dataset.shuffle(self.size_shuffle_buffer)
+            dataset = dataset.shuffle(config.size_shuffle_buffer)
             self.iterator = dataset.make_initializable_iterator()
         self.unpack_data(dummy, split)
 
@@ -110,21 +111,20 @@ class MovieQAData(MovieQAConfig):
     def get_dummy(self):
         outputs = [
             tf.convert_to_tensor(
-                np.tile(np.random.randint(self.size_vocab, size=(1, 10)), (self.batch_size, 1)),
+                np.tile(np.random.randint(config.size_vocab, size=(1, 10)), (config.batch_size, 1)),
                 dtype=tf.int64),
             tf.convert_to_tensor([10, 10], dtype=tf.int64),
             tf.convert_to_tensor(
-                np.tile(np.random.randint(self.size_vocab, size=(1, 10)), (self.batch_size, 1)),
+                np.tile(np.random.randint(config.size_vocab, size=(1, 10)), (config.batch_size, 1)),
                 dtype=tf.int64),
             tf.convert_to_tensor([10, 10], dtype=tf.int64),
-            tf.convert_to_tensor(np.tile(np.random.randint(self.size_vocab, size=(1, 10)), (10, 1)),
+            tf.convert_to_tensor(np.tile(np.random.randint(config.size_vocab, size=(1, 10)), (10, 1)),
                                  dtype=tf.int64),
             tf.convert_to_tensor([10 for _ in range(10)], dtype=tf.int64),
             tf.convert_to_tensor(np.random.rand(10, 1536), dtype=tf.float32),
             tf.constant([1, 0], dtype=tf.int64, shape=(2, 1))
         ]
         return outputs
-
 
 
 def main(_):
@@ -162,11 +162,10 @@ def main(_):
 
 
 def test(_):
-    config_ = MovieQAConfig()
     TFRECORD_PATTERN = du.FILE_PATTERN.replace('%05d-of-', '*')
-    print(TFRECORD_PATTERN % (config_.dataset_name, 'train', config_.num_shards))
-    file_names = glob(join(config_.dataset_dir,
-                           TFRECORD_PATTERN % (config_.dataset_name, 'train')))
+    print(TFRECORD_PATTERN % (config.dataset_name, 'train', config.num_shards))
+    file_names = glob(join(config.dataset_dir,
+                           TFRECORD_PATTERN % (config.dataset_name, 'train')))
 
     file_name_queue = tf.train.string_input_producer(file_names)
     reader = tf.TFRecordReader()
@@ -177,9 +176,9 @@ def test(_):
         context_features=context_features,
         sequence_features=sequence_features
     )
-    config = tf.ConfigProto(allow_soft_placement=True)
-    config.gpu_options.allow_growth = True
-    with tf.Session(config=config) as sess:
+    config_ = tf.ConfigProto(allow_soft_placement=True)
+    config_.gpu_options.allow_growth = True
+    with tf.Session(config=config_) as sess:
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
         coord = tf.train.Coordinator()

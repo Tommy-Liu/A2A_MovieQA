@@ -20,6 +20,12 @@ class TrainManager(object):
         self._load_exp()
 
     def train(self):
+        if self.param.now_epoch < self.param.num_epochs - 1:
+            self._train()
+        else:
+            print("The experiment of this setting finished.")
+
+    def _train(self):
         du.exist_make_dirs(self._checkpoint_dir)
         du.exist_make_dirs(self._log_dir)
         start_time = time.time()
@@ -64,7 +70,8 @@ class TrainManager(object):
 
         optimizer = tf.train.GradientDescentOptimizer(learning_rate)
         grads_and_vars = optimizer.compute_gradients(loss, tf.trainable_variables())
-        capped_grad_and_vars = [(tf.clip_by_value(g, config.clip_gradients, -config.clip_gradients), v)
+        capped_grad_and_vars = [(g, v) if g is None else
+                                (tf.clip_by_value(g, config.clip_gradients, -config.clip_gradients), v)
                                 for g, v in grads_and_vars]
         train_op = optimizer.apply_gradients(capped_grad_and_vars, global_step)
         check_op = tf.add_check_numerics_ops()
@@ -115,26 +122,28 @@ class TrainManager(object):
                         #                          train_model.ans_lstm_final.h])
                         # print(a, qh, a, ah, sep='\n')
                         # print(sess.run([capped_grad_and_vars]))
-                        _, l, step, accu, pred, qe, ae \
+                        _, l, step, accu, pred \
                             = sess.run([train_op, loss, global_step, train_accu_update,
-                                        train_model.prediction, train_model.ques_embeddings,
-                                        train_model.ans_embeddings])
+                                        train_model.prediction, ])
                         logging.info("[%s/%s] step: %d loss: %.3f accu: %.3f pred: %s",
                                      epoch + 1, config.num_epochs, step, l, accu, pred)
-                        print(qe, ae, sep='\n')
                         if step % 10 == 0:
                             summary = sess.run(train_summaries_op)
-                            sv.summary_computed(sess, summary, global_step)
+                            sv.summary_computed(sess, summary,
+                                                tf.train.global_step(sess, global_step))
                         if step % 3000 == 0:
-                            sv.saver.save(sess, self._checkpoint_file, global_step)
+                            sv.saver.save(sess, self._checkpoint_file,
+                                          tf.train.global_step(sess, global_step))
                             eval_train_loop(epoch)
                             val_loop(epoch)
 
                 except tf.errors.OutOfRangeError:
                     logging.info("Training Loop Epoch %d Done...", epoch + 1)
-                    sv.saver.save(sess, self._checkpoint_file, global_step)
+                    sv.saver.save(sess, self._checkpoint_file,
+                                  tf.train.global_step(sess, global_step))
                 except KeyboardInterrupt as e:
-                    sv.saver.save(sess, self._checkpoint_file, global_step)
+                    sv.saver.save(sess, self._checkpoint_file,
+                                  tf.train.global_step(sess, global_step))
                     print()
                     raise e
 
@@ -149,7 +158,8 @@ class TrainManager(object):
                         accu = sess.run([eval_train_accu])
                 except tf.errors.OutOfRangeError:
                     summary = sess.run(eval_train_summaries_op)
-                    sv.summary_computed(sess, summary, global_step)
+                    sv.summary_computed(sess, summary,
+                                        tf.train.global_step(sess, global_step))
                     logging.info("[%s/%s] evaluation train accuracy: %.3f", epoch + 1, config.num_epochs, accu)
                     logging.info("Evaluation Training Loop Epoch %d Done...", epoch + 1)
                 except KeyboardInterrupt as e:
@@ -168,7 +178,8 @@ class TrainManager(object):
 
                 except tf.errors.OutOfRangeError:
                     summary = sess.run(val_summaries_op)
-                    sv.summary_computed(sess, summary, global_step)
+                    sv.summary_computed(sess, summary,
+                                        tf.train.global_step(sess, global_step))
                     logging.info("[%s/%s] validation accuracy: %.3f", epoch + 1, config.num_epochs, accu)
                     logging.info("Evaluation Training Loop Epoch %d Done...", epoch + 1)
 
@@ -237,7 +248,7 @@ class TrainManager(object):
         if os.path.exists(config.exp_file):
             self.exp.update(json.load(open(config.exp_file, 'r')))
             if self.exp.get(self._exp_name, None):
-                self.param.__dict__.update(self.exp[self._exp_name])
+                self.param.now_epoch = self.exp.get('now_epoch', 0)
             else:
                 self._new_exp()
         else:
