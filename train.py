@@ -180,8 +180,8 @@ class TrainManager(object):
 
             # Validation loop
             def val_loop(epoch):
-                sess.run([eval_train_data.iterator.initializer, val_accu_init], feed_dict={
-                    eval_train_data.file_names_placeholder: eval_train_data.file_names,
+                sess.run([val_data.iterator.initializer, val_accu_init], feed_dict={
+                    val_data.file_names_placeholder: val_data.file_names,
                 })
                 accu = 0
                 l = 0
