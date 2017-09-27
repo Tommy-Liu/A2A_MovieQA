@@ -3,7 +3,6 @@ import os
 import time
 
 import tensorflow as tf
-from tensorflow.python.platform import tf_logging as logging
 from tqdm import tqdm
 
 import data_utils as du
@@ -51,7 +50,7 @@ class TrainManager(object):
                                                                              val_model.batch_size), 1),
                                                    val_model.logits)
         train_accu, train_accu_update, train_accu_init = \
-            self._get_accuracy(train_model.prediction,
+            self._get_accuracy(tf.round(train_model.prediction),
                                train_data.label,
                                'train_accuracy')
 
@@ -92,10 +91,12 @@ class TrainManager(object):
         check_op = tf.add_check_numerics_ops()
         saver = tf.train.Saver(tf.global_variables(), )
 
-        logging.info('Preparing training done with time %2f s', time.time() - start_time)
+        print('Preparing training done with time %.2f s' % (time.time() - start_time))
 
         # Summary
         train_summaries = []
+        for grad in gradients:
+            train_summaries.append(tf.summary.histogram(grad.name, grad))
         for var in tf.trainable_variables():
             train_summaries.append(tf.summary.histogram(var.name, var))
         train_summaries.append(tf.summary.scalar('train_loss', loss))
@@ -127,14 +128,14 @@ class TrainManager(object):
         with sv.managed_session(config=config_) as sess:
             # Training loop
             def train_loop(epoch):
-                logging.info("Training Loop Epoch %d", epoch + 1)
+                print("Training Loop Epoch %d" % (epoch + 1))
                 try:
                     while True:
                         _, l, step, accu, pred \
                             = sess.run([train_op, loss, global_step, train_accu_update,
                                         train_model.prediction, ])
-                        logging.info("[%s/%s] step: %d loss: %.3f accu: %.3f pred: %.2f, %.2f",
-                                     epoch + 1, config.num_epochs, step, l, accu, pred[0], pred[1])
+                        print("[%s/%s] step: %d loss: %.3f accu: %.3f pred: %.2f, %.2f" %
+                              (epoch + 1, config.num_epochs, step, l, accu, pred[0], pred[1]))
                         if step % 10 == 0:
                             summary = sess.run(train_summaries_op)
                             sv.summary_computed(sess, summary,
@@ -146,7 +147,7 @@ class TrainManager(object):
                             val_loop(epoch)
 
                 except tf.errors.OutOfRangeError:
-                    logging.info("Training Loop Epoch %d Done...", epoch + 1)
+                    print("Training Loop Epoch %d Done..." % (epoch + 1))
                     sv.saver.save(sess, self._checkpoint_file,
                                   tf.train.global_step(sess, global_step))
                 except KeyboardInterrupt as e:
@@ -172,8 +173,8 @@ class TrainManager(object):
                     summary = sess.run(eval_train_summaries_op)
                     sv.summary_computed(sess, summary,
                                         tf.train.global_step(sess, global_step))
-                    logging.info("[%s/%s] evaluation train accuracy: %.3f", epoch + 1, config.num_epochs, accu)
-                    logging.info("Evaluation Training Loop Epoch %d Done...", epoch + 1)
+                    print("[%s/%s] evaluation train accuracy: %.3f" % (epoch + 1, config.num_epochs, accu))
+                    print("Evaluation Training Loop Epoch %d Done..." % (epoch + 1))
                 except KeyboardInterrupt as e:
                     print()
                     raise e
@@ -196,8 +197,8 @@ class TrainManager(object):
                     summary = sess.run(val_summaries_op)
                     sv.summary_computed(sess, summary,
                                         tf.train.global_step(sess, global_step))
-                    logging.info("[%s/%s] validation accuracy: %.3f loss: %.3f", epoch + 1, config.num_epochs, accu, l)
-                    logging.info("Evaluation Training Loop Epoch %d Done...", epoch + 1)
+                    print("[%s/%s] validation accuracy: %.3f loss: %.3f" % (epoch + 1, config.num_epochs, accu, l))
+                    print("Evaluation Training Loop Epoch %d Done..." % (epoch + 1))
 
                 except KeyboardInterrupt as e:
                     print()
@@ -314,5 +315,5 @@ if __name__ == '__main__':
     # Number of epochs
     flags.DEFINE_integer("num_epochs", 20, "")
     FLAGS = flags.FLAGS
-    tf.logging.set_verbosity(tf.logging.INFO)
+    # tf.logging.set_verbosity(tf.logging.INFO)
     tf.app.run()
