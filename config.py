@@ -86,7 +86,7 @@ class MovieQAConfig(Config):
         # Training parameter
         self.batch_size = 2
         # Train shuffle buffer size
-        self.size_shuffle_buffer = 16
+        self.size_shuffle_buffer = 128
         # Model parameter
         self.feature_dim = 1536
 

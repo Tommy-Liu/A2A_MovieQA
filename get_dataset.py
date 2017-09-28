@@ -104,6 +104,7 @@ class MovieQAData(object):
                 self.ques, self.ques_length, self.ans, self.ans_length, \
                 self.subt, self.subt_length, self.feat, self.index = \
                     self.iterator.get_next()
+
         else:
             self.ques, self.ques_length, self.ans, self.ans_length, \
             self.subt, self.subt_length, self.feat, self.label = self.get_dummy()

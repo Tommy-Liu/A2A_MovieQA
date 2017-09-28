@@ -3,7 +3,7 @@ import os
 import time
 
 import tensorflow as tf
-from tqdm import tqdm
+from tqdm import trange
 
 import data_utils as du
 from config import MovieQAConfig
@@ -64,18 +64,17 @@ class TrainManager(object):
                                val_data.label,
                                'val_accuracy')
 
-
         global_step = tf.train.get_or_create_global_step()
 
-        learning_rate = tf.train.exponential_decay(config.initial_learning_rate,
+        learning_rate = tf.train.exponential_decay(self.param.initial_learning_rate,
                                                    global_step,
-                                                   config.num_epochs_per_decay *
+                                                   self.param.num_epochs_per_decay *
                                                    config.get_num_example(
                                                        'train',
                                                        self.param.modality,
                                                        is_training=True
                                                    ),
-                                                   config.learning_rate_decay_factor,
+                                                   self.param.learning_rate_decay_factor,
                                                    staircase=True)
 
         optimizer = tf.train.AdamOptimizer(learning_rate)
@@ -84,7 +83,7 @@ class TrainManager(object):
         # capped_grad_and_vars = [(g, v) if g is None else
         #                         (tf.clip_by_value(g, config.clip_gradients, -config.clip_gradients), v)
         #                         for g, v in grads_and_vars]
-        gradients, _ = tf.clip_by_global_norm(gradients, config.clip_gradients)
+        gradients, _ = tf.clip_by_global_norm(gradients, self.param.clip_gradients)
         capped_grad_and_vars = list(zip(gradients, variables))
         train_op = optimizer.apply_gradients(capped_grad_and_vars, global_step)
         check_op = tf.add_check_numerics_ops()
@@ -131,32 +130,35 @@ class TrainManager(object):
                     train_data.file_names_placeholder: train_data.file_names,
                 })
                 print("Training Loop Epoch %d" % (epoch + 1))
-                try:
-                    while True:
+                step = tf.train.global_step(sess, global_step)
+                for _ in range(step, config.get_num_example('train',
+                                                            self.param.modality,
+                                                            is_training=True)):
+                    try:
                         _, l, step, accu, pred \
                             = sess.run([train_op, loss, global_step, train_accu_update,
                                         train_model.prediction, ])
                         print("[%s/%s] step: %d loss: %.3f accu: %.3f pred: %.2f, %.2f" %
-                              (epoch + 1, config.num_epochs, step, l, accu, pred[0], pred[1]))
+                              (epoch + 1, self.param.num_epochs, step, l, accu, pred[0], pred[1]))
                         if step % 10 == 0:
                             summary = sess.run(train_summaries_op)
                             sv.summary_computed(sess, summary,
                                                 tf.train.global_step(sess, global_step))
-                        if step % 100 == 0:
+                        if step % 1000 == 0:
                             sv.saver.save(sess, self._checkpoint_file,
                                           tf.train.global_step(sess, global_step))
-                            eval_train_loop(epoch)
-                            val_loop(epoch)
 
-                except tf.errors.OutOfRangeError:
-                    print("Training Loop Epoch %d Done..." % (epoch + 1))
-                    sv.saver.save(sess, self._checkpoint_file,
-                                  tf.train.global_step(sess, global_step))
-                except KeyboardInterrupt as e:
-                    sv.saver.save(sess, self._checkpoint_file,
-                                  tf.train.global_step(sess, global_step))
-                    print()
-                    raise e
+                    except tf.errors.OutOfRangeError:
+                        break
+                    except KeyboardInterrupt:
+                        sv.saver.save(sess, self._checkpoint_file,
+                                      tf.train.global_step(sess, global_step))
+                        print()
+                        return True
+                print("Training Loop Epoch %d Done..." % (epoch + 1))
+                sv.saver.save(sess, self._checkpoint_file,
+                              tf.train.global_step(sess, global_step))
+                return False
 
             # Evaluation training loop
             def eval_train_loop(epoch):
@@ -164,22 +166,25 @@ class TrainManager(object):
                     eval_train_data.file_names_placeholder: eval_train_data.file_names,
                 })
                 accu = 0
-                try:
-                    with tqdm(total=config.get_num_example('train', self.param.modality)) as pbar:
-                        while True:
-                            accu = sess.run(eval_train_accu_update)
-                            pbar.update()
-                            pbar.set_description("[%s/%s] eval train accuracy: %.3f" %
-                                                 (epoch + 1, config.num_epochs, accu))
-                except tf.errors.OutOfRangeError:
-                    summary = sess.run(eval_train_summaries_op)
-                    sv.summary_computed(sess, summary,
-                                        tf.train.global_step(sess, global_step))
-                    print("[%s/%s] evaluation train accuracy: %.3f" % (epoch + 1, config.num_epochs, accu))
-                    print("Evaluation Training Loop Epoch %d Done..." % (epoch + 1))
-                except KeyboardInterrupt as e:
-                    print()
-                    raise e
+                pbar = trange(config.get_num_example('train', self.param.modality))
+                for _ in pbar:
+                    try:
+                        accu = sess.run(eval_train_accu_update)
+                        pbar.set_description("[%s/%s] eval train accuracy: %.3f" %
+                                             (epoch + 1, self.param.num_epochs, accu))
+                    except tf.errors.OutOfRangeError:
+                        break
+                    except KeyboardInterrupt:
+                        print('')
+                        pbar.close()
+                        return True
+                summary = sess.run(eval_train_summaries_op)
+                sv.summary_computed(sess, summary,
+                                    tf.train.global_step(sess, global_step))
+                print("[%s/%s] evaluation train accuracy: %.3f" % (epoch + 1, self.param.num_epochs, accu))
+                print("Evaluation Training Loop Epoch %d Done..." % (epoch + 1))
+                pbar.close()
+                return False
 
             # Validation loop
             def val_loop(epoch):
@@ -188,39 +193,36 @@ class TrainManager(object):
                 })
                 accu = 0
                 l = 0
-                try:
-                    with tqdm(total=config.get_num_example('val', self.param.modality)) as pbar:
-                        while True:
-                            l, accu = sess.run([val_loss, val_accu_update])
-                            pbar.update()
-                            pbar.set_description("[%s/%s] val accuracy: %.3f loss: %.3f" %
-                                                 (epoch + 1, config.num_epochs, accu, l))
-                except tf.errors.OutOfRangeError:
-                    summary = sess.run(val_summaries_op)
-                    sv.summary_computed(sess, summary,
-                                        tf.train.global_step(sess, global_step))
-                    print("[%s/%s] validation accuracy: %.3f loss: %.3f" % (epoch + 1, config.num_epochs, accu, l))
-                    print("Evaluation Training Loop Epoch %d Done..." % (epoch + 1))
+                pbar = trange(config.get_num_example('val', self.param.modality))
+                for _ in pbar:
+                    try:
+                        l, accu = sess.run([val_loss, val_accu_update])
+                        pbar.set_description("[%s/%s] val accuracy: %.3f loss: %.3f" %
+                                             (epoch + 1, self.param.num_epochs, accu, l))
+                    except tf.errors.OutOfRangeError:
+                        break
+                    except KeyboardInterrupt:
+                        print('')
+                        pbar.close()
+                        return True
+                summary = sess.run(val_summaries_op)
+                sv.summary_computed(sess, summary,
+                                    tf.train.global_step(sess, global_step))
+                print("[%s/%s] validation accuracy: %.3f loss: %.3f" % (epoch + 1, self.param.num_epochs, accu, l))
+                print("Validation Loop Epoch %d Done..." % (epoch + 1))
+                pbar.close()
+                return False
 
-                except KeyboardInterrupt as e:
-                    print()
-                    raise e
-
-            for epoch in range(now_epoch, config.num_epochs):
+            print(now_epoch, self.param.num_epochs)
+            for epoch in range(now_epoch, self.param.num_epochs):
                 self.param.now_epoch = epoch
-                self._update_exp({
-                    self._exp_name: self.param.__dict__
-                })
-                sess.run([train_data.iterator.initializer, init_metric_op,
-                          eval_train_data.iterator.initializer,
-                          val_data.iterator.initializer], feed_dict={
-                    train_data.file_names_placeholder: train_data.file_names,
-                    eval_train_data.file_names_placeholder: eval_train_data.file_names,
-                    val_data.file_names_placeholder: val_data.file_names
-                })
-                train_loop(epoch)
-                eval_train_loop(epoch)
-                val_loop(epoch)
+                self._update_now_exp()
+                if train_loop(epoch):
+                    break
+                if eval_train_loop(epoch):
+                    break
+                if val_loop(epoch):
+                    break
 
     def _get_model(self, train_data, eval_train_data, val_data, ):
         train_model = VLLabMemoryModel(train_data)
@@ -252,10 +254,10 @@ class TrainManager(object):
     def _exp_name(self):
         name = [config.dataset_name, self.param.modality]
         for param in config.tunable_parameter.__dict__.keys():
-            if self.param.__dict__.get(param, None) and \
-                            config.tunable_parameter.__dict__[param] != self.param.__dict__[param]:
-                name.append("%s_%s" % (param, self.param.__dict__[param]))
-        return '_'.join(name)
+            if self.param.__dict__['__flags'].get(param, None) and \
+                            config.tunable_parameter.__dict__[param] != self.param.__dict__['__flags'][param]:
+                name.append("%s_%s" % (param, self.param.__dict__['__flags'][param]))
+        return '-'.join(name)
 
     def _new_exp(self):
         self.param.now_epoch = 0
@@ -273,7 +275,7 @@ class TrainManager(object):
 
     def _update_now_exp(self):
         self._update_exp({
-            self._exp_name: self.param.__dict__
+            self._exp_name: self.param.__dict__['__flags']
         })
 
     def _update_exp(self, item):
@@ -307,12 +309,12 @@ if __name__ == '__main__':
     # Number of sliding convolution layer
     flags.DEFINE_integer("num_layers", 1, "")
     # Learning rate for the initial phase of training.
-    flags.DEFINE_float("initial_learning_rate", 0.002, "")
+    flags.DEFINE_float("initial_learning_rate", 0.001, "")
     flags.DEFINE_float("learning_rate_decay_factor", 0.87, "")
     flags.DEFINE_float("num_epochs_per_decay", 1.0, "")
 
     # If not None, clip gradients to this value.
-    flags.DEFINE_float("clip_gradients", 5.0, "")
+    flags.DEFINE_float("clip_gradients", 1.0, "")
     flags.DEFINE_bool("reset", False, "")
     # Number of epochs
     flags.DEFINE_integer("num_epochs", 20, "")
