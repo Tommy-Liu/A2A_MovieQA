@@ -24,9 +24,9 @@ class TrainManager(object):
         if self.param.reset:
             self._new_exp()
             if os.path.exists(self._checkpoint_dir):
-                os.system('rm -rf %s' % self._checkpoint_dir)
+                os.system('rm -rf %s' % os.path.join(self._checkpoint_dir, '*'))
             if os.path.exists(self._log_dir):
-                os.system('rm -rf %s' % self._log_dir)
+                os.system('rm -rf %s' % os.path.join(self._log_dir, '*'))
             self._train()
         elif self.param.now_epoch < self.param.num_epochs - 1:
             self._train()
@@ -64,7 +64,6 @@ class TrainManager(object):
                                val_data.label,
                                'val_accuracy')
 
-        init_metric_op = tf.group(train_accu_init, val_accu_init, eval_train_accu_init)
 
         global_step = tf.train.get_or_create_global_step()
 
@@ -128,6 +127,9 @@ class TrainManager(object):
         with sv.managed_session(config=config_) as sess:
             # Training loop
             def train_loop(epoch):
+                sess.run([train_data.iterator.initializer, train_accu_init], feed_dict={
+                    train_data.file_names_placeholder: train_data.file_names,
+                })
                 print("Training Loop Epoch %d" % (epoch + 1))
                 try:
                     while True:
