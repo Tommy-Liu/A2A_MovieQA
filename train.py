@@ -92,14 +92,18 @@ class TrainManager(object):
         print('Preparing training done with time %.2f s' % (time.time() - start_time))
 
         # Summary
-        train_summaries = []
-        for grad in gradients:
-            train_summaries.append(tf.summary.histogram(grad.name, grad))
-        for var in tf.trainable_variables():
-            train_summaries.append(tf.summary.histogram(var.name, var))
-        train_summaries.append(tf.summary.scalar('train_loss', loss))
-        train_summaries.append(tf.summary.scalar('train_accuracy', train_accu))
-        train_summaries.append(tf.summary.scalar('learning_rate', learning_rate))
+        train_gv_summaries = []
+        for idx, var in enumerate(variables):
+            train_gv_summaries.append(tf.summary.histogram(var.name, gradients[idx]))
+            train_gv_summaries.append(tf.summary.histogram(var.name, var))
+
+        train_gv_summaries_op = tf.summary.merge(train_gv_summaries)
+
+        train_summaries = [
+            tf.summary.scalar('train_loss', loss),
+            tf.summary.scalar('train_accuracy', train_accu),
+            tf.summary.scalar('learning_rate', learning_rate)
+        ]
         train_summaries_op = tf.summary.merge(train_summaries)
 
         eval_train_summaries = [tf.summary.scalar('eval_train_accuracy', eval_train_accu)]
@@ -121,7 +125,7 @@ class TrainManager(object):
 
         # clip_gradient_norm=self.config.clip_gradients)
         config_ = tf.ConfigProto(allow_soft_placement=True, )
-        config_.gpu_options.allow_growth = True
+        # config_.gpu_options.allow_growth = True
 
         with sv.managed_session(config=config_) as sess:
             # Training loop
@@ -145,6 +149,9 @@ class TrainManager(object):
                             sv.summary_computed(sess, summary,
                                                 tf.train.global_step(sess, global_step))
                         if step % 1000 == 0:
+                            summary = sess.run(train_gv_summaries_op)
+                            sv.summary_computed(sess, summary,
+                                                tf.train.global_step(sess, global_step))
                             sv.saver.save(sess, self._checkpoint_file,
                                           tf.train.global_step(sess, global_step))
 
@@ -309,7 +316,7 @@ if __name__ == '__main__':
     # Number of sliding convolution layer
     flags.DEFINE_integer("num_layers", 1, "")
     # Learning rate for the initial phase of training.
-    flags.DEFINE_float("initial_learning_rate", 0.001, "")
+    flags.DEFINE_float("initial_learning_rate", 0.0001, "")
     flags.DEFINE_float("learning_rate_decay_factor", 0.87, "")
     flags.DEFINE_float("num_epochs_per_decay", 1.0, "")
 
