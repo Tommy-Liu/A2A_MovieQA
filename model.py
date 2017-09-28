@@ -81,14 +81,12 @@ class VLLabMemoryModel(object):
     def multilayer_perceptron(self):
         with tf.variable_scope("mlp"):
             x = layers.dropout(self.final_repr, keep_prob=config.lstm_dropout_keep_prob)
-            # x = self.final_repr
             fc1 = layers.fully_connected(x, 2048)
             fc1 = layers.dropout(fc1, keep_prob=config.lstm_dropout_keep_prob)
             fc2 = layers.fully_connected(fc1, 1024)
             fc2 = layers.dropout(fc2, keep_prob=config.lstm_dropout_keep_prob)
             fc3 = layers.fully_connected(fc2, 512)
             fc3 = layers.dropout(fc3, keep_prob=config.lstm_dropout_keep_prob)
-            # fc3 = x
             self.logits = layers.fully_connected(fc3, 1, activation_fn=None)
             self.prediction = tf.nn.sigmoid(self.logits)
 
