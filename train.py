@@ -80,9 +80,6 @@ class TrainManager(object):
         optimizer = tf.train.AdamOptimizer(learning_rate)
         grads_and_vars = optimizer.compute_gradients(loss)
         gradients, variables = list(zip(*grads_and_vars))
-        # capped_grad_and_vars = [(g, v) if g is None else
-        #                         (tf.clip_by_value(g, config.clip_gradients, -config.clip_gradients), v)
-        #                         for g, v in grads_and_vars]
         gradients, _ = tf.clip_by_global_norm(gradients, self.param.clip_gradients)
         capped_grad_and_vars = list(zip(gradients, variables))
         train_op = optimizer.apply_gradients(capped_grad_and_vars, global_step)
@@ -94,7 +91,7 @@ class TrainManager(object):
         # Summary
         train_gv_summaries = []
         for idx, var in enumerate(variables):
-            train_gv_summaries.append(tf.summary.histogram(var.name, gradients[idx]))
+            train_gv_summaries.append(tf.summary.histogram('gradient/' + var.name, gradients[idx]))
             train_gv_summaries.append(tf.summary.histogram(var.name, var))
 
         train_gv_summaries_op = tf.summary.merge(train_gv_summaries)
@@ -109,10 +106,7 @@ class TrainManager(object):
         eval_train_summaries = [tf.summary.scalar('eval_train_accuracy', eval_train_accu)]
         eval_train_summaries_op = tf.summary.merge(eval_train_summaries)
 
-        val_summaries = [
-            tf.summary.scalar('val_loss', val_loss),
-            tf.summary.scalar('val_accu', val_accu)
-        ]
+        val_summaries = [tf.summary.scalar('val_accu', val_accu)]
         val_summaries_op = tf.summary.merge(val_summaries)
 
         checkpoint_file = tf.train.latest_checkpoint(self._checkpoint_dir)
@@ -123,7 +117,6 @@ class TrainManager(object):
                                  init_fn=restore_fn, save_model_secs=0,
                                  saver=saver, global_step=global_step)
 
-        # clip_gradient_norm=self.config.clip_gradients)
         config_ = tf.ConfigProto(allow_soft_placement=True, )
         # config_.gpu_options.allow_growth = True
 
@@ -139,21 +132,29 @@ class TrainManager(object):
                                                             self.param.modality,
                                                             is_training=True)):
                     try:
-                        _, l, step, accu, pred \
-                            = sess.run([train_op, loss, global_step, train_accu_update,
-                                        train_model.prediction, ])
-                        print("[%s/%s] step: %d loss: %.3f accu: %.3f pred: %.2f, %.2f" %
-                              (epoch + 1, self.param.num_epochs, step, l, accu, pred[0], pred[1]))
-                        if step % 10 == 0:
-                            summary = sess.run(train_summaries_op)
+                        if step % 1000 == 0:
+                            gv_summary, summary, _, l, step, accu, pred = sess.run(
+                                [train_gv_summaries_op, train_summaries_op, train_op, loss, global_step,
+                                 train_accu_update,
+                                 train_model.prediction])
                             sv.summary_computed(sess, summary,
                                                 tf.train.global_step(sess, global_step))
-                        if step % 1000 == 0:
-                            summary = sess.run(train_gv_summaries_op)
-                            sv.summary_computed(sess, summary,
+                            sv.summary_computed(sess, gv_summary,
                                                 tf.train.global_step(sess, global_step))
                             sv.saver.save(sess, self._checkpoint_file,
                                           tf.train.global_step(sess, global_step))
+                        elif step % 10 == 0:
+                            summary, _, l, step, accu, pred = sess.run(
+                                [train_summaries_op, train_op, loss, global_step, train_accu_update,
+                                 train_model.prediction])
+                            sv.summary_computed(sess, summary,
+                                                tf.train.global_step(sess, global_step))
+                        else:
+                            _, l, step, accu, pred \
+                                = sess.run([train_op, loss, global_step, train_accu_update,
+                                            train_model.prediction])
+                        print("[%s/%s] step: %d loss: %.3f accu: %.3f pred: %.2f, %.2f" %
+                              (epoch + 1, self.param.num_epochs, step, l, accu, pred[0], pred[1]))
 
                     except tf.errors.OutOfRangeError:
                         break
