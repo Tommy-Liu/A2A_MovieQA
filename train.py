@@ -57,7 +57,7 @@ class TrainManager(object):
         eval_train_accu, eval_train_accu_update, eval_train_accu_init = \
             self._get_accuracy(tf.argmax(eval_train_model.prediction, 0),
                                eval_train_data.label,
-                               'train_accuracy')
+                               'eval_train_accuracy')
 
         val_accu, val_accu_update, val_accu_init = \
             self._get_accuracy(tf.argmax(val_model.prediction, 0),
@@ -127,10 +127,14 @@ class TrainManager(object):
                     train_data.file_names_placeholder: train_data.file_names,
                 })
                 print("Training Loop Epoch %d" % (epoch + 1))
-                step = tf.train.global_step(sess, global_step)
+                step = tf.train.global_step(sess, global_step) % \
+                       config.get_num_example('train',
+                                              self.param.modality,
+                                              is_training=True)
                 for _ in range(step, config.get_num_example('train',
                                                             self.param.modality,
                                                             is_training=True)):
+                    start_time = time.time()
                     try:
                         if step % 1000 == 0:
                             gv_summary, summary, _, l, step, accu, pred = sess.run(
@@ -153,8 +157,9 @@ class TrainManager(object):
                             _, l, step, accu, pred \
                                 = sess.run([train_op, loss, global_step, train_accu_update,
                                             train_model.prediction])
-                        print("[%s/%s] step: %d loss: %.3f accu: %.3f pred: %.2f, %.2f" %
-                              (epoch + 1, self.param.num_epochs, step, l, accu, pred[0], pred[1]))
+                        print("[%s/%s] step: %d loss: %.3f accu: %.2f %% pred: %.2f, %.2f elapsed time: %.2f s" %
+                              (epoch + 1, self.param.num_epochs, step, l, accu * 100,
+                               pred[0], pred[1], time.time() - start_time))
 
                     except tf.errors.OutOfRangeError:
                         break
@@ -299,33 +304,63 @@ def main(_):
 if __name__ == '__main__':
     flags = tf.app.flags
     flags.DEFINE_string("modality", "fixed_num",
-                        "fixed_num, fixed_interval, shot_major, subtitle_major")
-    flags.DEFINE_integer("min_filter_size", 3, "")
-    flags.DEFINE_integer("max_filter_size", 5, "")
+                        "There are 4 modalities of data sampling:" +
+                        "fixed_num, fixed_interval, shot_major, subtitle_major." +
+                        "Default: fixed_num")
+    flags.DEFINE_integer("min_filter_size", 3,
+                         "Minimal number of sliding window size." +
+                         "Default: 3")
+    flags.DEFINE_integer("max_filter_size", 5,
+                         "Maximal number of sliding window size." +
+                         "Default: 5")
 
-    flags.DEFINE_integer("sliding_dim", 1024, "")
+    flags.DEFINE_integer("sliding_dim", 1024,
+                         "The output dimension of sliding-window convolution." +
+                         "Default: 1024")
     # LSTM input and output dimensionality, respectively.
-    flags.DEFINE_integer("embedding_size", 512, "")
-    flags.DEFINE_integer("num_lstm_units", 512, "")
+    flags.DEFINE_integer("embedding_size", 512,
+                         "The dimension of word embedding." +
+                         "Default: 512")
+    flags.DEFINE_integer("num_lstm_units", 512,
+                         "The dimension of LSTM intenal state" +
+                         "Default: 512")
 
     # If < 1.0, the dropout keep probability applied to LSTM variables.
-    flags.DEFINE_float("lstm_dropout_keep_prob", 0.7, "")
+    flags.DEFINE_float("lstm_dropout_keep_prob", 0.7,
+                       "The keeping probability of dropout layer." +
+                       "Default: 0.7")
 
     # Optimizer for training the model.
-    flags.DEFINE_string("optimizer", "Adam", "")
+    flags.DEFINE_string("optimizer", "Adam",
+                        "The training optimization method." +
+                        "Default: Adam")
 
     # Number of sliding convolution layer
-    flags.DEFINE_integer("num_layers", 1, "")
+    flags.DEFINE_integer("num_layers", 1,
+                         "The number of the sliding-window convolution layer." +
+                         "Default: 1")
     # Learning rate for the initial phase of training.
-    flags.DEFINE_float("initial_learning_rate", 0.0001, "")
-    flags.DEFINE_float("learning_rate_decay_factor", 0.87, "")
-    flags.DEFINE_float("num_epochs_per_decay", 1.0, "")
+    flags.DEFINE_float("initial_learning_rate", 0.0001,
+                       "The initial learning rate." +
+                       "Default: 0.0001")
+    flags.DEFINE_float("learning_rate_decay_factor", 0.87,
+                       "The decay factor of learning rate." +
+                       "Default: 0.87 (OPOP)")
+    flags.DEFINE_float("num_epochs_per_decay", 1.0,
+                       "The number of epochs when learning rate decays at." +
+                       "Default: 1.0")
 
     # If not None, clip gradients to this value.
-    flags.DEFINE_float("clip_gradients", 1.0, "")
-    flags.DEFINE_bool("reset", False, "")
+    flags.DEFINE_float("clip_gradients", 1.0,
+                       "The value of global norm of gradient." +
+                       "Default: 1.0")
+    flags.DEFINE_bool("reset", False,
+                      "Reset the experiment." +
+                      "Default: False")
     # Number of epochs
-    flags.DEFINE_integer("num_epochs", 20, "")
+    flags.DEFINE_integer("num_epochs", 20,
+                         "The number of training epochs." +
+                         "Default: 20")
     FLAGS = flags.FLAGS
     # tf.logging.set_verbosity(tf.logging.INFO)
     tf.app.run()
