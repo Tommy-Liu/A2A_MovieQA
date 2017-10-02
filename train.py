@@ -127,7 +127,10 @@ class TrainManager(object):
                     train_data.file_names_placeholder: train_data.file_names,
                 })
                 print("Training Loop Epoch %d" % (epoch + 1))
-                step = tf.train.global_step(sess, global_step)
+                step = tf.train.global_step(sess, global_step) % \
+                       config.get_num_example('train',
+                                              self.param.modality,
+                                              is_training=True)
                 for _ in range(step, config.get_num_example('train',
                                                             self.param.modality,
                                                             is_training=True)):
