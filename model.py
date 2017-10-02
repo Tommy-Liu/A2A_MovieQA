@@ -67,9 +67,6 @@ class VLLabMemoryModel(object):
         # [ins if ins for ins in self.__dict__.values()]
         # sess.run()
 
-    def load_embedding(self):
-        self.fasttext_embeddings = 
-
     def build_model(self):
         self.build_seq_embedding()
         self.build_movie_feature()
@@ -185,6 +182,7 @@ class VLLabMemoryModel(object):
                                      self.ques_lstm_outputs, self.ans_lstm_outputs],
                                     axis=1)
 
+
 def test_data():
     data = MovieQAData()
     model = VLLabMemoryModel(data)
@@ -229,12 +227,16 @@ def test_data():
             #     print(pool)
             #     print(pool.shape)
 
+
 def test_embedding():
-    pass
+    data = MovieQAData()
+    model = VLLabMemoryModel(data)
+
 
 def main(_):
     # test_data()
     test_embedding()
+
 
 if __name__ == '__main__':
     tf.app.run()

@@ -1,10 +1,11 @@
+import os
 import re
 import time
 import ujson as json
 from collections import Counter
 
 from nltk.tokenize import word_tokenize
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 import data_utils as du
 from config import MovieQAConfig
@@ -34,19 +35,51 @@ def qid_split(qa_):
     return qa_['qid'].split(':')[0]
 
 
+def load_embedding():
+    if os.path.exists(config.fasttext_vocb_file):
+        with open(config.fasttext_vocb_file, 'r') as f:
+            embedding = json.load(f)
+    else:
+        embedding = {}
+        with open(config.fasttext_file, 'r') as f:
+            num, dim = [int(comp) for comp in f.readline().strip().split()]
+            for _ in trange(num, desc='Load word embedding:'):
+                word, *vec = f.readline().strip().split()
+                vec = [float(e) for e in vec]
+                embedding[word] = vec
+        with open(config.fasttext_vocb_file, 'w') as f:
+            json.dump(embedding, f, indent=4)
+    return embedding
+
+
+def nn():
+    pass
+
+
 def insert_unk(vocab, inverse_vocab):
     vocab[UNK] = len(vocab)
     inverse_vocab.append(UNK)
     return vocab, inverse_vocab
 
 
-def build_vocab(counter):
-    sorted_vocab = sorted(counter.items(),
-                          key=lambda t: t[1],
-                          reverse=True)
+def build_vocab(counter, embedding):
+    qa_embedding = {}
+    sorted_counter = sorted(counter.items(),
+                            key=lambda t: t[1],
+                            reverse=True)
+    for idx, item in tqdm(enumerate(sorted_counter), desc='Build vocab:'):
+        if item[0] in embedding.keys() and item[1] > config.vocab_thr:
+            qa_embedding[item[0]] = embedding[item[0]]
+    print('Fasttext vocabulary coverage: %.2f %%' % (len(qa_embedding) / len(counter) * 100))
+
+
+def legacy_build_vocab(counter):
+    sorted_counter = sorted(counter.items(),
+                            key=lambda t: t[1],
+                            reverse=True)
     vocab = {
         item[0]: idx
-        for idx, item in enumerate(sorted_vocab)
+        for idx, item in enumerate(sorted_counter)
         if item[1] > config.vocab_thr
     }
     inverse_vocab = [key for key in vocab.keys()]
@@ -82,8 +115,8 @@ def tokenize_sentences(qa_list, is_train=False):
         if qa_['avail']:
             tokenize_qa_list.append(
                 {
-                    'tokenize_question': word_tokenize(qa_['question']),
-                    'tokenize_answer': [word_tokenize(aa) for aa in qa_['answers']],
+                    'tokenize_question': word_tokenize(qa_['question'].lower()),
+                    'tokenize_answer': [word_tokenize(aa.lower()) for aa in qa_['answers']],
                     'video_clips': qa_['video_clips'],
                     'correct_index': qa_['correct_index']
                 }
@@ -168,43 +201,45 @@ def main():
             for sub in video_subtitle[key]['subtitle']:
                 vocab_counter.update(sub)
     # Build vocab
-    vocab, inverse_vocab = build_vocab(vocab_counter)
+    embedding = load_embedding()
+    build_vocab(vocab_counter, embedding)
+    # vocab, inverse_vocab = build_vocab(vocab_counter)
 
-    # encode sentences
-    tokenize_qa_test = tokenize_sentences(total_qa['test'])
-    tokenize_qa_val = tokenize_sentences(total_qa['val'])
-    encode_sub = encode_subtitles(video_subtitle, vocab)
-    encode_qa_train = encode_sentences(tokenize_qa_train, vocab)
-    encode_qa_test = encode_sentences(tokenize_qa_test, vocab)
-    encode_qa_val = encode_sentences(tokenize_qa_val, vocab)
-
-    tokenize_qa = {
-        'tokenize_qa_train': tokenize_qa_train,
-        'tokenize_qa_test': tokenize_qa_test,
-        'tokenize_qa_val': tokenize_qa_val,
-    }
-
-    encode_qa = {
-        'encode_qa_train': encode_qa_train,
-        'encode_qa_test': encode_qa_test,
-        'encode_qa_val': encode_qa_val,
-    }
-    vocab_all = {
-        'vocab': vocab,
-        'inverse_vocab': inverse_vocab,
-    }
-
-    du.exist_then_remove(total_qa_file_name)
-    du.exist_then_remove(tokenize_file_name)
-    du.exist_then_remove(encode_file_name)
-    du.exist_then_remove(all_vocab_file_name)
-    du.exist_then_remove(config.encode_subtitle_file)
-
-    du.write_json(total_qa, total_qa_file_name)
-    du.write_json(tokenize_qa, tokenize_file_name)
-    du.write_json(encode_qa, encode_file_name)
-    du.write_json(vocab_all, all_vocab_file_name)
-    du.write_json(encode_sub, config.encode_subtitle_file)
+    # # encode sentences
+    # tokenize_qa_test = tokenize_sentences(total_qa['test'])
+    # tokenize_qa_val = tokenize_sentences(total_qa['val'])
+    # encode_sub = encode_subtitles(video_subtitle, vocab)
+    # encode_qa_train = encode_sentences(tokenize_qa_train, vocab)
+    # encode_qa_test = encode_sentences(tokenize_qa_test, vocab)
+    # encode_qa_val = encode_sentences(tokenize_qa_val, vocab)
+    #
+    # tokenize_qa = {
+    #     'tokenize_qa_train': tokenize_qa_train,
+    #     'tokenize_qa_test': tokenize_qa_test,
+    #     'tokenize_qa_val': tokenize_qa_val,
+    # }
+    #
+    # encode_qa = {
+    #     'encode_qa_train': encode_qa_train,
+    #     'encode_qa_test': encode_qa_test,
+    #     'encode_qa_val': encode_qa_val,
+    # }
+    # vocab_all = {
+    #     'vocab': vocab,
+    #     'inverse_vocab': inverse_vocab,
+    # }
+    #
+    # du.exist_then_remove(total_qa_file_name)
+    # du.exist_then_remove(tokenize_file_name)
+    # du.exist_then_remove(encode_file_name)
+    # du.exist_then_remove(all_vocab_file_name)
+    # du.exist_then_remove(config.encode_subtitle_file)
+    #
+    # du.write_json(total_qa, total_qa_file_name)
+    # du.write_json(tokenize_qa, tokenize_file_name)
+    # du.write_json(encode_qa, encode_file_name)
+    # du.write_json(vocab_all, all_vocab_file_name)
+    # du.write_json(encode_sub, config.encode_subtitle_file)
 
 
 if __name__ == '__main__':

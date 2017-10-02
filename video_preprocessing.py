@@ -67,7 +67,7 @@ def get_videos_clips():
     :return: a dictionary with key:imdb, value:video clips path
     """
     videos_clips = {}
-    for d in tqdm(videos_dirs):
+    for d in tqdm(videos_dirs, desc='Get video clips:'):
         imdb = du.get_base_name(d)
         videos_clips[imdb] = glob(os.path.join(d, VIDEO_PATTERN_))
     return videos_clips
@@ -108,7 +108,7 @@ def map_time_subtitle(imdb_key):
     times = []
     subtitles = []
     for sub in subs:
-        text = re.sub(r'[\n\r]', ' ', sub.text).strip()
+        text = re.sub(r'[\n\r]', ' ', sub.text).lower().strip()
         text = du.clean_token(text).strip()
         text = word_tokenize(text)  # ''|'<space>' -> []
         if text:
