@@ -4,7 +4,7 @@ import time
 import ujson as json
 from collections import Counter
 
-from nltk.tokenize import word_tokenize
+from nltk.tokenize import word_tokenize, RegexpTokenizer, TweetTokenizer
 from tqdm import tqdm, trange
 
 import data_utils as du
@@ -21,6 +21,10 @@ tokenize_file_name = config.avail_tokenize_qa_file
 encode_file_name = config.avail_encode_qa_file
 all_vocab_file_name = config.all_vocab_file
 
+# tokenize_func = word_tokenize
+# tokenizer = RegexpTokenizer("[\w']+")
+tokenizer = TweetTokenizer()
+tokenize_func = tokenizer.tokenize
 
 def get_imdb_key(d):
     """
@@ -107,7 +111,7 @@ def get_split(qa, video_data):
     return total_qa
 
 
-def tokenize_sentences(qa_list, is_train=False):
+def tokenize_sentences(qa_list, embedding, unavail_word_to_subtitle, is_train=False):
     vocab_counter = Counter()
     tokenize_qa_list = []
     for qa_ in tqdm(qa_list, desc='Tokenize sentences'):
@@ -115,8 +119,8 @@ def tokenize_sentences(qa_list, is_train=False):
         if qa_['avail']:
             tokenize_qa_list.append(
                 {
-                    'tokenize_question': word_tokenize(qa_['question'].lower()),
-                    'tokenize_answer': [word_tokenize(aa.lower()) for aa in qa_['answers']],
+                    'tokenize_question': tokenize_func(qa_['question'].lower()),
+                    'tokenize_answer': [tokenize_func(aa.lower()) for aa in qa_['answers']],
                     'video_clips': qa_['video_clips'],
                     'correct_index': qa_['correct_index']
                 }
@@ -124,13 +128,23 @@ def tokenize_sentences(qa_list, is_train=False):
             if is_train:
                 # Update counters
                 vocab_counter.update(tokenize_qa_list[-1]['tokenize_question'])
+                for w in tokenize_qa_list[-1]['tokenize_question']:
+                    if not w in embedding.keys() and \
+                            not ' '.join(tokenize_qa_list[-1]['tokenize_question']) in \
+                                    unavail_word_to_subtitle.setdefault(w, []):
+                         unavail_word_to_subtitle[w]\
+                             .append(' '.join(tokenize_qa_list[-1]['tokenize_question']))
                 for ans in tokenize_qa_list[-1]['tokenize_answer']:
                     vocab_counter.update(ans)
+                    for w in ans:
+                        if not w in embedding.keys() and \
+                                not ' '.join(ans) in unavail_word_to_subtitle.setdefault(w, []):
+                            unavail_word_to_subtitle[w].append(' '.join(ans))
 
     if is_train:
-        return tokenize_qa_list, vocab_counter
+        return tokenize_qa_list, unavail_word_to_subtitle, vocab_counter
     else:
-        return tokenize_qa_list
+        return tokenize_qa_list, unavail_word_to_subtitle
 
 
 def encode_subtitles(subtitles, vocab):
@@ -174,10 +188,10 @@ def main():
     start_time = time.time()
     video_data = json.load(open(config.video_data_file, 'r'))
     video_subtitle = json.load(open(config.subtitle_file, 'r'))
-    qa = json.load(open(config.qa_file))
+    qa = json.load(open(config.qa_file, 'r'))
+    embedding = load_embedding()
+    unavail_word_to_subtitle = {}
     print('Loading json file done!! Take %.4f sec.' % (time.time() - start_time))
-    # split = json.load(open('../MovieQA_benchmark/data/splits.json'))
-    # unavail_list = [get_base_name(d) for d in avail_video_metadata['unavailable']]
 
     total_qa = get_split(qa, video_data)
 
@@ -194,15 +208,22 @@ def main():
                                                 len(total_qa['test']),
                                                 len(total_qa['val'])))
 
-    tokenize_qa_train, vocab_counter = tokenize_sentences(total_qa['train'],
-                                                          is_train=True)
+    tokenize_qa_train, unavail_word_to_subtitle, vocab_counter = \
+        tokenize_sentences(total_qa['train'],
+                           embedding,
+                           unavail_word_to_subtitle,
+                           is_train=True)
     for key in video_subtitle.keys():
         if video_subtitle[key]:
             for sub in video_subtitle[key]['subtitle']:
                 vocab_counter.update(sub)
+                for w in sub:
+                    if not w in embedding.keys() and \
+                            not ' '.join(sub) in unavail_word_to_subtitle.setdefault(w, []):
+                        unavail_word_to_subtitle[w].append(' '.join(sub))
+    json.dump(unavail_word_to_subtitle, open('unavail_word_to_subtitle.json', 'w'), indent=4)
     # Build vocab
-    embedding = load_embedding()
-    build_vocab(vocab_counter, embedding)
+    # build_vocab(vocab_counter, embedding)
     # vocab, inverse_vocab = build_vocab(vocab_counter)
 
     # # encode sentences

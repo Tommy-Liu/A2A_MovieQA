@@ -11,7 +11,7 @@ from os.path import join
 
 import imageio
 import pysrt
-from nltk.tokenize import word_tokenize
+from nltk.tokenize import word_tokenize, RegexpTokenizer, TweetTokenizer
 from tqdm import tqdm
 
 import data_utils as du
@@ -30,6 +30,10 @@ ALIGN_SUBTITLE_PATTERN_ = '\r>> Align subtitles  %d/%d IMDB: %s'
 allow_discard_offset = 3
 videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.isdir(d)]
 
+# tokenize_func = word_tokenize
+# tokenizer = RegexpTokenizer("[\w']+")
+tokenizer = TweetTokenizer()
+tokenize_func = tokenizer.tokenize
 
 def get_start_and_end_time(l):
     """
@@ -110,7 +114,7 @@ def map_time_subtitle(imdb_key):
     for sub in subs:
         text = re.sub(r'[\n\r]', ' ', sub.text).lower().strip()
         text = du.clean_token(text).strip()
-        text = word_tokenize(text)  # ''|'<space>' -> []
+        text = tokenize_func(text)  # ''|'<space>' -> []
         if text:
             subtitles.append(text)
             start_time = sub.start.ordinal / 1000
@@ -157,7 +161,7 @@ def legacy_map_time_subtitle(imdb_key):
             # Clean lines?? good or bad?
             # Cuz it might be another clue.
             # Update: Fuck those tokens.
-            lines = word_tokenize(du.clean_token(' '.join(lines)))
+            lines = tokenize_func(du.clean_token(' '.join(lines)))
             time_to_subtitle.append(((start_time, end_time), lines))
     return time_to_subtitle
 
@@ -347,39 +351,43 @@ def check_and_extract_videos(videos_clips,
 
 # tt0109446.sf-046563.ef-056625.video.mp4
 
+def video_process(manager, shared_videos_clips, keys):
+    shared_video_data = manager.dict()
+
+    check_func = partial(check_and_extract_videos,
+                         shared_videos_clips,
+                         shared_video_data, )
+    with Pool(8) as p, tqdm(total=len(keys), desc="Check and extract videos") as pbar:
+        for i, _ in enumerate(p.imap_unordered(check_func, keys)):
+            pbar.update()
+    du.exist_then_remove(config.video_data_file)
+    json.dump(shared_video_data.copy(), open(config.video_data_file, 'w'), indent=4)
+    return shared_video_data
+
+def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
+    shared_video_subtitle = manager.dict()
+    align_func = partial(align_subtitle,
+                         shared_videos_clips,
+                         shared_video_subtitle,
+                         shared_video_data, )
+    with Pool(8) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
+        for i, _ in enumerate(p.imap_unordered(align_func, keys)):
+            pbar.update()
+    du.exist_then_remove(config.subtitle_file)
+    json.dump(shared_video_subtitle.copy(), open(config.subtitle_file, 'w'), indent=4)
 
 def main():
-    videos_clips = get_videos_clips()
-    # frame_to_subtitle = map_frame_to_subtitle('tt1058017')
-    # print(json.dumps(frame_to_subtitle[10000:10100], indent=4))
     with Manager() as manager:
+        videos_clips = get_videos_clips()
         shared_videos_clips = manager.dict(videos_clips)
         keys = list(iter(videos_clips.keys()))
         if not args.no_video:
-            shared_video_data = manager.dict()
-
-            check_func = partial(check_and_extract_videos,
-                                 shared_videos_clips,
-                                 shared_video_data, )
-            with Pool(8) as p, tqdm(total=len(keys), desc="Check and extract videos") as pbar:
-                for i, _ in enumerate(p.imap_unordered(check_func, keys)):
-                    pbar.update()
-            du.exist_then_remove(config.video_data_file)
-            json.dump(shared_video_data.copy(), open(config.video_data_file, 'w'), indent=4)
+            shared_video_data = video_process(manager, shared_videos_clips, keys)
         else:
             shared_video_data = json.load(open(config.video_data_file, 'r'))
 
         if not args.no_subt:
-            shared_video_subtitle = manager.dict()
-            align_func = partial(align_subtitle,
-                                 shared_videos_clips,
-                                 shared_video_subtitle,
-                                 shared_video_data, )
-            with Pool(8) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
-                for i, _ in enumerate(p.imap_unordered(align_func, keys)):
-                    pbar.update()
-            du.exist_then_remove(config.subtitle_file)
-            json.dump(shared_video_subtitle.copy(), open(config.subtitle_file, 'w'), indent=4)
+            subtitle_process(manager, shared_videos_clips, shared_video_data, keys)
 
 
 if __name__ == '__main__':
