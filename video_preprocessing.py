@@ -11,7 +11,8 @@ from os.path import join
 
 import imageio
 import pysrt
-from nltk.tokenize import word_tokenize, RegexpTokenizer, TweetTokenizer
+from nltk.tokenize.moses import MosesTokenizer
+# from nltk.tokenize import word_tokenize, RegexpTokenizer, TweetTokenizer
 from tqdm import tqdm
 
 import data_utils as du
@@ -32,8 +33,11 @@ videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.
 
 # tokenize_func = word_tokenize
 # tokenizer = RegexpTokenizer("[\w']+")
-tokenizer = TweetTokenizer()
-tokenize_func = tokenizer.tokenize
+# tokenizer = TweetTokenizer()
+tokenizer = MosesTokenizer()
+# tokenize_func = tokenizer.tokenize
+tokenize_func = partial(tokenizer.tokenize, escape=False)
+
 
 def get_start_and_end_time(l):
     """
@@ -113,7 +117,7 @@ def map_time_subtitle(imdb_key):
     subtitles = []
     for sub in subs:
         text = re.sub(r'[\n\r]', ' ', sub.text).lower().strip()
-        text = du.clean_token(text).strip()
+        text = du.clean_token(text).strip()  # .encode('cp1252').decode('cp1252')
         text = tokenize_func(text)  # ''|'<space>' -> []
         if text:
             subtitles.append(text)
@@ -364,6 +368,7 @@ def video_process(manager, shared_videos_clips, keys):
     json.dump(shared_video_data.copy(), open(config.video_data_file, 'w'), indent=4)
     return shared_video_data
 
+
 def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
     shared_video_subtitle = manager.dict()
     align_func = partial(align_subtitle,
@@ -375,6 +380,7 @@ def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
             pbar.update()
     du.exist_then_remove(config.subtitle_file)
     json.dump(shared_video_subtitle.copy(), open(config.subtitle_file, 'w'), indent=4)
+
 
 def main():
     with Manager() as manager:

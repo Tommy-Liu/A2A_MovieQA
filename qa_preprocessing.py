@@ -3,8 +3,10 @@ import re
 import time
 import ujson as json
 from collections import Counter
+from functools import partial
 
-from nltk.tokenize import word_tokenize, RegexpTokenizer, TweetTokenizer
+from nltk.tokenize.moses import MosesTokenizer
+# from nltk.tokenize import word_tokenize, RegexpTokenizer, TweetTokenizer
 from tqdm import tqdm, trange
 
 import data_utils as du
@@ -23,8 +25,10 @@ all_vocab_file_name = config.all_vocab_file
 
 # tokenize_func = word_tokenize
 # tokenizer = RegexpTokenizer("[\w']+")
-tokenizer = TweetTokenizer()
-tokenize_func = tokenizer.tokenize
+# tokenizer = TweetTokenizer()
+tokenizer = MosesTokenizer()
+tokenize_func = partial(tokenizer.tokenize, escape=False)
+
 
 def get_imdb_key(d):
     """
@@ -119,8 +123,9 @@ def tokenize_sentences(qa_list, embedding, unavail_word_to_subtitle, is_train=Fa
         if qa_['avail']:
             tokenize_qa_list.append(
                 {
-                    'tokenize_question': tokenize_func(qa_['question'].lower()),
-                    'tokenize_answer': [tokenize_func(aa.lower()) for aa in qa_['answers']],
+                    'tokenize_question': tokenize_func(qa_['question'].lower().strip()),
+                    'tokenize_answer': [tokenize_func(aa.lower().strip())
+                                        for aa in qa_['answers']],
                     'video_clips': qa_['video_clips'],
                     'correct_index': qa_['correct_index']
                 }
@@ -129,16 +134,16 @@ def tokenize_sentences(qa_list, embedding, unavail_word_to_subtitle, is_train=Fa
                 # Update counters
                 vocab_counter.update(tokenize_qa_list[-1]['tokenize_question'])
                 for w in tokenize_qa_list[-1]['tokenize_question']:
-                    if not w in embedding.keys() and \
-                            not ' '.join(tokenize_qa_list[-1]['tokenize_question']) in \
-                                    unavail_word_to_subtitle.setdefault(w, []):
-                         unavail_word_to_subtitle[w]\
-                             .append(' '.join(tokenize_qa_list[-1]['tokenize_question']))
+                    if w not in embedding.keys() and \
+                                    ' '.join(tokenize_qa_list[-1]['tokenize_question']) \
+                                    not in unavail_word_to_subtitle.setdefault(w, []):
+                        unavail_word_to_subtitle[w] \
+                            .append(' '.join(tokenize_qa_list[-1]['tokenize_question']))
                 for ans in tokenize_qa_list[-1]['tokenize_answer']:
                     vocab_counter.update(ans)
                     for w in ans:
-                        if not w in embedding.keys() and \
-                                not ' '.join(ans) in unavail_word_to_subtitle.setdefault(w, []):
+                        if w not in embedding.keys() and \
+                                        ' '.join(ans) not in unavail_word_to_subtitle.setdefault(w, []):
                             unavail_word_to_subtitle[w].append(' '.join(ans))
 
     if is_train:
