@@ -5,24 +5,24 @@
 ### Video data
 * Python dictionary:
 ```python
-info = {
-    'num_frames': 0,
-    'image_size': [],
-    'fps': 0.0,
-    'duration': 0.0,
-}
-data = {
-    'shot_boundary': [],
-}
 video_data = \
 {
     'video_base_name': 
     {
         'avail': True/False,
-        'data': data,
-        'info': info,
+        'num_frames': 0,
+        'image_size': [],
+        'fps': 0.0,
+        'duration': 0.0,
     }
     # ... '': {}
+}
+```
+### Shot boundary
+```python
+shot_boundary = {
+    'video_base_name': [],
+    # ... '' : []
 }
 ```
 ### Subtitle data
@@ -30,13 +30,24 @@ video_data = \
 ```python
 subtitle_data = \
 {
-    'video_base_name': {
+    'imdb_key': {
         'subtitle':[[]],
         'subtitle_index': [],
         'frame_time': [],
         'shot_boundary': [],
     }
     # ... '': {}
+}
+subtitle_index = {
+    'video_base_name': [],
+    # ... '': []
+}
+```
+### Frame time
+```python
+frame_time = {
+    'video_base_name':[]
+    # ... '': []
 }
 ```
 ### Total QA data

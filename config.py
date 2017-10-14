@@ -42,8 +42,13 @@ class MovieQAConfig(Config):
         # File names
         self.file_names = Config()
         with self._create_group('file_names'):
+            # Video data
             self.video_data_file = join(self.data_dir, 'video_data.json')
+            # Shot boundary
+            self.shot_boundary_file = join(self.data_dir, 'shot_boundary.json')
+            # Subtitle data
             self.subtitle_file = join(self.data_dir, 'subtitle.json')
+
             self.encode_subtitle_file = join(self.data_dir, 'encode_subtitle.json')
             self.total_split_qa_file = join(self.data_dir, 'total_split_qa.json')
             self.avail_tokenize_qa_file = join(self.data_dir, 'avail_tokenize_qa.json')

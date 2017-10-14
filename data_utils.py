@@ -57,6 +57,10 @@ def exist_then_remove(f):
         os.remove(f)
 
 
+def get_imdb_key(base_name):
+    return base_name.split('.')[0]
+
+
 def clean_token(l):
     """
     Clean up Subrip tags.

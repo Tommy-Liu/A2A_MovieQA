@@ -171,6 +171,16 @@ def legacy_map_time_subtitle(imdb_key):
 
 
 def map_frame_to_subtitle(imdb_key):
+    # Time interval to subtitle
+    subtitle_time_interval, subtitles = map_time_subtitle(imdb_key)
+    # Frames map to times
+    matidx = get_matidx(imdb_key)
+
+    frame_to_subtitle = [[] for _ in range(len(matidx))]
+    frame_to_subtitle_shot = [0 for _ in range(len(matidx))]
+    
+
+def lagacy_map_frame_to_subtitle(imdb_key):
     """
     Map each line of subtitle to the frame.
     :param imdb_key: imdb name
@@ -220,8 +230,54 @@ def map_frame_to_subtitle(imdb_key):
 def align_subtitle(video_clips,
                    video_subtitle,
                    video_data,
+                   video_subtitle_index,
+                   frame_time,
                    key):
     frame_to_subtitle, frame_to_subtitle_idx, matidx = map_frame_to_subtitle(key)
+
+    for video in video_clips[key]:
+        base_name = du.get_base_name_without_ext(video)
+        if video_data[base_name]['avail']:
+            start_frame, end_frame = get_start_and_end_frame(video)
+            video_subtitle[base_name] = {
+                'subtitle': [
+                    frame_to_subtitle[
+                        min(start_frame + i,
+                            len(frame_to_subtitle) - 1)]
+                    for i in range(video_data[base_name]['info']['num_frames'])
+                ],
+                'frame_time': [
+                    matidx[
+                        min(start_frame + i,
+                            len(frame_to_subtitle) - 1)]
+                    for i in range(video_data[base_name]['info']['num_frames'])
+                ],
+                'subtitle_index': [
+                    frame_to_subtitle_idx[
+                        min(start_frame + i,
+                            len(frame_to_subtitle) - 1)]
+                    for i in range(video_data[base_name]['info']['num_frames'])
+                ],
+                'shot_boundary': video_data[base_name]['data']['shot_boundary'],
+            }
+            assert len(video_subtitle[base_name]['subtitle']) == \
+                   video_data[base_name]['info']['num_frames'] == \
+                   len(video_subtitle[base_name]['shot_boundary']), \
+                "Not align! %d %d %d" % (len(video_subtitle[base_name]['subtitle']),
+                                         video_data[base_name]['info']['num_frames'],
+                                         len(video_subtitle[base_name]['shot_boundary']))
+        else:
+            video_subtitle[base_name] = {}
+
+
+def lagacy_align_subtitle(video_clips,
+                          video_subtitle,
+                          video_data,
+                          video_subtitle_index,
+                          frame_time,
+                          key):
+    frame_to_subtitle, frame_to_subtitle_idx, matidx = map_frame_to_subtitle(key)
+
     for video in video_clips[key]:
         base_name = du.get_base_name_without_ext(video)
         if video_data[base_name]['avail']:
@@ -258,6 +314,7 @@ def align_subtitle(video_clips,
 
 
 def check_video(video):
+    # initialize
     img_list = []
     flag = True
     meta_data = None
@@ -285,11 +342,6 @@ def check_video(video):
         else:
             # print(get_base_name(video), 'failed.')
             flag = False
-    except:
-        print('Something fucked up !!')
-        flag = False
-        meta_data = None
-        raise
     finally:
         return flag, img_list, meta_data
 
@@ -314,6 +366,7 @@ def get_shot_boundary(base_name, num_frames):
 
 def check_and_extract_videos(videos_clips,
                              video_data,
+                             shot_boundary,
                              key):
     """
 
@@ -328,56 +381,65 @@ def check_and_extract_videos(videos_clips,
                 du.exist_make_dirs(join(video_img, base_name))
                 for i, img in enumerate(img_list):
                     imageio.imwrite(join(video_img, base_name, 'img_%05d.jpg' % (i + 1)), img)
-            shot_boundary = get_shot_boundary(base_name, meta_data['real_frames'])
+            sbd = get_shot_boundary(base_name, meta_data['real_frames'])
             # print(shot_boundary)
-            assert len(shot_boundary) == meta_data['real_frames']
+            assert len(sbd) == meta_data['real_frames']
             video_data[base_name] = {
                 'avail': True,
-                'data': {
-                    'shot_boundary': shot_boundary,  # length is same as num_frames
-                },
-                'info': {
-                    'num_frames': meta_data['real_frames'],
-                    'image_size': meta_data['size'],
-                    'fps': meta_data['fps'],
-                    'duration': meta_data['duration'],
-                }
+                'num_frames': meta_data['real_frames'],
+                'image_size': meta_data['size'],
+                'fps': meta_data['fps'],
+                'duration': meta_data['duration'],
             }
+            shot_boundary[base_name] = sbd
         else:
             if os.path.exists(join(video_img, base_name)):
                 os.system('rm -rf %s' % join(video_img, base_name))
             video_data[base_name] = {
                 'avail': False,
-                'data': {},
-                'info': {},
             }
+            shot_boundary[base_name] = []
 
 
 # tt0109446.sf-046563.ef-056625.video.mp4
 
 def video_process(manager, shared_videos_clips, keys):
     shared_video_data = manager.dict()
+    shared_shot_boundary = manager.dict()
 
     check_func = partial(check_and_extract_videos,
                          shared_videos_clips,
-                         shared_video_data, )
+                         shared_video_data,
+                         shared_shot_boundary)
+
     with Pool(8) as p, tqdm(total=len(keys), desc="Check and extract videos") as pbar:
         for i, _ in enumerate(p.imap_unordered(check_func, keys)):
             pbar.update()
+
     du.exist_then_remove(config.video_data_file)
     json.dump(shared_video_data.copy(), open(config.video_data_file, 'w'), indent=4)
+    du.exist_then_remove(config.shot_boundary_file)
+    json.dump(shared_shot_boundary.copy(), open(config.shot_boundary_file, 'w'))
+
     return shared_video_data
 
 
 def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
     shared_video_subtitle = manager.dict()
+    shared_video_subtitle_index = manager.dict()
+    shared_frame_time = manager.dict()
+
     align_func = partial(align_subtitle,
                          shared_videos_clips,
                          shared_video_subtitle,
-                         shared_video_data, )
+                         shared_video_data,
+                         shared_video_subtitle_index,
+                         shared_frame_time)
+
     with Pool(8) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
         for i, _ in enumerate(p.imap_unordered(align_func, keys)):
             pbar.update()
+
     du.exist_then_remove(config.subtitle_file)
     json.dump(shared_video_subtitle.copy(), open(config.subtitle_file, 'w'), indent=4)
 

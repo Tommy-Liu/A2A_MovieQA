@@ -223,49 +223,49 @@ def main():
             for sub in video_subtitle[key]['subtitle']:
                 vocab_counter.update(sub)
                 for w in sub:
-                    if not w in embedding.keys() and \
-                            not ' '.join(sub) in unavail_word_to_subtitle.setdefault(w, []):
+                    if w not in embedding.keys() and \
+                                    ' '.join(sub) not in unavail_word_to_subtitle.setdefault(w, []):
                         unavail_word_to_subtitle[w].append(' '.join(sub))
-    json.dump(unavail_word_to_subtitle, open('unavail_word_to_subtitle.json', 'w'), indent=4)
+    # json.dump(unavail_word_to_subtitle, open('unavail_word_to_subtitle.json', 'w'), indent=4)
     # Build vocab
     # build_vocab(vocab_counter, embedding)
     # vocab, inverse_vocab = build_vocab(vocab_counter)
 
-    # # encode sentences
-    # tokenize_qa_test = tokenize_sentences(total_qa['test'])
-    # tokenize_qa_val = tokenize_sentences(total_qa['val'])
-    # encode_sub = encode_subtitles(video_subtitle, vocab)
-    # encode_qa_train = encode_sentences(tokenize_qa_train, vocab)
-    # encode_qa_test = encode_sentences(tokenize_qa_test, vocab)
-    # encode_qa_val = encode_sentences(tokenize_qa_val, vocab)
-    #
-    # tokenize_qa = {
-    #     'tokenize_qa_train': tokenize_qa_train,
-    #     'tokenize_qa_test': tokenize_qa_test,
-    #     'tokenize_qa_val': tokenize_qa_val,
-    # }
-    #
-    # encode_qa = {
-    #     'encode_qa_train': encode_qa_train,
-    #     'encode_qa_test': encode_qa_test,
-    #     'encode_qa_val': encode_qa_val,
-    # }
-    # vocab_all = {
-    #     'vocab': vocab,
-    #     'inverse_vocab': inverse_vocab,
-    # }
-    #
-    # du.exist_then_remove(total_qa_file_name)
-    # du.exist_then_remove(tokenize_file_name)
-    # du.exist_then_remove(encode_file_name)
-    # du.exist_then_remove(all_vocab_file_name)
-    # du.exist_then_remove(config.encode_subtitle_file)
-    #
-    # du.write_json(total_qa, total_qa_file_name)
-    # du.write_json(tokenize_qa, tokenize_file_name)
-    # du.write_json(encode_qa, encode_file_name)
-    # du.write_json(vocab_all, all_vocab_file_name)
-    # du.write_json(encode_sub, config.encode_subtitle_file)
+    # encode sentences
+    tokenize_qa_test = tokenize_sentences(total_qa['test'])
+    tokenize_qa_val = tokenize_sentences(total_qa['val'])
+    encode_sub = encode_subtitles(video_subtitle, vocab)
+    encode_qa_train = encode_sentences(tokenize_qa_train, vocab)
+    encode_qa_test = encode_sentences(tokenize_qa_test, vocab)
+    encode_qa_val = encode_sentences(tokenize_qa_val, vocab)
+
+    tokenize_qa = {
+        'tokenize_qa_train': tokenize_qa_train,
+        'tokenize_qa_test': tokenize_qa_test,
+        'tokenize_qa_val': tokenize_qa_val,
+    }
+
+    encode_qa = {
+        'encode_qa_train': encode_qa_train,
+        'encode_qa_test': encode_qa_test,
+        'encode_qa_val': encode_qa_val,
+    }
+    vocab_all = {
+        'vocab': vocab,
+        'inverse_vocab': inverse_vocab,
+    }
+
+    du.exist_then_remove(total_qa_file_name)
+    du.exist_then_remove(tokenize_file_name)
+    du.exist_then_remove(encode_file_name)
+    du.exist_then_remove(all_vocab_file_name)
+    du.exist_then_remove(config.encode_subtitle_file)
+
+    du.write_json(total_qa, total_qa_file_name)
+    du.write_json(tokenize_qa, tokenize_file_name)
+    du.write_json(encode_qa, encode_file_name)
+    du.write_json(vocab_all, all_vocab_file_name)
+    du.write_json(encode_sub, config.encode_subtitle_file)
 
 
 if __name__ == '__main__':
