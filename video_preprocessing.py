@@ -3,7 +3,6 @@ import codecs
 import os
 import re
 import sys
-import ujson as json
 from functools import partial
 from glob import glob
 from multiprocessing import Pool, Manager
@@ -213,7 +212,7 @@ def map_frame_to_subtitle(imdb_key):
 
     assert len(frame_to_subtitle) == len(frame_to_subtitle_shot) == len(matidx), \
         "Numbers of frames are different %d, %d, %d" % (
-        len(frame_to_subtitle), len(frame_to_subtitle_shot), len(matidx))
+            len(frame_to_subtitle), len(frame_to_subtitle_shot), len(matidx))
 
     return frame_to_subtitle, subtitles, frame_to_subtitle_shot, matidx
 
@@ -269,41 +268,42 @@ def align_subtitle(video_clips,
                    video_subtitle,
                    video_data,
                    video_subtitle_index,
+                   video_subtitle_shot,
                    frame_time,
                    key):
-    frame_to_subtitle, subtitles, frame_to_subtitle_idx, matidx = map_frame_to_subtitle(key)
+    frame_to_subtitle, subtitles, frame_to_subtitle_shot, matidx = map_frame_to_subtitle(key)
 
     for video in video_clips[key]:
+        video_subtitle[key] = subtitles
         base_name = du.get_base_name_without_ext(video)
         if video_data[base_name]['avail']:
             start_frame, end_frame = get_start_and_end_frame(video)
-            video_subtitle[base_name] = {
-                'subtitle': [
-                    frame_to_subtitle[
-                        min(start_frame + i,
-                            len(frame_to_subtitle) - 1)]
-                    for i in range(video_data[base_name]['info']['num_frames'])
-                ],
-                'frame_time': [
-                    matidx[
-                        min(start_frame + i,
-                            len(frame_to_subtitle) - 1)]
-                    for i in range(video_data[base_name]['info']['num_frames'])
-                ],
-                'subtitle_index': [
-                    frame_to_subtitle_idx[
-                        min(start_frame + i,
-                            len(frame_to_subtitle) - 1)]
-                    for i in range(video_data[base_name]['info']['num_frames'])
-                ],
-                'shot_boundary': video_data[base_name]['data']['shot_boundary'],
-            }
-            assert len(video_subtitle[base_name]['subtitle']) == \
-                   video_data[base_name]['info']['num_frames'] == \
-                   len(video_subtitle[base_name]['shot_boundary']), \
-                "Not align! %d %d %d" % (len(video_subtitle[base_name]['subtitle']),
-                                         video_data[base_name]['info']['num_frames'],
-                                         len(video_subtitle[base_name]['shot_boundary']))
+
+            frame_time[base_name] = [
+                matidx[
+                    min(start_frame + i,
+                        len(frame_to_subtitle) - 1)]
+                for i in range(video_data[base_name]['num_frames'])
+            ]
+
+            video_subtitle_index[base_name] = [
+                frame_to_subtitle[
+                    min(start_frame + i,
+                        len(frame_to_subtitle) - 1)]
+                for i in range(video_data[base_name]['num_frames'])
+            ]
+
+            video_subtitle_shot[base_name] = [
+                frame_to_subtitle_shot[
+                    min(start_frame + i,
+                        len(frame_to_subtitle) - 1)]
+                for i in range(video_data[base_name]['num_frames'])
+            ]
+
+            assert len(video_subtitle_index[base_name]) == \
+                   video_data[base_name]['num_frames'], \
+                "Not align! %d %d" % (len(video_subtitle[base_name]['subtitle']),
+                                      video_data[base_name]['num_frames'])
         else:
             video_subtitle[base_name] = {}
 
@@ -455,9 +455,9 @@ def video_process(manager, shared_videos_clips, keys):
             pbar.update()
 
     du.exist_then_remove(config.video_data_file)
-    json.dump(shared_video_data.copy(), open(config.video_data_file, 'w'), indent=4)
+    du.write_json(shared_video_data.copy(), config.video_data_file)
     du.exist_then_remove(config.shot_boundary_file)
-    json.dump(shared_shot_boundary.copy(), open(config.shot_boundary_file, 'w'))
+    du.write_json(shared_shot_boundary.copy(), config.shot_boundary_file)
 
     return shared_video_data
 
@@ -465,6 +465,7 @@ def video_process(manager, shared_videos_clips, keys):
 def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
     shared_video_subtitle = manager.dict()
     shared_video_subtitle_index = manager.dict()
+    shared_video_subtitle_shot = manager.dict()
     shared_frame_time = manager.dict()
 
     align_func = partial(align_subtitle,
@@ -472,6 +473,7 @@ def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
                          shared_video_subtitle,
                          shared_video_data,
                          shared_video_subtitle_index,
+                         shared_video_subtitle_shot,
                          shared_frame_time)
 
     with Pool(8) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
@@ -479,7 +481,13 @@ def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
             pbar.update()
 
     du.exist_then_remove(config.subtitle_file)
-    json.dump(shared_video_subtitle.copy(), open(config.subtitle_file, 'w'), indent=4)
+    du.write_json(shared_video_subtitle.copy(), config.subtitle_file)
+    du.exist_then_remove(config.subtitle_index_file)
+    du.write_json(shared_video_subtitle_index.copy(), config.subtitle_index_file)
+    du.exist_then_remove(config.frame_time_file)
+    du.write_json(shared_frame_time.copy(), config.frame_time_file)
+    du.exist_then_remove(config.subtitle_shot_file)
+    du.write_json(shared_video_subtitle_shot.copy(), config.subtitle_shot_file)
 
 
 def main():
@@ -490,7 +498,7 @@ def main():
         if not args.no_video:
             shared_video_data = video_process(manager, shared_videos_clips, keys)
         else:
-            shared_video_data = json.load(open(config.video_data_file, 'r'))
+            shared_video_data = du.load_json(config.video_data_file)
 
         if not args.no_subt:
             subtitle_process(manager, shared_videos_clips, shared_video_data, keys)

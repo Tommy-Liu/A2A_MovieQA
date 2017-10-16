@@ -30,9 +30,9 @@ def pad_list_numpy(l, length):
     return arr
 
 
-def write_json(obj, file_name):
+def write_json(obj, file_name, ensure_ascii=False, indent=4):
     with open(file_name, 'w') as f:
-        json.dump(obj, f, indent=4)
+        json.dump(obj, f, ensure_ascii=ensure_ascii, indent=indent)
 
 
 def load_json(file_name):

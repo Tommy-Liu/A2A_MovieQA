@@ -28,22 +28,21 @@ shot_boundary = {
 ### Subtitle data
 * Python dictionary:
 ```python
-subtitle_data = \
-{
-    'imdb_key': {
-        'subtitle':[[]],
-        'subtitle_index': [],
-        'frame_time': [],
-        'shot_boundary': [],
-    }
-    # ... '': {}
+video_subtitle = {
+    'imdb_key': [[]],
+    # ... '': [[]]
 }
-subtitle_index = {
+video_subtitle_index = {
+    'video_base_name': [[]],
+    # ... '': [[]]
+}
+video_subtitle_shot = {
     'video_base_name': [],
     # ... '': []
 }
 ```
 ### Frame time
+From matidx.
 ```python
 frame_time = {
     'video_base_name':[]
