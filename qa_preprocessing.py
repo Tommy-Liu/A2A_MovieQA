@@ -191,8 +191,9 @@ def encode_sentences(qa_list, vocab):
 
 def main():
     start_time = time.time()
-    video_data = json.load(open(config.video_data_file, 'r'))
-    video_subtitle = json.load(open(config.subtitle_file, 'r'))
+    video_data = du.load_json(config.video_data_file)
+    video_subtitle = du.load_json(config.subtitle_file)
+    video_subtitle_index = du.load_json(config.subtitle_index_file)
     qa = json.load(open(config.qa_file, 'r'))
     embedding = load_embedding()
     unavail_word_to_subtitle = {}
@@ -228,8 +229,8 @@ def main():
                         unavail_word_to_subtitle[w].append(' '.join(sub))
     # json.dump(unavail_word_to_subtitle, open('unavail_word_to_subtitle.json', 'w'), indent=4)
     # Build vocab
-    # build_vocab(vocab_counter, embedding)
-    # vocab, inverse_vocab = build_vocab(vocab_counter)
+    build_vocab(vocab_counter, embedding)
+    vocab, inverse_vocab = build_vocab(vocab_counter)
 
     # encode sentences
     tokenize_qa_test = tokenize_sentences(total_qa['test'])
