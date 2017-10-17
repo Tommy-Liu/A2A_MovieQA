@@ -29,10 +29,6 @@ shot_boundary = {
 * Python dictionary:
 ```python
 video_subtitle = {
-    'imdb_key': [[]],
-    # ... '': [[]]
-}
-video_subtitle_index = {
     'video_base_name': [[]],
     # ... '': [[]]
 }

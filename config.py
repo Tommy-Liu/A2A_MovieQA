@@ -48,8 +48,6 @@ class MovieQAConfig(Config):
             self.shot_boundary_file = join(self.data_dir, 'shot_boundary.json')
             # Subtitle data
             self.subtitle_file = join(self.data_dir, 'video_subtitle.json')
-            # Subtitle index map to subtitle data
-            self.subtitle_index_file = join(self.data_dir, 'video_subtitle_index.json')
             # Time to frame
             self.frame_time_file = join(self.data_dir, 'frame_time.json')
             # Subtitle shot boundary

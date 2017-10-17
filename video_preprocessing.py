@@ -200,7 +200,7 @@ def map_frame_to_subtitle(imdb_key):
         overlap_idx = []
 
         for i in range(start_frame, end_frame + 1):
-            frame_to_subtitle[i].append(t_idx)
+            frame_to_subtitle[i] += subtitles[t_idx]
             if frame_to_subtitle_shot[i] == 0:
                 frame_to_subtitle_shot[i] = ftss_idx
             else:
@@ -214,67 +214,18 @@ def map_frame_to_subtitle(imdb_key):
         "Numbers of frames are different %d, %d, %d" % (
             len(frame_to_subtitle), len(frame_to_subtitle_shot), len(matidx))
 
-    return frame_to_subtitle, subtitles, frame_to_subtitle_shot, matidx
-
-
-def lagacy_map_frame_to_subtitle(imdb_key):
-    """
-    Map each line of subtitle to the frame.
-    :param imdb_key: imdb name
-    :return: a dictionary with key:frame #, value:a string of line.
-    """
-    # Time interval to subtitle
-    times, subtitles = map_time_subtitle(imdb_key)
-    # Frames map to times
-    matidx = get_matidx(imdb_key)
-
-    # Frames map to subtitle
-
-    frame_to_subtitle = [[] for _ in range(len(matidx))]
-    frame_to_subtitle_idx = [0 for _ in range(len(matidx))]
-    interval = matidx[-1] / len(matidx)
-    fts_idx = 1
-    for t_idx, time in enumerate(times):
-        start_time, end_time = time
-        start_time = min(max(start_time, matidx[0]), matidx[-1])
-        end_time = max(min(end_time, matidx[-1]), matidx[0])
-        start_frame = min(max(int(start_time / interval), 0), len(matidx) - 1)
-        end_frame = max(min(int(end_time / interval), len(matidx) - 1), 0)
-        # shift index of
-        while matidx[start_frame] < start_time:
-            start_frame += 1
-        while start_frame > 0 and matidx[start_frame - 1] >= start_time:
-            start_frame -= 1
-        while matidx[end_frame] > end_time:
-            end_frame -= 1
-        while end_frame < len(matidx) - 1 and matidx[end_frame + 1] <= end_time:
-            end_frame += 1
-        overlap_idx = []
-        for i in range(start_frame, end_frame + 1):
-            frame_to_subtitle[i] += subtitles[t_idx]
-            if frame_to_subtitle_idx[i] == 0:
-                frame_to_subtitle_idx[i] = fts_idx
-            else:
-                if not frame_to_subtitle_idx[i] in overlap_idx:
-                    overlap_idx.append(frame_to_subtitle_idx[i])
-                frame_to_subtitle_idx[i] = fts_idx + overlap_idx.index(frame_to_subtitle_idx[i]) + 1
-        fts_idx += len(overlap_idx) + 1
-    assert len(frame_to_subtitle) == len(frame_to_subtitle_idx) == len(matidx), \
-        "Numbers of frames are different %d, %d, %d" % (len(frame_to_subtitle), len(frame_to_subtitle_idx), len(matidx))
-    return frame_to_subtitle, frame_to_subtitle_idx, matidx
+    return frame_to_subtitle, frame_to_subtitle_shot, matidx
 
 
 def align_subtitle(video_clips,
                    video_subtitle,
                    video_data,
-                   video_subtitle_index,
                    video_subtitle_shot,
                    frame_time,
                    key):
-    frame_to_subtitle, subtitles, frame_to_subtitle_shot, matidx = map_frame_to_subtitle(key)
+    frame_to_subtitle, frame_to_subtitle_shot, matidx = map_frame_to_subtitle(key)
 
     for video in video_clips[key]:
-        video_subtitle[key] = subtitles
         base_name = du.get_base_name_without_ext(video)
         if video_data[base_name]['avail']:
             start_frame, end_frame = get_start_and_end_frame(video)
@@ -286,7 +237,7 @@ def align_subtitle(video_clips,
                 for i in range(video_data[base_name]['num_frames'])
             ]
 
-            video_subtitle_index[base_name] = [
+            video_subtitle[base_name] = [
                 frame_to_subtitle[
                     min(start_frame + i,
                         len(frame_to_subtitle) - 1)]
@@ -300,55 +251,17 @@ def align_subtitle(video_clips,
                 for i in range(video_data[base_name]['num_frames'])
             ]
 
-            assert len(video_subtitle_index[base_name]) == \
+            assert len(video_subtitle[base_name]) == \
+                   len(video_subtitle_shot[base_name]) == \
                    video_data[base_name]['num_frames'], \
-                "Not align! %d %d" % (len(video_subtitle[base_name]['subtitle']),
-                                      video_data[base_name]['num_frames'])
+                "Not align! %d %d %d" % (len(video_subtitle[base_name]),
+                                         len(video_subtitle_shot[base_name]),
+                                         video_data[base_name]['num_frames'],
+                                         )
         else:
-            video_subtitle[base_name] = {}
-
-
-def lagacy_align_subtitle(video_clips,
-                          video_subtitle,
-                          video_data,
-                          video_subtitle_index,
-                          frame_time,
-                          key):
-    frame_to_subtitle, frame_to_subtitle_idx, matidx = map_frame_to_subtitle(key)
-
-    for video in video_clips[key]:
-        base_name = du.get_base_name_without_ext(video)
-        if video_data[base_name]['avail']:
-            start_frame, end_frame = get_start_and_end_frame(video)
-            video_subtitle[base_name] = {
-                'subtitle': [
-                    frame_to_subtitle[
-                        min(start_frame + i,
-                            len(frame_to_subtitle) - 1)]
-                    for i in range(video_data[base_name]['info']['num_frames'])
-                ],
-                'frame_time': [
-                    matidx[
-                        min(start_frame + i,
-                            len(frame_to_subtitle) - 1)]
-                    for i in range(video_data[base_name]['info']['num_frames'])
-                ],
-                'subtitle_index': [
-                    frame_to_subtitle_idx[
-                        min(start_frame + i,
-                            len(frame_to_subtitle) - 1)]
-                    for i in range(video_data[base_name]['info']['num_frames'])
-                ],
-                'shot_boundary': video_data[base_name]['data']['shot_boundary'],
-            }
-            assert len(video_subtitle[base_name]['subtitle']) == \
-                   video_data[base_name]['info']['num_frames'] == \
-                   len(video_subtitle[base_name]['shot_boundary']), \
-                "Not align! %d %d %d" % (len(video_subtitle[base_name]['subtitle']),
-                                         video_data[base_name]['info']['num_frames'],
-                                         len(video_subtitle[base_name]['shot_boundary']))
-        else:
-            video_subtitle[base_name] = {}
+            video_subtitle[base_name] = []
+            frame_time[base_name] = []
+            video_subtitle_shot[base_name] = []
 
 
 def check_video(video):
@@ -464,7 +377,6 @@ def video_process(manager, shared_videos_clips, keys):
 
 def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
     shared_video_subtitle = manager.dict()
-    shared_video_subtitle_index = manager.dict()
     shared_video_subtitle_shot = manager.dict()
     shared_frame_time = manager.dict()
 
@@ -472,7 +384,6 @@ def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
                          shared_videos_clips,
                          shared_video_subtitle,
                          shared_video_data,
-                         shared_video_subtitle_index,
                          shared_video_subtitle_shot,
                          shared_frame_time)
 
@@ -482,8 +393,6 @@ def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
 
     du.exist_then_remove(config.subtitle_file)
     du.write_json(shared_video_subtitle.copy(), config.subtitle_file)
-    du.exist_then_remove(config.subtitle_index_file)
-    du.write_json(shared_video_subtitle_index.copy(), config.subtitle_index_file)
     du.exist_then_remove(config.frame_time_file)
     du.write_json(shared_frame_time.copy(), config.frame_time_file)
     du.exist_then_remove(config.subtitle_shot_file)

@@ -1,3 +1,4 @@
+import argparse
 import re
 import time
 import ujson as json
@@ -56,6 +57,7 @@ def load_embedding(file):
 
     return embedding
 
+
 def insert_unk(vocab, inverse_vocab):
     vocab[UNK] = len(vocab)
     inverse_vocab.append(UNK)
@@ -70,7 +72,7 @@ def build_vocab(counter, embedding):
     for idx, item in tqdm(enumerate(sorted_counter), desc='Build vocab:'):
         if item[0] in embedding.keys() and item[1] > config.vocab_thr:
             qa_embedding[item[0]] = embedding[item[0]]
-    print('Fasttext vocabulary coverage: %.2f %%' % (len(qa_embedding) / len(counter) * 100))
+    print('Embedding vocabulary coverage: %.2f %%' % (len(qa_embedding) / len(counter) * 100))
 
 
 def legacy_build_vocab(counter):
@@ -107,9 +109,10 @@ def get_split(qa, video_data):
     return total_qa
 
 
-def tokenize_sentences(qa_list, embedding, unavail_word_to_subtitle, is_train=False):
+def tokenize_sentences(qa_list, embedding, subtitles, is_train=False):
     vocab_counter = Counter()
     tokenize_qa_list = []
+    unavail_word = {}
     for qa_ in tqdm(qa_list, desc='Tokenize sentences'):
         # Tokenize sentences
         if qa_['avail']:
@@ -128,20 +131,20 @@ def tokenize_sentences(qa_list, embedding, unavail_word_to_subtitle, is_train=Fa
                 for w in tokenize_qa_list[-1]['tokenize_question']:
                     if w not in embedding.keys() and \
                                     ' '.join(tokenize_qa_list[-1]['tokenize_question']) \
-                                    not in unavail_word_to_subtitle.setdefault(w, []):
-                        unavail_word_to_subtitle[w] \
+                                    not in unavail_word.setdefault(w, []):
+                        unavail_word[w] \
                             .append(' '.join(tokenize_qa_list[-1]['tokenize_question']))
                 for ans in tokenize_qa_list[-1]['tokenize_answer']:
                     vocab_counter.update(ans)
                     for w in ans:
                         if w not in embedding.keys() and \
-                                        ' '.join(ans) not in unavail_word_to_subtitle.setdefault(w, []):
-                            unavail_word_to_subtitle[w].append(' '.join(ans))
+                                        ' '.join(ans) not in unavail_word.setdefault(w, []):
+                            unavail_word[w].append(' '.join(ans))
 
     if is_train:
-        return tokenize_qa_list, unavail_word_to_subtitle, vocab_counter
+        return tokenize_qa_list, unavail_word, vocab_counter
     else:
-        return tokenize_qa_list, unavail_word_to_subtitle
+        return tokenize_qa_list, unavail_word
 
 
 def encode_subtitles(subtitles, vocab):
@@ -185,10 +188,17 @@ def main():
     start_time = time.time()
     video_data = du.load_json(config.video_data_file)
     video_subtitle = du.load_json(config.subtitle_file)
-    video_subtitle_index = du.load_json(config.subtitle_index_file)
     qa = json.load(open(config.qa_file, 'r'))
-    embedding = load_embedding()
-    unavail_word_to_subtitle = {}
+    embed_file = None
+    if args.embedding == 'word2vec':
+        embed_file = config.word2vec_file
+    elif args.embedding == 'fasttext':
+        embed_file = config.fasttext_file
+    elif args.embedding == 'glove':
+        embed_file = config.glove_file
+    embedding = None
+    if embed_file:
+        embedding = load_embedding(embed_file)
     print('Loading json file done!! Take %.4f sec.' % (time.time() - start_time))
 
     total_qa = get_split(qa, video_data)
@@ -206,10 +216,10 @@ def main():
                                                 len(total_qa['test']),
                                                 len(total_qa['val'])))
 
-    tokenize_qa_train, unavail_word_to_subtitle, vocab_counter = \
+    tokenize_qa_train, unavail_word, vocab_counter = \
         tokenize_sentences(total_qa['train'],
+                           video_subtitle,
                            embedding,
-                           unavail_word_to_subtitle,
                            is_train=True)
     for key in video_subtitle.keys():
         if video_subtitle[key]:
@@ -217,8 +227,8 @@ def main():
                 vocab_counter.update(sub)
                 for w in sub:
                     if w not in embedding.keys() and \
-                                    ' '.join(sub) not in unavail_word_to_subtitle.setdefault(w, []):
-                        unavail_word_to_subtitle[w].append(' '.join(sub))
+                                    ' '.join(sub) not in unavail_word.setdefault(w, []):
+                        unavail_word[w].append(' '.join(sub))
     # json.dump(unavail_word_to_subtitle, open('unavail_word_to_subtitle.json', 'w'), indent=4)
     # Build vocab
     build_vocab(vocab_counter, embedding)
@@ -262,4 +272,7 @@ def main():
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--embedding', default='word2vec', help='The embedding method we want to use.')
+    args = parser.parse_args()
     main()
