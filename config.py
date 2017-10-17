@@ -66,7 +66,12 @@ class MovieQAConfig(Config):
             self.movies_file = join(self.movieqa_benchmark_dir, 'data/movies.json')
             self.splits_file = join(self.movieqa_benchmark_dir, 'data/splits.json')
             self.npy_files = glob(os.path.join(self.feature_dir, self.NPY_PATTERN_))
+
+            # Word embedding, Vocabulary file
             self.fasttext_file = join(self.data_dir, 'crawl-300d-2M.vec')
+            self.word2vec_file = join(self.data_dir, 'GoogleNews-vectors-negative300.txt')
+            self.glove_file = join(self.data_dir, 'glove.840B.300d.w2v.txt')
+
             self.fasttext_vocb_file = join(self.data_dir, 'vocab_fasttext.json')
             self.fasttext_qa_vocab_file = join(self.data_dir, 'qa_vocab_fasttext.json')
         # Names

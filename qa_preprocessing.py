@@ -1,4 +1,3 @@
-import os
 import re
 import time
 import ujson as json
@@ -43,26 +42,19 @@ def qid_split(qa_):
     return qa_['qid'].split(':')[0]
 
 
-def load_embedding():
-    if os.path.exists(config.fasttext_vocb_file):
-        with open(config.fasttext_vocb_file, 'r') as f:
-            embedding = json.load(f)
-    else:
-        embedding = {}
-        with open(config.fasttext_file, 'r') as f:
-            num, dim = [int(comp) for comp in f.readline().strip().split()]
-            for _ in trange(num, desc='Load word embedding:'):
-                word, *vec = f.readline().strip().split()
-                vec = [float(e) for e in vec]
-                embedding[word] = vec
-        with open(config.fasttext_vocb_file, 'w') as f:
-            json.dump(embedding, f, indent=4)
+def load_embedding(file):
+    embedding = {}
+
+    with open(file, 'r') as f:
+        num, dim = [int(comp) for comp in f.readline().strip().split()]
+        for _ in trange(num, desc='Load word embedding %dd' % dim):
+            comp = f.readline().strip().split()
+            word, vec = comp[:-dim], comp[-dim:]
+            word = ' '.join(word)
+            vec = [float(e) for e in vec]
+            embedding[word] = vec
+
     return embedding
-
-
-def nn():
-    pass
-
 
 def insert_unk(vocab, inverse_vocab):
     vocab[UNK] = len(vocab)
