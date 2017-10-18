@@ -10,8 +10,8 @@ from os.path import join
 
 import imageio
 import pysrt
-from nltk.tokenize.moses import MosesTokenizer
-# from nltk.tokenize import word_tokenize, RegexpTokenizer, TweetTokenizer
+# from nltk.tokenize.moses import MosesTokenizer
+from nltk.tokenize import word_tokenize  # , RegexpTokenizer, TweetTokenizer
 from tqdm import tqdm
 
 import data_utils as du
@@ -30,12 +30,14 @@ ALIGN_SUBTITLE_PATTERN_ = '\r>> Align subtitles  %d/%d IMDB: %s'
 allow_discard_offset = 3
 videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.isdir(d)]
 
-# tokenize_func = word_tokenize
+tokenize_func = word_tokenize
+
+
 # tokenizer = RegexpTokenizer("[\w']+")
 # tokenizer = TweetTokenizer()
-tokenizer = MosesTokenizer()
+# tokenizer = MosesTokenizer()
 # tokenize_func = tokenizer.tokenize
-tokenize_func = partial(tokenizer.tokenize, escape=False)
+# tokenize_func = partial(tokenizer.tokenize, escape=False)
 
 
 def get_start_and_end_time(l):
