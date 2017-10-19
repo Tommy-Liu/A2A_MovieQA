@@ -4,6 +4,7 @@ import time
 import ujson as json
 from collections import Counter
 from functools import wraps
+from os.path import exists
 
 import numpy as np
 # from nltk.tokenize.moses import MosesTokenizer
@@ -99,21 +100,8 @@ def build_vocab(counter, embedding):
         'Embedding vocabulary coverage: %.2f %%' % (len(qa_embedding) / len(counter) * 100),
     ])
     vocab = {k: i for i, k in enumerate(qa_embedding.keys())}
-    inverse_vocab = [k for k in qa_embedding.keys()]
+    inverse_vocab = list(qa_embedding.keys())
     return insert_unk(qa_embedding, vocab, inverse_vocab)
-
-
-def legacy_build_vocab(counter):
-    sorted_counter = sorted(counter.items(),
-                            key=lambda t: t[1],
-                            reverse=True)
-    vocab = {
-        item[0]: idx
-        for idx, item in enumerate(sorted_counter)
-        if item[1] > config.vocab_thr
-    }
-    inverse_vocab = [key for key in vocab.keys()]
-    return insert_unk(vocab, inverse_vocab)
 
 
 def get_split(qa, video_data):
@@ -164,13 +152,10 @@ def tokenize_sentences(qa_list, subtitles, is_train=False):
                     for sub in subtitles[v]:
                         vocab_counter.update(sub)
 
-    if is_train:
-        return tokenize_qa_list, vocab_counter
-    else:
-        return tokenize_qa_list
+    return tokenize_qa_list, vocab_counter
 
 
-def encode_subtitles(subtitles, vocab):
+def encode_subtitles(subtitles, vocab, shot_boundary, subtitle_shot):
     encode_sub = {}
     for key in subtitles.keys():
         if subtitles[key]:
@@ -178,10 +163,10 @@ def encode_subtitles(subtitles, vocab):
                 'subtitle': [
                     [vocab[word] if word in vocab else vocab[UNK] for word in sub]
                     if sub != [] else [vocab[UNK]]
-                    for sub in subtitles[key]['subtitle']
+                    for sub in subtitles[key]
                 ],
-                'subtitle_index': subtitles[key]['subtitle_index'],
-                'frame_time': subtitles[key]['frame_time'],
+                'subtitle_shot': subtitle_shot[key],
+                'shot_boundary': shot_boundary[key]
             }
         else:
             encode_sub[key] = {}
@@ -211,17 +196,32 @@ def main():
     start_time = time.time()
     video_data = du.load_json(config.video_data_file)
     video_subtitle = du.load_json(config.subtitle_file)
+    shot_boundary = du.load_json(config.shot_boundary_file)
+    subtitle_shot = du.load_json(config.subtitle_shot_file)
+
     qa = json.load(open(config.qa_file, 'r'))
+
     embed_file = None
+    avail_embed_file = None
+    avail_embed_npy_file = None
     if args.embedding == 'word2vec':
         embed_file = config.word2vec_file
+        avail_embed_file = config.w2v_embedding_file
+        avail_embed_npy_file = config.w2v_embedding_npy_file
     elif args.embedding == 'fasttext':
         embed_file = config.fasttext_file
+        avail_embed_file = config.ft_embedding_file
+        avail_embed_npy_file = config.ft_embedding_npy_file
     elif args.embedding == 'glove':
         embed_file = config.glove_file
+        avail_embed_file = config.glove_embedding_file
+        avail_embed_npy_file = config.glove_embedding_npy_file
+
     embedding = None
-    if embed_file:
+    embed_exist = exists(avail_embed_file) and exists(avail_embed_npy_file)
+    if embed_file and not embed_exist:
         embedding = load_embedding(embed_file)
+
     print('Loading json file done!! Take %.4f sec.' % (time.time() - start_time))
 
     total_qa = get_split(qa, video_data)
@@ -239,18 +239,26 @@ def main():
                                                 len(total_qa['test']),
                                                 len(total_qa['val'])))
 
-    tokenize_qa_train, unavail_word, vocab_counter = \
+    tokenize_qa_train, vocab_counter = \
         tokenize_sentences(total_qa['train'],
                            video_subtitle,
-                           is_train=True)
-    # json.dump(unavail_word_to_subtitle, open('unavail_word_to_subtitle.json', 'w'), indent=4)
+                           is_train=not embed_exist)
     # Build vocab
-    qa_embedding, vocab, inverse_vocab = build_vocab(vocab_counter, embedding)
+    if not embed_exist:
+        qa_embedding, vocab, inverse_vocab = build_vocab(vocab_counter, embedding)
+        du.exist_then_remove(avail_embed_file)
+        du.write_json(inverse_vocab, avail_embed_file)
+        du.exist_then_remove(avail_embed_npy_file)
+        np.save(avail_embed_npy_file,
+                np.array([e for e in qa_embedding.values()], dtype=np.float32))
+    else:
+        inverse_vocab = du.load_json(avail_embed_file)
+        vocab = {k: i for i, k in enumerate(inverse_vocab)}
 
     # encode sentences
-    tokenize_qa_test = tokenize_sentences(total_qa['test'], video_subtitle)
-    tokenize_qa_val = tokenize_sentences(total_qa['val'], video_subtitle)
-    encode_sub = encode_subtitles(video_subtitle, vocab)
+    tokenize_qa_test, _ = tokenize_sentences(total_qa['test'], video_subtitle)
+    tokenize_qa_val, _ = tokenize_sentences(total_qa['val'], video_subtitle)
+    encode_sub = encode_subtitles(video_subtitle, vocab, shot_boundary, subtitle_shot)
     encode_qa_train = encode_sentences(tokenize_qa_train, vocab)
     encode_qa_test = encode_sentences(tokenize_qa_test, vocab)
     encode_qa_val = encode_sentences(tokenize_qa_val, vocab)

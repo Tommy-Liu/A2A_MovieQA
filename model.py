@@ -27,7 +27,8 @@ def extract_axis_1(data, ind):
 
 class VLLabMemoryModel(object):
     def __init__(self, data, num_layers=1, is_training=True):
-        if is_training:
+        self.is_training = is_training
+        if self.is_training:
             self.batch_size = 2
         else:
             self.batch_size = 5
@@ -81,13 +82,17 @@ class VLLabMemoryModel(object):
 
     def multilayer_perceptron(self):
         with tf.variable_scope("mlp"):
-            x = layers.dropout(self.final_repr, keep_prob=config.lstm_dropout_keep_prob)
+            x = layers.dropout(self.final_repr, keep_prob=config.lstm_dropout_keep_prob,
+                               is_training=self.is_training)
             fc1 = layers.fully_connected(x, 2048)
-            fc1 = layers.dropout(fc1, keep_prob=config.lstm_dropout_keep_prob)
+            fc1 = layers.dropout(fc1, keep_prob=config.lstm_dropout_keep_prob,
+                                 is_training=self.is_training)
             fc2 = layers.fully_connected(fc1, 1024)
-            fc2 = layers.dropout(fc2, keep_prob=config.lstm_dropout_keep_prob)
+            fc2 = layers.dropout(fc2, keep_prob=config.lstm_dropout_keep_prob,
+                                 is_training=self.is_training)
             fc3 = layers.fully_connected(fc2, 512)
-            fc3 = layers.dropout(fc3, keep_prob=config.lstm_dropout_keep_prob)
+            fc3 = layers.dropout(fc3, keep_prob=config.lstm_dropout_keep_prob,
+                                 is_training=self.is_training)
             self.logits = layers.fully_connected(fc3, 1, activation_fn=None)
             self.prediction = tf.nn.sigmoid(self.logits)
 
@@ -95,7 +100,9 @@ class VLLabMemoryModel(object):
         lstm_cell = tf.nn.rnn_cell.LSTMCell(config.num_lstm_units, initializer=self.initializer, )
         lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell,
                                                   input_keep_prob=config.lstm_dropout_keep_prob,
-                                                  output_keep_prob=config.lstm_dropout_keep_prob)
+                                                  output_keep_prob=config.lstm_dropout_keep_prob) \
+            if self.is_training else lstm_cell
+
         o, s = tf.nn.dynamic_rnn(cell=lstm_cell,
                                  inputs=x,
                                  sequence_length=length,
@@ -161,7 +168,8 @@ class VLLabMemoryModel(object):
                             conv = layers.conv2d(inp, output_channel,
                                                  [filter_size, width],
                                                  padding='VALID')
-                            conv = layers.dropout(conv, config.lstm_dropout_keep_prob)
+                            conv = layers.dropout(conv, config.lstm_dropout_keep_prob,
+                                                  is_training=self.is_training)
                             conv = tf.transpose(conv, perm=[0, 1, 3, 2])
                             print(conv.shape)
                             conv_outputs.append(conv)

@@ -92,8 +92,8 @@ encode_qa = [
 encode_sub = {
     "video_base_name":{
         'subtitle': [[]],
-        'subtitle_index': [],
-        'frame_time': [],
+        'subtitle_shot': [],
+        'shot_boundary': [],
     }
     # ... '': {}
 }

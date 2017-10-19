@@ -28,17 +28,26 @@ class MovieQAConfig(Config):
         self.directory = Config()
         with self._create_group('directory'):
             self.movieqa_benchmark_dir = '../MovieQA_benchmark'
+            # Directory of original data
             self.video_clips_dir = join(self.movieqa_benchmark_dir, 'story/video_clips')
             self.matidx_dir = join(self.movieqa_benchmark_dir, 'story/matidx')
             self.subt_dir = join(self.movieqa_benchmark_dir, 'story/subtt')
             self.shot_boundary_dir = join(self.movieqa_benchmark_dir, 'story/shot_boundaries')
+
+            # Directory of processed data
             self.data_dir = './data'
+            # Directory of all images of video clips
             self.video_img_dir = join(self.data_dir, 'video_img')
+            # Directory of all features of video clips
             self.feature_dir = join(self.data_dir, 'features')
+            # Directory of tfrecords
             self.dataset_dir = join(self.data_dir, 'dataset')
+
+            # Experiment directory
             self.checkpoint_dir = './checkpoint'
             self.log_dir = './log'
             self.exp_dir = './exp'
+
         # File names
         self.file_names = Config()
         with self._create_group('file_names'):
@@ -52,17 +61,28 @@ class MovieQAConfig(Config):
             self.frame_time_file = join(self.data_dir, 'frame_time.json')
             # Subtitle shot boundary
             self.subtitle_shot_file = join(self.data_dir, 'video_subtitle_shot.json')
-
+            # Encoded subtitle
             self.encode_subtitle_file = join(self.data_dir, 'encode_subtitle.json')
+
+            # All qas of all splits
             self.total_split_qa_file = join(self.data_dir, 'total_split_qa.json')
+            # Available tokenize qa
             self.avail_tokenize_qa_file = join(self.data_dir, 'avail_tokenize_qa.json')
+            # Available encoded qa
             self.avail_encode_qa_file = join(self.data_dir, 'avail_encode_qa.json')
+            # Training vocabulary
             self.all_vocab_file = join(self.data_dir, 'avail_all_vocab.json')
+            # Important information
             self.info_file = join(self.data_dir, 'info.json')
+            # Experiment
             self.exp_file = join(self.exp_dir, './exp.json')
+            # Original qa
             self.qa_file = join(self.movieqa_benchmark_dir, 'data/qa.json')
+            # Original movie infomation
             self.movies_file = join(self.movieqa_benchmark_dir, 'data/movies.json')
+            # Original qa split
             self.splits_file = join(self.movieqa_benchmark_dir, 'data/splits.json')
+            # Npy file pattern
             self.npy_files = glob(os.path.join(self.feature_dir, self.NPY_PATTERN_))
 
             # Word embedding, Vocabulary file
@@ -70,8 +90,13 @@ class MovieQAConfig(Config):
             self.word2vec_file = join(self.data_dir, 'GoogleNews-vectors-negative300.txt')
             self.glove_file = join(self.data_dir, 'glove.840B.300d.w2v.txt')
 
-            self.fasttext_vocb_file = join(self.data_dir, 'vocab_fasttext.json')
-            self.fasttext_qa_vocab_file = join(self.data_dir, 'qa_vocab_fasttext.json')
+            self.w2v_embedding_file = join(self.data_dir, 'w2v_embedding.json')
+            self.w2v_embedding_npy_file = join(self.data_dir, 'w2v_embedding.npy')
+            self.ft_embedding_file = join(self.data_dir, 'ft_embedding.json')
+            self.ft_embedding_npy_file = join(self.data_dir, 'ft_embedding.npy')
+            self.glove_embedding_file = join(self.data_dir, 'globe_embedding.json')
+            self.glove_embedding_npy_file = join(self.data_dir, 'globe_embedding.npy')
+
         # Names
         self.dataset_name = 'movieqa'
 
