@@ -211,7 +211,7 @@ def main(_):
 
 if __name__ == '__main__':
     flags = tf.app.flags
-    flags.DEFINE_bool("is_training", True, "")
+    flags.DEFINE_bool("is_training", False, "")
     flags.DEFINE_string("split", "train", "train, test, val")
     flags.DEFINE_string("modality", "fixed_num",
                         "fixed_num, fixed_interval, shot_major, subtitle_major")
