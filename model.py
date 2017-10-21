@@ -28,14 +28,13 @@ def extract_axis_1(data, ind):
 class VLLabMemoryModel(object):
     def __init__(self, data, num_layers=1, is_training=True):
         self.is_training = is_training
-        if self.is_training:
-            self.batch_size = 2
-        else:
-            self.batch_size = 5
+        self.batch_size = 2 if self.is_training else 5
         self.data = data
         self.initializer = tf.random_uniform_initializer(
             minval=-config.initializer_scale,
             maxval=config.initializer_scale)
+
+        self.embedding_initializer = np.load(config.w2v_embedding_npy_file)
 
         self.ques_embeddings = None
         self.ans_embeddings = None
@@ -127,8 +126,10 @@ class VLLabMemoryModel(object):
         with tf.variable_scope("seq_embedding"):
             embedding_matrix = tf.get_variable(
                 name="embedding_matrix",
-                shape=[config.size_vocab, config.embedding_size],
-                initializer=self.initializer)
+                # shape=[config.size_vocab, config.embedding_size],
+                initializer=self.embedding_initializer,
+                trainable=False
+            )
             self.ques_embeddings = tf.nn.embedding_lookup(embedding_matrix, self.data.ques)
             self.ans_embeddings = tf.nn.embedding_lookup(embedding_matrix, self.data.ans)
             self.subt_embeddings = tf.nn.embedding_lookup(embedding_matrix, self.data.subt)
@@ -189,6 +190,12 @@ class VLLabMemoryModel(object):
         self.final_repr = tf.concat([self.movie_convpool,
                                      self.ques_lstm_outputs, self.ans_lstm_outputs],
                                     axis=1)
+
+
+class DecomposeModel(VLLabMemoryModel):
+    def build_model(self):
+        pass
+
 
 
 def test_data():
