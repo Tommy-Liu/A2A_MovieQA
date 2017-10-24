@@ -269,7 +269,7 @@ def align_subtitle(video_clips,
 def check_video(video):
     # initialize
     img_list = []
-    flag = True
+    flag = False
     meta_data = None
     nframes = 0
     try:
@@ -279,10 +279,10 @@ def check_video(video):
         meta_data = reader.get_meta_data()
         nframes = meta_data['nframes']
         meta_data['real_frames'] = len(images)
-        if not (nframes - meta_data['real_frames'] < allow_discard_offset):
+        if nframes - meta_data['real_frames'] >= allow_discard_offset:
             for img in reader:
                 img_list.append(img)
-            meta_data['real_frames'] = len(images)
+            meta_data['real_frames'] = len(img_list)
         flag = True
         assert meta_data['real_frames'], "FUCK FUCK FUCK!!!!"
     except OSError:
@@ -291,6 +291,7 @@ def check_video(video):
         flag = False
     except RuntimeError:
         if nframes - len(img_list) < allow_discard_offset:
+            meta_data['real_frames'] = len(img_list)
             flag = True
         else:
             # print(get_base_name(video), 'failed.')
@@ -357,6 +358,8 @@ def check_and_extract_videos(videos_clips,
 # tt0109446.sf-046563.ef-056625.video.mp4
 
 def video_process(manager, shared_videos_clips, keys):
+    du.exist_make_dirs(video_img)
+
     shared_video_data = manager.dict()
     shared_shot_boundary = manager.dict()
 
