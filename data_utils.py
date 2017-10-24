@@ -189,6 +189,52 @@ def float_feature_list(values):
     return tf.train.FeatureList(feature=[float_feature(v) for v in values])
 
 
+def fixed_num_example(example, subt, modality):
+    example_feat = np.zeros((0, 1536), dtype=np.float32)
+    example_subt = np.zeros((0, 41), dtype=np.int64)
+    example_subt_length = []
+    for name in example['feat']:
+        f = np.load(name)
+        s = subt[get_base_name_without_ext(name)]
+
+        assert len(f) == len(s['subtitle']), \
+            "%s Video frames and subtitle are not aligned." % \
+            get_base_name_without_ext(name)
+
+        if len(f) < modality[1]:
+            index = np.arange(len(f))
+        else:
+            index = np.linspace(0, len(f) - 1,
+                                num=modality[1],
+                                dtype=np.int64)
+
+        example_feat = np.concatenate([example_feat, f[index]])
+        example_subt = np.concatenate([example_subt, pad_list_numpy(s['subtitle'], 41)[index]])
+        example_subt_length += [len(s['subtitle'][idx]) for idx in index]
+
+    feature_lists = tf.train.FeatureLists(feature_list={
+        "subt": to_feature(example_subt),
+        "feat": to_feature(example_feat),
+        "ans": to_feature(example['ans'])
+    })
+    context = tf.train.Features(feature={
+        "subt_length": to_feature(example_subt_length),
+        "ans_length": to_feature(example['ans_length']),
+        "ques": to_feature(example['ques']),
+        "ques_length": to_feature(example['ques_length'])
+    })
+    return tf.train.SequenceExample(context=context,
+                                    feature_lists=feature_lists)
+
+def fixed_interval_example(example, subt, modality):
+    pass
+
+def shot_major_example(example, subt, modality):
+    pass
+
+def subtitle_major_example(example, subt, modality):
+    pass
+
 def qa_feature_example(example, subt, modality):
     example_feat = np.zeros((0, 1536), dtype=np.float32)
     example_subt = np.zeros((0, 41), dtype=np.int64)
