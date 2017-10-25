@@ -23,13 +23,8 @@ config = MovieQAConfig()
 
 
 def create_one_tfrecord(split, modality, num_per_shard, example_list, subt, is_training, shard_id):
-    output_filename = du.get_dataset_name(config.dataset_dir,
-                                          config.dataset_name,
-                                          split,
-                                          modality,
-                                          shard_id + 1,
-                                          config.num_shards,
-                                          is_training)
+    args = [config.dataset_dir, config.dataset_name, split, modality, shard_id + 1, config.num_shards, is_training]
+    output_filename = du.get_dataset_name(*args)
     du.exist_then_remove(output_filename)
     # print('Start writing %s.' % output_filename)
     with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
@@ -38,14 +33,9 @@ def create_one_tfrecord(split, modality, num_per_shard, example_list, subt, is_t
         for i in range(start_ndx, end_ndx):
             # trange(start_ndx, end_ndx,  #
             #         desc="shard %d" % (shard_id + 1)):
-            if is_training:
-                example = du.qa_feature_example(example_list[i], subt, (modality, config.modality_config[modality]))
-                tfrecord_writer.write(example.SerializeToString())
-            else:
-                example = du.qa_eval_feature_example(example_list[i], subt, split,
-                                                     (modality, config.modality_config[modality]))
-                tfrecord_writer.write(example.SerializeToString())
-                # print('Writing %s done!' % output_filename)
+            example = du.qa_feature_example(example_list[i], subt, modality, is_training)
+            tfrecord_writer.write(example.SerializeToString())
+            # print('Writing %s done!' % output_filename)
 
 
 def get_total_example(qas, split, is_training=False):

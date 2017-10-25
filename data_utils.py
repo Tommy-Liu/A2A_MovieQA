@@ -8,7 +8,8 @@ import tensorflow as tf
 
 from config import MovieQAConfig
 
-FILE_PATTERN = MovieQAConfig.TFRECORD_PATTERN_
+config = MovieQAConfig()
+FILE_PATTERN = config.TFRECORD_PATTERN_
 NPY_PATTERN_ = '%s.npy'
 
 
@@ -189,7 +190,7 @@ def float_feature_list(values):
     return tf.train.FeatureList(feature=[float_feature(v) for v in values])
 
 
-def fixed_num_example(example, subt, modality):
+def qa_feature_example(example, subt, modality, is_training=False):
     example_feat = np.zeros((0, 1536), dtype=np.float32)
     example_subt = np.zeros((0, 41), dtype=np.int64)
     example_subt_length = []
@@ -201,85 +202,39 @@ def fixed_num_example(example, subt, modality):
             "%s Video frames and subtitle are not aligned." % \
             get_base_name_without_ext(name)
 
-        if len(f) < modality[1]:
-            index = np.arange(len(f))
-        else:
-            index = np.linspace(0, len(f) - 1,
-                                num=modality[1],
-                                dtype=np.int64)
-
-        example_feat = np.concatenate([example_feat, f[index]])
-        example_subt = np.concatenate([example_subt, pad_list_numpy(s['subtitle'], 41)[index]])
-        example_subt_length += [len(s['subtitle'][idx]) for idx in index]
-
-    feature_lists = tf.train.FeatureLists(feature_list={
-        "subt": to_feature(example_subt),
-        "feat": to_feature(example_feat),
-        "ans": to_feature(example['ans'])
-    })
-    context = tf.train.Features(feature={
-        "subt_length": to_feature(example_subt_length),
-        "ans_length": to_feature(example['ans_length']),
-        "ques": to_feature(example['ques']),
-        "ques_length": to_feature(example['ques_length'])
-    })
-    return tf.train.SequenceExample(context=context,
-                                    feature_lists=feature_lists)
-
-def fixed_interval_example(example, subt, modality):
-    pass
-
-def shot_major_example(example, subt, modality):
-    pass
-
-def subtitle_major_example(example, subt, modality):
-    pass
-
-def qa_feature_example(example, subt, modality):
-    example_feat = np.zeros((0, 1536), dtype=np.float32)
-    example_subt = np.zeros((0, 41), dtype=np.int64)
-    example_subt_length = []
-    for name in example['feat']:
-        f = np.load(name)
-        s = subt[get_base_name_without_ext(name)]
-
-        assert len(f) == len(s['subtitle']), \
-            "%s Video frames and subtitle are not aligned." % \
-            get_base_name_without_ext(name)
-
-        if modality[0] == 'fixed_num':
-            if len(f) < modality[1]:
+        if modality == 'fixed_num':
+            num_sample = config.modality_config['fixed_num']
+            if len(f) < num_sample:
                 index = np.arange(len(f))
             else:
                 index = np.linspace(0, len(f) - 1,
-                                    num=modality[1],
+                                    num=num_sample,
                                     dtype=np.int64)
 
-        elif modality[0] == 'fixed_interval':
-            index = np.arange(0, len(f), step=modality[1])
+        elif modality == 'fixed_interval':
+            num_interval = config.modality_config['fixed_interval']
+            index = np.arange(0, len(f), step=num_interval, dtype=np.int64)
 
-        elif modality[0] == 'shot_major':
+        elif modality == 'shot_major':
+            num_interval = config.modality_config['shot_major']
             num_shot = np.amax(s['shot_boundary']) + 1
-            index = np.array([])
+            index = np.array([], dtype=np.int64)
             for i in range(num_shot):
-                arg = np.where(s['shot_boundary'] == i)
-                if len(arg) < modality[1]:
-                    index = np.concatenate([index, arg])
-                else:
-                    arg = np.choose(arg, np.linspace(0, len(arg) - 1,
-                                                     num=modality[1]))
-                    index = np.concatenate([index, arg])
+                arg = np.where(s['shot_boundary'] == i)[0]
+                arg = arg[np.arange(0, arg.size, step=num_interval, dtype=np.int64)]
+                index = np.concatenate([index, arg])
 
-        elif modality[0] == 'subtitle_major':
-            uniques = np.unique(s['subtitle_index'])
-            index = np.array([])
+        elif modality == 'subtitle_major':
+            num_interval = config.modality_config['subtitle_major']
+            uniques = np.unique(s['subtitle_shot'])
+            uniques = uniques[uniques > 0]
+            index = np.array([], dtype=np.int64)
             for idx in uniques:
-                arg = np.where(s['subtitle_index'] == idx)
-                if len(arg) < modality[1]:
-                    index = np.concatenate([index, arg])
-                else:
-                    arg = np.choose(arg, np.linspace(0, len(arg) - 1, num=modality[1]))
-                    index = np.concatenate([index, arg])
+                arg = np.where(s['subtitle_shot'] == idx)[0]
+                # print(np.arange(0, arg.size, step=num_interval, dtype=np.int64))
+                arg = arg[np.arange(0, arg.size, step=num_interval, dtype=np.int64)]
+                # print(arg)
+                index = np.concatenate([index, arg])
 
         else:
             raise ValueError("Wrong modality.")
@@ -288,73 +243,7 @@ def qa_feature_example(example, subt, modality):
         example_subt = np.concatenate([example_subt, pad_list_numpy(s['subtitle'], 41)[index]])
         example_subt_length += [len(s['subtitle'][idx]) for idx in index]
 
-    feature_lists = tf.train.FeatureLists(feature_list={
-        "subt": to_feature(example_subt),
-        "feat": to_feature(example_feat),
-        "ans": to_feature(example['ans'])
-    })
-    context = tf.train.Features(feature={
-        "subt_length": to_feature(example_subt_length),
-        "ans_length": to_feature(example['ans_length']),
-        "ques": to_feature(example['ques']),
-        "ques_length": to_feature(example['ques_length'])
-    })
-    return tf.train.SequenceExample(context=context,
-                                    feature_lists=feature_lists)
-
-
-def qa_eval_feature_example(example, subt, split, modality):
-    example_feat = np.zeros((0, 1536), dtype=np.float32)
-    example_subt = np.zeros((0, 41), dtype=np.int64)
-    example_subt_length = []
-    for name in example['feat']:
-        f = np.load(name)
-        s = subt[get_base_name_without_ext(name)]
-
-        assert len(f) == len(s['subtitle']), \
-            "%s Video frames and subtitle are not aligned." % \
-            get_base_name_without_ext(name)
-
-        if modality[0] == 'fixed_num':
-            if len(f) < modality[1]:
-                index = np.arange(len(f))
-            else:
-                index = np.linspace(0, len(f) - 1,
-                                    num=modality[1],
-                                    dtype=np.int64)
-
-        elif modality[0] == 'fixed_interval':
-            index = np.arange(0, len(f), step=modality[1])
-
-        elif modality[0] == 'shot_major':
-            num_shot = np.amax(s['shot_boundary']) + 1
-            index = np.array([])
-            for i in range(num_shot):
-                arg = np.where(s['shot_boundary'] == i)
-                if len(arg) < modality[1]:
-                    index = np.concatenate([index, arg])
-                else:
-                    arg = np.choose(arg, np.linspace(0, len(arg) - 1,
-                                                     num=modality[1]))
-                    index = np.concatenate([index, arg])
-
-        elif modality[0] == 'subtitle_major':
-            uniques = np.unique(s['subtitle_index'])
-            index = np.array([])
-            for idx in uniques:
-                arg = np.where(s['subtitle_index'] == idx)
-                if len(arg) < modality[1]:
-                    index = np.concatenate([index, arg])
-                else:
-                    arg = np.choose(arg, np.linspace(0, len(arg) - 1, num=modality[1]))
-                    index = np.concatenate([index, arg])
-
-        else:
-            raise ValueError("Wrong modality.")
-
-        example_feat = np.concatenate([example_feat, f[index]])
-        example_subt = np.concatenate([example_subt, pad_list_numpy(s['subtitle'], 41)[index]])
-        example_subt_length += [len(s['subtitle'][idx]) for idx in index]
+    assert example_subt.size, "No subtitle!!"
 
     feature_lists = tf.train.FeatureLists(feature_list={
         "subt": to_feature(example_subt),
@@ -365,10 +254,14 @@ def qa_eval_feature_example(example, subt, split, modality):
         "subt_length": to_feature(example_subt_length),
         "ans_length": to_feature(example['ans_length']),
         "ques": to_feature(example['ques']),
-        "ques_length": to_feature(example['ques_length']),
-        "correct_index": to_feature(example['correct_index'])
+        "ques_length": to_feature(example['ques_length'])
     }
+
+    if not is_training:
+        feature['correct_index'] = to_feature(example['correct_index'])
+
     context = tf.train.Features(feature=feature)
+
     return tf.train.SequenceExample(context=context,
                                     feature_lists=feature_lists)
 
