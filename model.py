@@ -194,7 +194,7 @@ class VLLabMemoryModel(object):
 
 class DecomposeModel(VLLabMemoryModel):
     def build_model(self):
-        pass
+        self.build_seq_embedding()
 
 
 
