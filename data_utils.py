@@ -103,6 +103,14 @@ def get_base_name(p):
     return p.split('/')[pos]
 
 
+def iter_type_check(value, dtype):
+    return all(isinstance(e, dtype) for e in value)
+
+
+def recur_iter_type_check(value, dtype):
+    return all(iter_type_check(e, dtype) for e in value)
+
+
 def to_feature(value):
     """
     Wrapper of tensorflow feature
@@ -111,55 +119,60 @@ def to_feature(value):
     """
     if isinstance(value, np.ndarray):
         # value is ndarray
-        if value.dtype == np.int64 or value.dtype == np.int32:
+        if np.issubdtype(value.dtype, np.integer):
             # value is int
-            if value.ndim > 1:
+            if value.ndim == 2:
                 # 2-d array
                 return int64_feature_list(value)
-            else:
+            elif value.ndim == 1:
                 # 1-d array
                 return int64_feature(value)
-        elif value.dtype == np.float32 or value.dtype == np.float64:
+            else:
+                raise ValueError('Too many dimensions.')
+        elif np.issubdtype(value.dtype, np.floating):
             # value is float
-            if value.shape[0] > 1:
+            if value.ndim == 2:
                 # 2-d array
                 return float_feature_list(value)
-            else:
+            elif value.ndim == 2:
                 # 1-d array
                 return float_feature(value)
-    elif not isinstance(value, (tuple, list)):
-        # value is scalar
-        if isinstance(value, int):
-            # int
-            return int64_feature([value])
-        elif isinstance(value, float):
-            # float
-            return float_feature([value])
-        else:
-            # string or byte
-            return bytes_feature([str(value)])
-    else:
+            else:
+                raise ValueError('Too many dimensions.')
+    elif isinstance(value, (tuple, list)):
         # value is list or tuple
-        if isinstance(value[0], int):
+        if iter_type_check(value, int):
             # int
             return int64_feature(value)
-        elif isinstance(value[0], float):
+        elif iter_type_check(value, float):
             # float
             return float_feature(value)
-        elif not isinstance(value[0], list):
-            # string or byte
-            return bytes_feature(value)
-        else:
+        elif iter_type_check(value, list):
             # value is list of lists
-            if isinstance(value[0][0], int):
+            if recur_iter_type_check(value, int):
                 # int
                 return int64_feature_list(value)
-            elif isinstance(value[0][0], float):
+            elif recur_iter_type_check(value, float):
                 # float
                 return float_feature_list(value)
             else:
                 # string or byte
                 return bytes_feature_list(value)
+        else:
+            # string or byte
+            return bytes_feature(value)
+
+    else:
+        # value is scalar
+        if isinstance(value, (int, np.integer)):
+            # int
+            return int64_feature([value])
+        elif isinstance(value, (float, np.floating)):
+            # float
+            return float_feature([value])
+        else:
+            # string or byte
+            return bytes_feature([str(value)])
 
 
 def int64_feature(value):

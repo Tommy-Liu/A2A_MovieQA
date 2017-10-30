@@ -90,6 +90,16 @@ class MovieQAConfig(Config):
             self.word2vec_file = join(self.data_dir, 'GoogleNews-vectors-negative300.txt')
             self.glove_file = join(self.data_dir, 'glove.840B.300d.w2v.txt')
 
+            # Counter of char
+            self.qa_char_counter_file = join(self.data_dir, 'qa_char_counter.json')
+            self.embed_char_counter_file = join(self.data_dir, 'embed_char_counter.json')
+
+            # Char embedding
+            self.char_vocab_file = join(self.data_dir, 'char_vocab.json')
+            self.encode_embedding_file = join(self.data_dir, 'encode_embedding.npy')
+            self.encode_embedding_len_file = join(self.data_dir, 'encode_embedding_len.npy')
+
+            # Total embedding keys and values
             self.w2v_embedding_file = join(self.data_dir, 'w2v_embedding.json')
             self.w2v_embedding_npy_file = join(self.data_dir, 'w2v_embedding.npy')
             self.ft_embedding_file = join(self.data_dir, 'ft_embedding.json')

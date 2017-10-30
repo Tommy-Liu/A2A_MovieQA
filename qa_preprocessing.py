@@ -68,12 +68,10 @@ def load_embedding(file):
     with open(file, 'r') as f:
         num, dim = [int(comp) for comp in f.readline().strip().split()]
         for _ in trange(num, desc='Load word embedding %dd' % dim):
-            comp = f.readline().strip().split()
-            word, vec = comp[:-dim], comp[-dim:]
-            word = ' '.join(word)
+            word, *vec = f.readline().rstrip().rsplit(sep=' ', maxsplit=dim)
             vec = [float(e) for e in vec]
             embedding[word] = vec
-
+        assert len(embedding) == num, 'Wrong size of embedding.'
     return embedding
 
 
@@ -84,15 +82,18 @@ def insert_unk(qa_embedding, vocab, inverse_vocab):
     return qa_embedding, vocab, inverse_vocab
 
 
-def build_vocab(counter, embedding):
+def build_vocab(counter, embedding=None):
     qa_embedding = {}
     sorted_counter = counter.most_common()
     # sorted_counter = sorted(counter.items(),
     #                         key=lambda t: t[1],
     #                         reverse=True)
     for idx, item in tqdm(enumerate(sorted_counter), desc='Build vocab:'):
-        if item[0] in embedding.keys() and item[1] > config.vocab_thr:
-            qa_embedding[item[0]] = embedding[item[0]]
+        if item[1] > config.vocab_thr:
+            if embedding and item[0] in embedding.keys():
+                qa_embedding[item[0]] = embedding[item[0]]
+            else:
+                qa_embedding[item[0]] = item[1]
 
     pprint([
         'Original vocabulary size: %d' % len(counter),
@@ -244,16 +245,19 @@ def main():
                            video_subtitle,
                            is_train=not embed_exist)
     # Build vocab
-    if not embed_exist:
-        qa_embedding, vocab, inverse_vocab = build_vocab(vocab_counter, embedding)
-        du.exist_then_remove(avail_embed_file)
-        du.write_json(inverse_vocab, avail_embed_file)
-        du.exist_then_remove(avail_embed_npy_file)
-        np.save(avail_embed_npy_file,
-                np.array([e for e in qa_embedding.values()], dtype=np.float32))
+    if embed_file:
+        if not embed_exist:
+            qa_embedding, vocab, inverse_vocab = build_vocab(vocab_counter, embedding)
+            du.exist_then_remove(avail_embed_file)
+            du.write_json(inverse_vocab, avail_embed_file)
+            du.exist_then_remove(avail_embed_npy_file)
+            np.save(avail_embed_npy_file,
+                    np.array([e for e in qa_embedding.values()], dtype=np.float32))
+        else:
+            inverse_vocab = du.load_json(avail_embed_file)
+            vocab = {k: i for i, k in enumerate(inverse_vocab)}
     else:
-        inverse_vocab = du.load_json(avail_embed_file)
-        vocab = {k: i for i, k in enumerate(inverse_vocab)}
+        _, vocab, inverse_vocab = build_vocab(vocab_counter)
 
     # encode sentences
     tokenize_qa_test, _ = tokenize_sentences(total_qa['test'], video_subtitle)
