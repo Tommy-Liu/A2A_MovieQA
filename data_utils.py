@@ -134,7 +134,7 @@ def to_feature(value):
             if value.ndim == 2:
                 # 2-d array
                 return float_feature_list(value)
-            elif value.ndim == 2:
+            elif value.ndim == 1:
                 # 1-d array
                 return float_feature(value)
             else:

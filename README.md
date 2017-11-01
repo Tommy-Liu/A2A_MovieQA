@@ -99,7 +99,13 @@ encode_sub = {
 }
 ```
 
-### 
-
-
+### Feature resolve 
+1. Feature list
+    1. 3-d array
+    2. [[[]]]
+2. Feature
+    1. 2-d array
+    2. 1-d array
+    3. [[]]
+    4. []
 
