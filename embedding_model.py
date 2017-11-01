@@ -208,7 +208,7 @@ def process():
 
 def main():
     data = EmbeddingData(args.batch_size)
-    model = EmbeddingModel(data)
+    model = EmbeddingModel(data, is_training=False)
     log_dir = join(config.log_dir, 'embedding_log', '%.2E' % args.initial_learning_rate)
     checkpoint_dir = join(config.checkpoint_dir, 'embedding_checkpoint', '%.2E' % args.initial_learning_rate)
     checkpoint_name = join(checkpoint_dir, 'embedding')
@@ -324,7 +324,7 @@ if __name__ == '__main__':
     parser.add_argument('--initial_learning_rate', default=config.initial_learning_rate,
                         help='Initial learning rate.', type=float)
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
-    parser.add_argument('--batch_size', default=128, help='Batch size of training.', type=int)
+    parser.add_argument('--batch_size', default=3072, help='Batch size of training.', type=int)
     args = parser.parse_args()
     if args.process:
         process()
