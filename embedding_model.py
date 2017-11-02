@@ -229,12 +229,13 @@ def main():
                                                config.num_epochs_per_decay * total_step,
                                                config.learning_rate_decay_factor,
                                                staircase=True)
-    optimizer = tf.train.AdamOptimizer(learning_rate)
+    # optimizer = tf.train.AdamOptimizer(learning_rate)
+    optimizer = tf.train.MomentumOptimizer(learning_rate, 0.9)
     grads_and_vars = optimizer.compute_gradients(loss)
     gradients, variables = list(zip(*grads_and_vars))
-    gradients, _ = tf.clip_by_global_norm(gradients, config.clip_gradients)
-    capped_grad_and_vars = list(zip(gradients, variables))
-    train_op = optimizer.apply_gradients(capped_grad_and_vars, global_step)
+    # gradients, _ = tf.clip_by_global_norm(gradients, config.clip_gradients)
+    # grads_and_vars = list(zip(gradients, variables))
+    train_op = optimizer.apply_gradients(grads_and_vars, global_step)
     saver = tf.train.Saver(tf.global_variables(), )
 
     # Summary
@@ -280,9 +281,9 @@ def main():
             step = tf.train.global_step(sess, global_step)
             print("Training Loop Epoch %d" % epoch_)
             step = step % total_step
-
-            for _ in range(step, total_step):
-                start_time = time.time()
+            pbar = trange(step, total_step)
+            for _ in pbar:
+                # start_time = time.time()
                 try:
                     if step % 1000 == 0:
                         gv_summary, summary, _, l, step = sess.run([train_gv_summaries_op, train_summaries_op,
@@ -295,8 +296,9 @@ def main():
                         save_sum(summary)
                     else:
                         _, l, step = sess.run([train_op, loss, global_step])
-                    print("[%s/%s] step: %d loss: %.3f elapsed time: %.2f s" %
-                          (epoch_, config.num_epochs, step, l, time.time() - start_time))
+                    pbar.set_description('[%s/%s] step: %d loss: %f' % (epoch_, config.num_epochs, step, l))
+                    # print("[%s/%s] step: %d loss: %.3f elapsed time: %.2f s" %
+                    #       (epoch_, config.num_epochs, step, l, time.time() - start_time))
 
                 except tf.errors.OutOfRangeError:
                     break
@@ -324,7 +326,7 @@ if __name__ == '__main__':
     parser.add_argument('--initial_learning_rate', default=config.initial_learning_rate,
                         help='Initial learning rate.', type=float)
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
-    parser.add_argument('--batch_size', default=3072, help='Batch size of training.', type=int)
+    parser.add_argument('--batch_size', default=1, help='Batch size of training.', type=int)
     args = parser.parse_args()
     if args.process:
         process()
