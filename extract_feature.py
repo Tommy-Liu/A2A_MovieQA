@@ -1,10 +1,8 @@
-import json
-import os
 import random
 import sys
 import time
-from glob import glob
-from multiprocessing import Manager, Process, Event
+from math import ceil
+from multiprocessing import Manager, Event, Process
 from os.path import join
 
 import numpy as np
@@ -12,29 +10,17 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 from tqdm import tqdm
 
+import data_utils as du
 from config import MovieQAConfig
-from data_utils import exist_make_dirs, float_feature_list, int64_feature, \
-    get_npy_name, get_base_name_without_ext
 from inception_preprocessing import preprocess_image
 from inception_resnet_v2 import inception_resnet_v2_arg_scope, inception_resnet_v2
 
-flags = tf.app.flags
-
-flags.DEFINE_integer('num_gpus', 1, '')
-flags.DEFINE_integer('per_batch_size', 64, '')
-flags.DEFINE_integer('num_worker', 8, '')
-flags.DEFINE_string('split', 'train', '')
-
-FLAGS = flags.FLAGS
-
 config = MovieQAConfig()
 
-filename_json = './filenames.json'
+filename_json = config.images_name_file
 IMAGE_PATTERN_ = '*.jpg'
+IMAGE_FILE_NAME_ = 'img_%05d.jpg'
 DIR_PATTERN_ = 'tt*'
-
-batch_size = FLAGS.per_batch_size * FLAGS.num_gpus
-num_worker = FLAGS.num_worker * FLAGS.num_gpus
 
 
 def make_parallel(fn, num_gpus, **kwargs):
@@ -57,73 +43,17 @@ def models(images):
     return end_points['PreLogitsFlatten']
 
 
-def get_images_path(split):
+def get_images_path():
     file_names, capacity, npy_names = [], [], []
-    if os.path.exists(filename_json):
-        file_names_json = json.load(open(filename_json, 'r'))
-        print('Load json file done !!')
-        if file_names_json['split'] == split:
-
-            for idx, name in enumerate(tqdm(file_names_json['npy_names'])):
-                if not os.path.exists(name):
-                    file_names.extend(file_names_json['file_names'][idx])
-                    capacity.append(file_names_json['capacity'][idx])
-                    npy_names.append(name)
-                else:
-                    # In case there are shape-mismatched features.
-                    tensor = np.load(name)
-                    if tensor.shape[0] != file_names_json['capacity'][idx]:
-                        file_names.extend(file_names_json['file_names'][idx])
-                        capacity.append(file_names_json['capacity'][idx])
-                        npy_names.append(name)
-        else:
-            # Make the new split.
-            os.remove(filename_json)
-
-    if not os.path.exists(filename_json):
-        avail_video_metadata = json.load(open(config.video_data_file, 'r'))[split]
-        print('Load json file done !!')
-        file_names_sep = []
-        for folder in tqdm(avail_video_metadata.keys()):
-            if avail_video_metadata[folder]['avail'] and \
-                    not os.path.exists(get_npy_name(config.feature_dir, folder)):
-                npy_names.append(get_npy_name(config.feature_dir, folder))
-                imgs = glob(join(config.video_img_dir, folder, IMAGE_PATTERN_))
-                imgs = sorted(imgs)
-                capacity.append(len(imgs))
-                file_names_sep.append(imgs)
-                file_names.extend(imgs)
-        json.dump({
-            'file_names': file_names_sep,
-            'capacity': capacity,
-            'npy_names': npy_names,
-            'split': split
-        }, open(filename_json, 'w'))
-
-    print(len(file_names), len(capacity))
+    video_data = du.load_json(config.video_data_file)
+    for key in tqdm(video_data.keys()):
+        if video_data[key]['avail']:
+            npy_names.append(du.get_npy_name(config.feature_dir, key))
+            imgs = [join(config.video_img_dir, key, IMAGE_FILE_NAME_ % (i + 1))
+                    for i in range(video_data[key]['num_frames'])]
+            capacity.append(len(imgs))
+            file_names.extend(imgs)
     return file_names, capacity, npy_names
-
-
-def input_pipeline(filenames):
-    filename_queue = tf.train.string_input_producer(
-        filenames, shuffle=False, num_epochs=1)  # , capacity=   batch_size * 2)
-    reader = tf.WholeFileReader()
-    _, raw_image = reader.read(filename_queue)
-    image = tf.image.decode_jpeg(raw_image, channels=3)
-    image = preprocess_image(image, 299, 299, is_training=False)
-    images = tf.train.batch([image],
-                            batch_size=batch_size,
-                            num_threads=num_worker,
-                            capacity=2 * batch_size * FLAGS.num_worker,
-                            allow_smaller_final_batch=True)
-    return images
-
-
-def parse_function(filename):
-    raw_image = tf.read_file(filename)
-    image = tf.image.decode_jpeg(raw_image, channels=3)
-    image = preprocess_image(image, 299, 299, is_training=False)
-    return image
 
 
 def count_num(features_list):
@@ -133,22 +63,26 @@ def count_num(features_list):
     return num
 
 
-def writer_worker(e, features_list, capacity, npy_names):
+def writer_worker(e, features_list, filename_list, capacity, npy_names):
     video_idx = 0
     local_feature = np.zeros((0, config.feature_dim), dtype=np.float32)
-    video_subt = json.load(open(config.subtitle_file))
+    local_filename = []
+    # video_subt = json.load(open(config.subtitle_file))
     while True:
         if len(features_list) > 0:
             local_feature = np.concatenate([local_feature, features_list.pop(0)])
+            local_filename.extend(filename_list.pop(0))
             if local_feature.shape[0] >= capacity[video_idx]:
                 final_features = local_feature[:capacity[video_idx]]
+                final_filename = local_filename[:capacity[video_idx]]
                 assert final_features.shape[0] == capacity[video_idx], \
                     "%s Both frames are not same!" % npy_names[video_idx]
-                assert final_features.shape[0] == \
-                       len(video_subt[get_base_name_without_ext(npy_names[video_idx])]['subtitle']), \
-                    "%s Frames and subtitles are not same!" % npy_names[video_idx]
+                assert all([du.get_base_name_without_ext(npy_names[video_idx])
+                            == du.get_base_name_without_ext(final_filename[i])
+                            for i in range(len(final_features))]), \
+                    "Wrong images! %s\n%s" % (npy_names[video_idx], final_filename)
                 print(npy_names[video_idx], final_features.shape, capacity[video_idx], len(local_feature))
-                np.save(npy_names[video_idx], final_features)
+                # np.save(npy_names[video_idx], final_features)
                 local_feature = local_feature[capacity[video_idx]:]
                 video_idx += 1
         else:
@@ -159,60 +93,63 @@ def writer_worker(e, features_list, capacity, npy_names):
             e.clear()  # ['map', 'list', 'info', 'subtitle', 'unavailable']
 
 
+def parse_func(filename):
+    raw_image = tf.read_file(filename)
+    image = tf.image.decode_jpeg(raw_image, channels=3)
+    image = preprocess_image(image, 299, 299, is_training=False)
+    return image, filename
+
+
+def input_pipeline(filename_placeholder):
+    dataset = tf.data.Dataset.from_tensor_slices(filename_placeholder)
+    dataset = dataset.map(parse_func, num_parallel_calls=num_worker)
+    dataset = dataset.prefetch(10000)
+    dataset = dataset.repeat(1)
+    dataset = dataset.batch(batch_size)
+    iterator = dataset.make_initializable_iterator()
+    images, names = iterator.get_next()
+    return images, names, iterator
+
+
 def main(_):
-    exist_make_dirs(config.feature_dir)
-    filenames, capacity, npy_names = get_images_path(FLAGS.split)
-    images = input_pipeline(filenames)
-    # file_placeholder = tf.placeholder(tf.string, shape=[None])
-    # dataset = tf.contrib.data.Dataset.from_tensor_slices(file_placeholder)
-    # dataset = dataset.map(parse_function)
-    # dataset = dataset.repeat(1)
-    # dataset = dataset.batch(batch_size)
-    # iterator = dataset.make_initializable_iterator()
-    # images = iterator.get_next()
-    # feature_tensor = make_parallel(models, FLAGS.num_gpus, images=images)
+    du.exist_make_dirs(config.feature_dir)
+    filenames, capacity, npy_names = get_images_path()
+    num_step = int(ceil(len(filenames) / batch_size))
+    filename_placeholder = tf.placeholder(tf.string, shape=[None])
+    images, names, iterator = input_pipeline(filename_placeholder)
     feature_tensor = models(images)
     print('Pipeline setup done !!')
     saver = tf.train.Saver(tf.global_variables())
-    config_ = tf.ConfigProto()  # allow_soft_placement=True, )
-    config_.gpu_options.allow_growth = True
     print('Start extract !!')
-    with tf.Session(config=config_) as sess, Manager() as manager:
+    with tf.Session() as sess, Manager() as manager:
         e = Event()
         features_list = manager.list()
-        p = Process(target=writer_worker, args=(e, features_list, capacity, npy_names))
+        filename_list = manager.list()
+        p = Process(target=writer_worker, args=(e, features_list, filename_list, capacity, npy_names))
         p.start()
-        # sess.run(iterator.initializer, feed_dict={
-        #     file_placeholder: filenames
-        # })
+        sess.run(iterator.initializer, feed_dict={filename_placeholder: filenames})
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
         saver.restore(sess, './inception_resnet_v2_2016_08_30.ckpt')
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(coord=coord)
         try:
-            # while not coord.should_stop():
-            while True:
-                features_list.append(sess.run(feature_tensor))
-        except tf.errors.OutOfRangeError:
-            print('done!')
-            time.sleep(3)
+            for _ in range(num_step):
+                f, n = sess.run([feature_tensor, names])
+                # print(n)
+                features_list.append(f)
+                filename_list.append([str(i) for i in n])
             e.wait()
             time.sleep(3)
             p.terminate()
-            time.sleep(1)
         except KeyboardInterrupt:
             print()
             p.terminate()
-            time.sleep(1)
         finally:
+            time.sleep(1)
             p.join()
-            coord.request_stop()
-            coord.join(threads)
 
 
 def test_time():
-    exist_make_dirs(config.feature_dir)
+    du.exist_make_dirs(config.feature_dir)
     filenames, capacity, npy_names = get_images_path()
     images = input_pipeline(filenames)
     print('Pipeline setup done !!')
@@ -249,9 +186,9 @@ def test():
     writer = tf.python_io.TFRecordWriter('test.tfrecord')
 
     # for i in range(50):
-    frame_feats = float_feature_list([[random.random() for j in range(10)] for k in range(10)])
+    frame_feats = du.float_feature_list([[random.random() for j in range(10)] for k in range(10)])
     context = tf.train.Features(feature={
-        "label": int64_feature(0)
+        "label": du.int64_feature(0)
     })
     feature_lists = tf.train.FeatureLists(feature_list={
         "frame_feats": frame_feats
@@ -298,4 +235,12 @@ def test():
 
 
 if __name__ == '__main__':
+    flags = tf.app.flags
+    flags.DEFINE_integer('num_gpus', 1, '')
+    flags.DEFINE_integer('per_batch_size', 64, '')
+    flags.DEFINE_integer('num_worker', 8, '')
+    flags.DEFINE_string('split', 'train', '')
+    FLAGS = flags.FLAGS
+    batch_size = FLAGS.per_batch_size * FLAGS.num_gpus
+    num_worker = FLAGS.num_worker * FLAGS.num_gpus
     tf.app.run()

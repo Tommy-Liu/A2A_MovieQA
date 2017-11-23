@@ -89,6 +89,8 @@ class MovieQAConfig(Config):
         with self._create_group('file_names'):
             # Video data
             self.video_data_file = join(self.data_dir, 'video_data.json')
+            # Images' file names
+            self.images_name_file = join(self.data_dir, 'images_name.json')
             # Shot boundary
             self.shot_boundary_file = join(self.data_dir, 'shot_boundary.json')
             # Subtitle data
