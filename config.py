@@ -76,6 +76,8 @@ class MovieQAConfig(Config):
             self.feature_dir = join(self.data_dir, 'features')
             # Directory of tfrecords
             self.dataset_dir = join(self.data_dir, 'dataset')
+            # Directory of embedding things
+            self.embedding_dir = './embedding'
 
             # Experiment directory
             self.checkpoint_dir = './checkpoint'
@@ -124,22 +126,26 @@ class MovieQAConfig(Config):
             self.word2vec_file = join(self.data_dir, 'GoogleNews-vectors-negative300.txt')
             self.glove_file = join(self.data_dir, 'glove.840B.300d.w2v.txt')
 
+            # Word vocabulary of qa
+            self.qa_word_vocab_file = join(self.embedding_dir, 'qa_word_vocab.json')
+
             # Counter of char
-            self.qa_char_counter_file = join(self.data_dir, 'qa_char_counter.json')
-            self.embed_char_counter_file = join(self.data_dir, 'embed_char_counter.json')
+            self.qa_char_counter_file = join(self.embedding_dir, 'qa_char_counter.json')
+            self.embed_char_counter_file = join(self.embedding_dir, 'embed_char_counter.json')
 
             # Char embedding
-            self.char_vocab_file = join(self.data_dir, 'char_vocab.json')
-            self.encode_embedding_file = join(self.data_dir, 'encode_embedding.npy')
-            self.encode_embedding_len_file = join(self.data_dir, 'encode_embedding_len.npy')
+            self.char_vocab_file = join(self.embedding_dir, 'char_vocab.json')
+            self.encode_embedding_file = join(self.embedding_dir, 'encode_embedding.npy')
+            self.encode_embedding_len_file = join(self.embedding_dir, 'encode_embedding_len.npy')
+            self.encode_embedding_vec_file = join(self.embedding_dir, 'encode_embedding_vec.npy')
 
             # Total embedding keys and values
-            self.w2v_embedding_file = join(self.data_dir, 'w2v_embedding.json')
-            self.w2v_embedding_npy_file = join(self.data_dir, 'w2v_embedding.npy')
-            self.ft_embedding_file = join(self.data_dir, 'ft_embedding.json')
-            self.ft_embedding_npy_file = join(self.data_dir, 'ft_embedding.npy')
-            self.glove_embedding_file = join(self.data_dir, 'globe_embedding.json')
-            self.glove_embedding_npy_file = join(self.data_dir, 'globe_embedding.npy')
+            self.w2v_embedding_file = join(self.embedding_dir, 'w2v_embedding.json')
+            self.w2v_embedding_npy_file = join(self.embedding_dir, 'w2v_embedding.npy')
+            self.ft_embedding_file = join(self.embedding_dir, 'ft_embedding.json')
+            self.ft_embedding_npy_file = join(self.embedding_dir, 'ft_embedding.npy')
+            self.glove_embedding_file = join(self.embedding_dir, 'globe_embedding.json')
+            self.glove_embedding_npy_file = join(self.embedding_dir, 'globe_embedding.npy')
 
         # Names
         self.dataset_name = 'movieqa'

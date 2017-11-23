@@ -1,12 +1,11 @@
 # import argparse
 import math
+import numpy as np
+import tensorflow as tf
 from functools import partial
 from glob import glob
 from multiprocessing import Pool
 from os.path import join, exists
-
-import numpy as np
-import tensorflow as tf
 from tensorflow.contrib.data import TFRecordDataset
 from tqdm import trange, tqdm
 
@@ -77,21 +76,34 @@ class TfRecordDataSet(object):
         sequence_features = {}
 
         for k in target.keys():
-            if isinstance(target[k], np.ndarray):
-                if target[k].ndim == 3:
-                    feature_list[k] = target[k]
-                    sequence_features[k] = tf.FixedLenSequenceFeature([target[k].shape[2]])
-                elif target[k].ndim == 2 or target[k].ndim == 1:
+            t = target[k]
+            if isinstance(t, np.ndarray):
+                dim = t.ndim
+                if dim == 3:
+                    feature_list[k] = t
+                    sequence_features[k] = tf.FixedLenSequenceFeature(
+                        shape=[t.shape[dim - 1]], dtype=tf.as_dtype(t.dtype)
+                    )
+
+                elif 0 < dim < 3:
                     features[k] = target[k]
+                    context_features[k] = tf.FixedLenFeature(
+                        shape=[t.shape[dim - 1]] if dim == 2 else [], dtype=tf.as_dtype(t.dtype)
+                    )
                 else:
                     raise ValueError('Wrong dimension of target value. Can\'t be processed later.')
             else:
                 def depth(l):
                     return isinstance(l, list) and max(map(depth, l), default=0) + 1
 
-                if depth(target[k]) == 3:
-                    feature_list[k] = target[k]
-                elif depth(target[k]) == 2 or depth(target[k]) == 1:
+                def varlen(l):
+                    return any(map(varlen, l)) if depth(l) > 2 else len(set(map(len, l))) - 1
+
+                if depth(t) == 3:
+                    feature_list[k] = t
+                    if varlen(t):
+                        sequence_features[k] = tf.VarLenFeature(dtype=tf.as_dtype())
+                elif 0 < depth(target[k]) < 3:
                     features[k] = target[k]
                 else:
                     raise ValueError('Wrong depth of target value. Can\'t be processed later.')

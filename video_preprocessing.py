@@ -1,17 +1,16 @@
 import argparse
 import codecs
+import imageio
 import os
+import pysrt
 import re
 import sys
 from functools import partial
 from glob import glob
 from multiprocessing import Pool, Manager
-from os.path import join
-
-import imageio
-import pysrt
 # from nltk.tokenize.moses import MosesTokenizer
 from nltk.tokenize import word_tokenize  # , RegexpTokenizer, TweetTokenizer
+from os.path import join
 from tqdm import tqdm
 
 import data_utils as du
@@ -31,7 +30,6 @@ allow_discard_offset = 3
 videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.isdir(d)]
 
 tokenize_func = word_tokenize
-
 
 # tokenizer = RegexpTokenizer("[\w']+")
 # tokenizer = TweetTokenizer()

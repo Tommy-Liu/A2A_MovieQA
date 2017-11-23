@@ -1,16 +1,15 @@
 import argparse
 import math
+import numpy as np
 import os
+import tensorflow as tf
+import tensorflow.contrib.layers as layers
 import time
 from collections import Counter
 from glob import glob
 from multiprocessing import Pool
 from os.path import join, exists
-
-import numpy as np
-import tensorflow as tf
-import tensorflow.contrib.layers as layers
-from tensorflow.contrib.data import TFRecordDataset
+from random import shuffle
 from tqdm import tqdm, trange
 
 import data_utils as du
@@ -35,15 +34,15 @@ def feature_parser(record):
 
 
 class EmbeddingData(object):
-    RECORD_FILE_PATTERN_ = join('./data', 'dataset', 'embedding_*.tfrecord')
+    RECORD_FILE_PATTERN_ = join('./embedding', 'embedding_dataset', 'embedding_*.tfrecord')
 
     def __init__(self, batch_size=128, num_thread=4):
         self.num_example = len(np.load(config.encode_embedding_len_file))
         self.file_names = glob(self.RECORD_FILE_PATTERN_)
         self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
-        self.dataset = TFRecordDataset(self.file_names_placeholder) \
-            .map(feature_parser, num_threads=num_thread, output_buffer_size=num_thread * batch_size + 1000) \
-            .shuffle(buffer_size=10000).batch(batch_size)
+        self.dataset = tf.data.TFRecordDataset(self.file_names_placeholder) \
+            .map(feature_parser, num_parallel_calls=num_thread).prefetch(num_thread * batch_size * 2) \
+            .shuffle(buffer_size=num_thread * batch_size * 8).batch(batch_size)
         self.iterator = self.dataset.make_initializable_iterator()
         self.vec, self.word, self.len = self.iterator.get_next()
         self.vocab = du.load_json(config.char_vocab_file)
@@ -59,35 +58,36 @@ class EmbeddingData(object):
 
 
 class EmbeddingModel(object):
-    def __init__(self, data, is_training=True):
+    def __init__(self, data, is_training=True, dropout_prob=1, char_embed_dim=100, hidden_dim=256):
         self.data = data
         embedding_matrix = tf.get_variable(
-            name="embedding_matrix", shape=(self.data.vocab_size, 100), trainable=True)
+            name="embedding_matrix", shape=(self.data.vocab_size, char_embed_dim), trainable=True)
         self.char_embedding = tf.nn.embedding_lookup(embedding_matrix, self.data.word)
-        initializer = tf.random_uniform_initializer(
-            minval=-config.initializer_scale, maxval=config.initializer_scale)
+        # initializer = tf.random_uniform_initializer(
+        #     minval=-config.initializer_scale, maxval=config.initializer_scale)
 
-        lstm_cell_fw = tf.nn.rnn_cell.LSTMCell(256, initializer=initializer)
+        lstm_cell_fw = tf.nn.rnn_cell.BasicLSTMCell(hidden_dim)  # , initializer=initializer)
         lstm_cell_fw = tf.nn.rnn_cell.DropoutWrapper(
-            lstm_cell_fw, input_keep_prob=config.lstm_dropout_keep_prob,
-            output_keep_prob=config.lstm_dropout_keep_prob) if is_training else lstm_cell_fw
+            lstm_cell_fw, input_keep_prob=dropout_prob, output_keep_prob=dropout_prob) \
+            if is_training else lstm_cell_fw
 
-        lstm_cell_bw = tf.nn.rnn_cell.LSTMCell(256, initializer=initializer)
+        lstm_cell_bw = tf.nn.rnn_cell.BasicLSTMCell(hidden_dim)  # , initializer=initializer)
         lstm_cell_bw = tf.nn.rnn_cell.DropoutWrapper(
-            lstm_cell_bw, input_keep_prob=config.lstm_dropout_keep_prob,
-            output_keep_prob=config.lstm_dropout_keep_prob) if is_training else lstm_cell_bw
+            lstm_cell_bw, input_keep_prob=dropout_prob, output_keep_prob=dropout_prob) \
+            if is_training else lstm_cell_bw
 
         _, s = tf.nn.bidirectional_dynamic_rnn(
-            lstm_cell_fw, lstm_cell_bw, self.char_embedding, sequence_length=self.data.len, dtype=tf.float32)
+            lstm_cell_fw, lstm_cell_bw, self.char_embedding,
+            sequence_length=self.data.len, dtype=tf.float32)
         # of, ob = o
         # of, ob0, ob1 = extract_axis_1(o[0], self.data.len - 1), extract_axis_1(o[1], np.zeros(64)), extract_axis_1(
         #     o[1], self.data.len - 1)
         sf, sb = s
         self.hidden_state = tf.concat([sf.h, sb.h], axis=1)
-        self.lstm_to_wdim = layers.dropout(layers.fully_connected(self.hidden_state, 300),
-                                           keep_prob=config.lstm_dropout_keep_prob, is_training=is_training)
-        self.output = layers.dropout(layers.fully_connected(self.lstm_to_wdim, 300),
-                                     keep_prob=config.lstm_dropout_keep_prob, is_training=is_training)
+        self.lstm_to_wdim = layers.dropout(layers.fully_connected(self.hidden_state, 300, activation_fn=tf.nn.tanh),
+                                           keep_prob=dropout_prob, is_training=is_training)
+        self.output = layers.dropout(layers.fully_connected(self.lstm_to_wdim, 300, activation_fn=None),
+                                     keep_prob=dropout_prob, is_training=is_training)
         # self.qq = [of, ob0, ob1, sf, sb]
         # self.qq = [of, ob, sf, sb]
 
@@ -152,47 +152,53 @@ def create_records():
 
 
 def process():
-    tokenize_qa = du.load_json(config.avail_tokenize_qa_file)
-    subtitle = du.load_json(config.subtitle_file)
-    embedding = load_embedding(config.word2vec_file)
+    # tokenize_qa = du.load_json(config.avail_tokenize_qa_file)
+    # subtitle = du.load_json(config.subtitle_file)
+    if exists(config.w2v_embedding_file) and exists(config.w2v_embedding_npy_file):
+        embedding_keys = du.load_json(config.w2v_embedding_file)
+        embedding_array = np.load(config.w2v_embedding_npy_file)
+    else:
+        embedding = load_embedding(config.word2vec_file)
+        embedding_keys = []
+        embedding_array = np.zeros((len(embedding), 300), dtype=np.float32)
+        for i, k in enumerate(embedding.keys()):
+            embedding_keys.append(k)
+            embedding_array[i] = embedding[k]
+        du.write_json(embedding_keys, config.w2v_embedding_file)
+        np.save(config.w2v_embedding_npy_file, embedding_array)
 
     embed_char_counter = Counter()
-    for k in tqdm(embedding.keys()):
+    for k in tqdm(embedding_keys):
         embed_char_counter.update(k)
 
-    embedding_keys = list(embedding.keys())
-    embedding_array = np.array(list(embedding.values()), dtype=np.float32)
-    du.write_json(embedding_keys, config.w2v_embedding_file)
-    np.save(config.w2v_embedding_npy_file,
-            embedding_array)
-
-    qa_char_counter = Counter()
-    for k in tokenize_qa.keys():
-        for qa in tqdm(tokenize_qa[k], desc='Char counting %s' % k):
-            for w in qa['tokenize_question']:
-                qa_char_counter.update(w)
-            for a in qa['tokenize_answer']:
-                for w in a:
-                    qa_char_counter.update(w)
-            for v in qa['video_clips']:
-                for l in subtitle[v]:
-                    for w in l:
-                        qa_char_counter.update(w)
+    # qa_char_counter = Counter()
+    # for k in tokenize_qa.keys():
+    #     for qa in tqdm(tokenize_qa[k], desc='Char counting %s' % k):
+    #         for w in qa['tokenize_question']:
+    #             qa_char_counter.update(w)
+    #         for a in qa['tokenize_answer']:
+    #             for w in a:
+    #                 qa_char_counter.update(w)
+    #         for v in qa['video_clips']:
+    #             for l in subtitle[v]:
+    #                 for w in l:
+    #                     qa_char_counter.update(w)
 
     du.write_json(embed_char_counter, config.embed_char_counter_file)
-    du.write_json(qa_char_counter, config.qa_char_counter_file)
+    # du.write_json(qa_char_counter, config.qa_char_counter_file)
 
-    count_array = np.array(list(embed_char_counter.values()), dtype=np.float32)
-    m, v, md, f = np.mean(count_array), np.std(count_array), np.median(count_array), np.percentile(count_array, 95)
-    print(m, v, md, f)
-
-    above_mean = dict(filter(lambda item: item[1] > f, embed_char_counter.items()))
-    below_mean = dict(filter(lambda item: item[1] < f, embed_char_counter.items()))
-    below_occur = set(filter(lambda k: k in qa_char_counter, below_mean.keys()))
-    final_set = below_occur.union(set(above_mean.keys()))
-    du.write_json(list(final_set) + [UNK], config.char_vocab_file)
-
-    vocab = du.load_json(config.char_vocab_file)
+    # count_array = np.array(list(embed_char_counter.values()), dtype=np.float32)
+    # m, v, md, f = np.mean(count_array), np.std(count_array), np.median(count_array), np.percentile(count_array, 95)
+    # print(m, v, md, f)
+    #
+    # above_mean = dict(filter(lambda item: item[1] > f, embed_char_counter.items()))
+    # below_mean = dict(filter(lambda item: item[1] < f, embed_char_counter.items()))
+    # below_occur = set(filter(lambda k: k in qa_char_counter, below_mean.keys()))
+    # final_set = below_occur.union(set(above_mean.keys()))
+    # du.write_json(list(final_set) + [UNK], config.char_vocab_file)
+    vocab = list(embed_char_counter.keys()) + [UNK]
+    du.write_json(vocab, config.char_vocab_file)
+    # vocab = du.load_json(config.char_vocab_file)
     encode_embedding_keys = np.zeros((len(embedding_keys), 98), dtype=np.int64)
     length = np.zeros(len(embedding_keys), dtype=np.int64)
     for i, k in enumerate(tqdm(embedding_keys, desc='OP')):
@@ -208,7 +214,8 @@ def process():
 
 def main():
     data = EmbeddingData(args.batch_size)
-    model = EmbeddingModel(data, is_training=False)
+    model = EmbeddingModel(data, dropout_prob=args.dropout_prob, char_embed_dim=args.char_embed_dim,
+                           hidden_dim=args.hidden_dim, is_training=True)
     log_dir = join(config.log_dir, 'embedding_log', '%.2E' % args.initial_learning_rate)
     checkpoint_dir = join(config.checkpoint_dir, 'embedding_checkpoint', '%.2E' % args.initial_learning_rate)
     checkpoint_name = join(checkpoint_dir, 'embedding')
@@ -233,6 +240,8 @@ def main():
     optimizer = tf.train.MomentumOptimizer(learning_rate, 0.9)
     grads_and_vars = optimizer.compute_gradients(loss)
     gradients, variables = list(zip(*grads_and_vars))
+    for var in variables:
+        print(var.name, var.shape)
     # gradients, _ = tf.clip_by_global_norm(gradients, config.clip_gradients)
     # grads_and_vars = list(zip(gradients, variables))
     train_op = optimizer.apply_gradients(grads_and_vars, global_step)
@@ -264,7 +273,7 @@ def main():
                              saver=saver, global_step=global_step)
 
     config_ = tf.ConfigProto(allow_soft_placement=True, )
-    # config_.gpu_options.allow_growth = True
+    config_.gpu_options.allow_growth = True
 
     with sv.managed_session(config=config_) as sess:
         def save():
@@ -275,6 +284,7 @@ def main():
 
         # Training loop
         def train_loop(epoch_):
+            shuffle(data.file_names)
             sess.run(data.iterator.initializer, feed_dict={
                 data.file_names_placeholder: data.file_names,
             })
@@ -285,15 +295,13 @@ def main():
             for _ in pbar:
                 # start_time = time.time()
                 try:
-                    if step % 1000 == 0:
+                    if step % 10 == 0:
                         gv_summary, summary, _, l, step = sess.run([train_gv_summaries_op, train_summaries_op,
                                                                     train_op, loss, global_step])
                         save_sum(summary)
                         save_sum(gv_summary)
-                        save()
-                    elif step % 10 == 0:
-                        summary, _, l, step = sess.run([train_summaries_op, train_op, loss, global_step])
-                        save_sum(summary)
+                        if step % 1000 == 0:
+                            save()
                     else:
                         _, l, step = sess.run([train_op, loss, global_step])
                     pbar.set_description('[%s/%s] step: %d loss: %f' % (epoch_, config.num_epochs, step, l))
@@ -326,11 +334,14 @@ if __name__ == '__main__':
     parser.add_argument('--initial_learning_rate', default=config.initial_learning_rate,
                         help='Initial learning rate.', type=float)
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
-    parser.add_argument('--batch_size', default=1, help='Batch size of training.', type=int)
+    parser.add_argument('--batch_size', default=8192, help='Batch size of training.', type=int)
+    parser.add_argument('--dropout_prob', default=1.0, help='Probability of dropout.', type=float)
+    parser.add_argument('--char_embed_dim', default=50, help='Dimension of char embedding', type=int)
+    parser.add_argument('--hidden_dim', default=128, help='Dimension of hidden state.', type=int)
     args = parser.parse_args()
     if args.process:
         process()
     if args.tfrecord:
         create_records()
-
-    main()
+    if not args.process and not args.tfrecord:
+        main()
