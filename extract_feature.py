@@ -63,27 +63,29 @@ def count_num(features_list):
     return num
 
 
-def writer_worker(e, features_list, filename_list, capacity, npy_names):
+def writer_worker(e, features_list, capacity, npy_names):
     video_idx = 0
     local_feature = np.zeros((0, config.feature_dim), dtype=np.float32)
     local_filename = []
     # video_subt = json.load(open(config.subtitle_file))
     while True:
         if len(features_list) > 0:
-            local_feature = np.concatenate([local_feature, features_list.pop(0)])
-            local_filename.extend(filename_list.pop(0))
+            f, n = features_list.pop(0)
+            local_feature = np.concatenate([local_feature, f])
+            local_filename.extend(n)
             if local_feature.shape[0] >= capacity[video_idx]:
                 final_features = local_feature[:capacity[video_idx]]
                 final_filename = local_filename[:capacity[video_idx]]
                 assert final_features.shape[0] == capacity[video_idx], \
                     "%s Both frames are not same!" % npy_names[video_idx]
-                assert all([du.get_base_name_without_ext(npy_names[video_idx])
-                            == du.get_base_name_without_ext(final_filename[i])
-                            for i in range(len(final_features))]), \
-                    "Wrong images! %s\n%s" % (npy_names[video_idx], final_filename)
+                for i in range(len(final_features)):
+                    assert du.get_base_name_without_ext(npy_names[video_idx]) == \
+                           final_filename[i].split('/')[-2], \
+                        "Wrong images! %s\n%s" % (npy_names[video_idx], final_filename[i])
                 print(npy_names[video_idx], final_features.shape, capacity[video_idx], len(local_feature))
                 # np.save(npy_names[video_idx], final_features)
                 local_feature = local_feature[capacity[video_idx]:]
+                local_filename = local_filename[capacity[video_idx]:]
                 video_idx += 1
         else:
             time.sleep(0.5)
@@ -124,8 +126,7 @@ def main(_):
     with tf.Session() as sess, Manager() as manager:
         e = Event()
         features_list = manager.list()
-        filename_list = manager.list()
-        p = Process(target=writer_worker, args=(e, features_list, filename_list, capacity, npy_names))
+        p = Process(target=writer_worker, args=(e, features_list, capacity, npy_names))
         p.start()
         sess.run(iterator.initializer, feed_dict={filename_placeholder: filenames})
         tf.global_variables_initializer().run()
@@ -135,8 +136,7 @@ def main(_):
             for _ in range(num_step):
                 f, n = sess.run([feature_tensor, names])
                 # print(n)
-                features_list.append(f)
-                filename_list.append([str(i) for i in n])
+                features_list.append((f, [i.decode() for i in n]))
             e.wait()
             time.sleep(3)
             p.terminate()
