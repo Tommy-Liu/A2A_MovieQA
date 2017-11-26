@@ -3,7 +3,6 @@ import re
 import time
 import ujson as json
 from collections import Counter
-from functools import wraps
 from os.path import exists
 
 import numpy as np
@@ -33,20 +32,6 @@ tokenize_func = word_tokenize
 # tokenizer = MosesTokenizer()
 # tokenize_func = partial(tokenizer.tokenize, escape=False)
 
-
-def bar(func, ch='='):
-    @wraps(func)
-    def wrapper(s):
-        print(ch * (max([len(e) for e in s]) + 5))
-        func(s)
-        print(ch * (max([len(e) for e in s]) + 5))
-
-    return wrapper
-
-
-@bar
-def pprint(s):
-    print('\n'.join(s))
 
 
 def get_imdb_key(d):
@@ -95,7 +80,7 @@ def build_vocab(counter, embedding=None):
             else:
                 qa_embedding[item[0]] = item[1]
 
-    pprint([
+    du.pprint([
         'Original vocabulary size: %d' % len(counter),
         'Embedding vocabulary size: %d' % len(qa_embedding),
         'Embedding vocabulary coverage: %.2f %%' % (len(qa_embedding) / len(counter) * 100),

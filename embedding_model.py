@@ -1,15 +1,16 @@
 import argparse
 import math
-import numpy as np
 import os
-import tensorflow as tf
-import tensorflow.contrib.layers as layers
 import time
 from collections import Counter
 from glob import glob
 from multiprocessing import Pool
 from os.path import join, exists
 from random import shuffle
+
+import numpy as np
+import tensorflow as tf
+import tensorflow.contrib.layers as layers
 from tqdm import tqdm, trange
 
 import data_utils as du
@@ -17,7 +18,7 @@ from config import MovieQAConfig
 from qa_preprocessing import load_embedding
 
 UNK = 'UNK'
-RECORD_FILE_PATTERN = join('./data', 'dataset', 'embedding_%05d-of-%05d.tfrecord')
+RECORD_FILE_PATTERN = join('./embedding', 'embedding_dataset', 'embedding_%05d-of-%05d.tfrecord')
 
 config = MovieQAConfig()
 
@@ -135,10 +136,13 @@ def create_one_record(ex_tuple):
 
 def create_records():
     start_time = time.time()
-    embedding_vec = np.load(config.w2v_embedding_npy_file)
-    embedding_word = np.load(config.encode_embedding_file)
+    embedding_vec = np.load(config.encode_embedding_vec_file)
+    embedding_word = np.load(config.encode_embedding_key_file)
     embedding_word_length = np.load(config.encode_embedding_len_file)
     print('Loading file done. Spend %f sec' % (time.time() - start_time))
+    du.pprint(['embedding_vec\'s shape:' + str(embedding_vec.shape),
+               'embedding_word\'s shape:' + str(embedding_word.shape),
+               'embedding_word_length\'s shape:' + str(embedding_word_length.shape)])
     num_per_shard = int(math.ceil(len(embedding_word_length) / float(args.num_shards)))
     example_list = []
     for j in trange(args.num_shards):
@@ -154,18 +158,39 @@ def create_records():
 def process():
     # tokenize_qa = du.load_json(config.avail_tokenize_qa_file)
     # subtitle = du.load_json(config.subtitle_file)
-    if exists(config.w2v_embedding_file) and exists(config.w2v_embedding_npy_file):
-        embedding_keys = du.load_json(config.w2v_embedding_file)
-        embedding_array = np.load(config.w2v_embedding_npy_file)
+    start_time = time.time()
+    if exists(config.w2v_embedding_key_file) and exists(config.w2v_embedding_vec_file):
+        embedding_keys = du.load_json(config.w2v_embedding_key_file)
+        embedding_vecs = np.load(config.w2v_embedding_vec_file)
     else:
         embedding = load_embedding(config.word2vec_file)
         embedding_keys = []
-        embedding_array = np.zeros((len(embedding), 300), dtype=np.float32)
+        embedding_vecs = np.zeros((len(embedding), 300), dtype=np.float32)
         for i, k in enumerate(embedding.keys()):
             embedding_keys.append(k)
-            embedding_array[i] = embedding[k]
-        du.write_json(embedding_keys, config.w2v_embedding_file)
-        np.save(config.w2v_embedding_npy_file, embedding_array)
+            embedding_vecs[i] = embedding[k]
+        du.write_json(embedding_keys, config.w2v_embedding_key_file)
+        np.save(config.w2v_embedding_vec_file, embedding_vecs)
+
+    print('Loading embedding done. %.3f s' % (time.time() - start_time))
+    du.pprint(['w2v\'s # of embedding: %d' % len(embedding_keys),
+               'w2v\'s shape of embedding vec: ' + str(embedding_vecs.shape)])
+
+    # Filter out non-ascii words
+    keys, index = [], []
+    for i, k in enumerate(tqdm(embedding_keys, desc='Filtering...')):
+        try:
+            k.encode('ascii')
+        except UnicodeEncodeError:
+            pass
+        else:
+            keys.append(k.lower().strip())
+            index.append(i)
+    vecs = embedding_vecs[index]
+    embedding_keys, embedding_vecs = keys, vecs
+
+    du.pprint(['Filtered # of embedding: %d' % len(embedding_keys),
+               'Filtered shape of embedding vec: ' + str(embedding_vecs.shape)])
 
     embed_char_counter = Counter()
     for k in tqdm(embedding_keys):
@@ -197,19 +222,35 @@ def process():
     # final_set = below_occur.union(set(above_mean.keys()))
     # du.write_json(list(final_set) + [UNK], config.char_vocab_file)
     vocab = list(embed_char_counter.keys()) + [UNK]
+    print('Filtered vocab:', vocab)
     du.write_json(vocab, config.char_vocab_file)
     # vocab = du.load_json(config.char_vocab_file)
     encode_embedding_keys = np.zeros((len(embedding_keys), 98), dtype=np.int64)
     length = np.zeros(len(embedding_keys), dtype=np.int64)
-    for i, k in enumerate(tqdm(embedding_keys, desc='OP')):
+    for i, k in enumerate(tqdm(embedding_keys, desc='Encoding...')):
         encode_embedding_keys[i, :len(k)] = [
-            vocab.index(ch) if ch in vocab else vocab.index('UNK')
+            vocab.index(ch) if ch in vocab else vocab.index(UNK)
             for ch in k
         ]
+        assert all([idx < len(vocab) for idx in encode_embedding_keys[i]]), \
+            "Wrong index!"
         length[i] = len(k)
 
-    np.save(config.encode_embedding_file, encode_embedding_keys)
+    start_time = time.time()
+    du.exist_then_remove(config.encode_embedding_key_file)
+    du.exist_then_remove(config.encode_embedding_len_file)
+    du.exist_then_remove(config.encode_embedding_vec_file)
+    np.save(config.encode_embedding_key_file, encode_embedding_keys)
     np.save(config.encode_embedding_len_file, length)
+    np.save(config.encode_embedding_vec_file, embedding_vecs)
+    print('Saveing processed data with %.3f s' % (time.time() - start_time))
+
+
+def instpect():
+    vocab = du.load_json(config.char_vocab_file)
+    length = np.load(config.encode_embedding_len_file)
+    print(vocab)
+    print(max(length))
 
 
 def main():
@@ -261,21 +302,23 @@ def main():
     ]
     train_summaries_op = tf.summary.merge(train_summaries)
 
+    init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+
     if args.checkpoint_file:
         checkpoint_file = args.checkpoint_file
     else:
         checkpoint_file = tf.train.latest_checkpoint(checkpoint_dir)
     restore_fn = (lambda _sess: saver.restore(_sess, checkpoint_file)) \
-        if checkpoint_file else None
+        if checkpoint_file else (lambda _sess: _sess.run(init_op))
 
     sv = tf.train.Supervisor(logdir=log_dir, summary_op=None,
                              init_fn=restore_fn, save_model_secs=0,
                              saver=saver, global_step=global_step)
 
-    config_ = tf.ConfigProto(allow_soft_placement=True, )
-    config_.gpu_options.allow_growth = True
+    # config_ = tf.ConfigProto(allow_soft_placement=True, )
+    # config_.gpu_options.allow_growth = True
 
-    with sv.managed_session(config=config_) as sess:
+    with sv.managed_session() as sess:
         def save():
             sv.saver.save(sess, checkpoint_name, tf.train.global_step(sess, global_step))
 
@@ -328,6 +371,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--process', action='store_true',
                         help='Process the data which creating tfrecords needs.')
+    parser.add_argument('--inspect', action='store_true', help='Inspect the data stat.')
     parser.add_argument('--num_shards', default=128, help='Number of tfrecords.', type=int)
     parser.add_argument('--tfrecord', action='store_true', help='Create tfrecords.')
     parser.add_argument('--checkpoint_file', default=None, help='Checkpoint file')
@@ -336,12 +380,14 @@ if __name__ == '__main__':
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
     parser.add_argument('--batch_size', default=8192, help='Batch size of training.', type=int)
     parser.add_argument('--dropout_prob', default=1.0, help='Probability of dropout.', type=float)
-    parser.add_argument('--char_embed_dim', default=50, help='Dimension of char embedding', type=int)
+    parser.add_argument('--char_embed_dim', default=20, help='Dimension of char embedding', type=int)
     parser.add_argument('--hidden_dim', default=128, help='Dimension of hidden state.', type=int)
     args = parser.parse_args()
     if args.process:
         process()
     if args.tfrecord:
         create_records()
-    if not args.process and not args.tfrecord:
+    if args.inspect:
+        instpect()
+    if not (args.process or args.tfrecord or args.inspect):
         main()

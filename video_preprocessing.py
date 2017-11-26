@@ -1,16 +1,17 @@
 import argparse
 import codecs
-import imageio
 import os
-import pysrt
 import re
 import sys
 from functools import partial
 from glob import glob
 from multiprocessing import Pool, Manager
+from os.path import join
+
+import imageio
+import pysrt
 # from nltk.tokenize.moses import MosesTokenizer
 from nltk.tokenize import word_tokenize  # , RegexpTokenizer, TweetTokenizer
-from os.path import join
 from tqdm import tqdm
 
 import data_utils as du
@@ -352,8 +353,6 @@ def check_and_extract_videos(videos_clips,
             }
             shot_boundary[base_name] = []
 
-
-# tt0109446.sf-046563.ef-056625.video.mp4
 
 def video_process(manager, shared_videos_clips, keys):
     du.exist_make_dirs(video_img)

@@ -336,3 +336,9 @@ def get_file_pattern(d, dataset_name, split, modality, num_shards, is_training):
     return join(d, MovieQAConfig.TFRECORD_FILE_PATTERN_ %
                 (('training_' if is_training else ''),
                  dataset_name, split, modality, num_shards))
+
+
+def pprint(s, ch='='):
+    print(ch * (max([len(e) for e in s]) + 5))
+    print('\n'.join(s))
+    print(ch * (max([len(e) for e in s]) + 5))
