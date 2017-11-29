@@ -4,6 +4,7 @@ import os
 import pprint
 import time
 from collections import Counter
+from functools import partial
 from glob import glob
 from multiprocessing import Pool
 from os.path import join, exists
@@ -65,32 +66,45 @@ class EmbeddingData(object):
 class EmbeddingModel(object):
     def __init__(self, data, is_training=True, dropout_prob=1, char_embed_dim=100, hidden_dim=256):
         self.data = data
-        if args.initializer == 'id':
+        if args.initializer == 'identity':
             initializer = tf.identity_initializer()
-        elif args.initializer == 'trunc':
+        elif args.initializer == 'truncated':
             initializer = tf.truncated_normal_initializer(-1.0, 1.0)
-        elif args.initializer == 'uni':
-            initializer = tf.random_uniform_initializer(
-                minval=-config.initializer_scale, maxval=config.initializer_scale)
-        elif args.initializer == 'orth':
+        elif args.initializer == 'random':
+            initializer = tf.random_uniform_initializer(-0.08, 0.08)
+        elif args.initializer == 'orthogonal':
             initializer = tf.orthogonal_initializer()
-        else:
+        elif args.initializer == 'glorot':
             initializer = tf.glorot_uniform_initializer()
+        else:
+            initializer = None
 
         embedding_matrix = tf.get_variable(
             name="embedding_matrix", initializer=initializer,
             shape=[self.data.vocab_size, char_embed_dim], trainable=True)
         self.char_embedding = tf.nn.embedding_lookup(embedding_matrix, self.data.word)
 
-        lstm_cell_fw = tf.nn.rnn_cell.GRUCell(hidden_dim,
-                                              activation=tf.nn.relu,
-                                              kernel_initializer=initializer,
-                                              bias_initializer=tf.constant_initializer(0.1))
+        if args.rnn_cell == 'GRU':
+            cell_fn = partial(tf.nn.rnn_cell.GRUCell, num_units=hidden_dim,
+                              activation=tf.nn.relu,
+                              kernel_initializer=initializer,
+                              bias_initializer=tf.constant_initializer(args.bias_init))
+        elif args.rnn_cell == 'LSTM':
+            cell_fn = partial(tf.nn.rnn_cell.LSTMCell, num_units=hidden_dim,
+                              activation=tf.nn.relu, initializer=initializer,
+                              forget_bias=args.bias_init)
+        elif args.rnn_cell == 'BasicRNN':
+            cell_fn = partial(tf.nn.rnn_cell.BasicRNNCell, num_units=hidden_dim,
+                              activation=tf.nn.relu)
+        else:
+            cell_fn = None
 
-        lstm_cell_bw = tf.nn.rnn_cell.GRUCell(hidden_dim,
-                                              activation=tf.nn.relu,
-                                              kernel_initializer=initializer,
-                                              bias_initializer=tf.constant_initializer(0.1))
+        if args.multi_rnn:
+            lstm_cell_fw = tf.nn.rnn_cell.MultiRNNCell([cell_fn() for _ in range(3)])
+            lstm_cell_bw = tf.nn.rnn_cell.MultiRNNCell([cell_fn() for _ in range(3)])
+        else:
+            lstm_cell_fw = cell_fn()
+            lstm_cell_bw = cell_fn()
         # init_fw_state = tf.get_variable('initial_forward_state', initializer=initializer,
         #                                 shape=[self.data.batch_size, hidden_dim], trainable=True)
         # init_bw_state = tf.get_variable('initial_backward_state', initializer=initializer,
@@ -361,15 +375,17 @@ def main():
         if os.path.exists(log_dir):
             os.system('rm -rf %s' % os.path.join(log_dir, '*'))
 
-    if args.loss == 'MSE':
+    if args.loss == 'mse':
         loss = tf.losses.mean_squared_error(data.vec, model.output)
-    elif args.loss == 'ABS':
+    elif args.loss == 'abs':
         loss = tf.losses.absolute_difference(data.vec, model.output)
-    elif args.loss == 'L2':
+    elif args.loss == 'l2':
         loss = tf.norm(data.vec - model.output)
-    else:
+    elif args.loss == 'cos':
         loss = tf.losses.cosine_distance(tf.nn.l2_normalize(data.vec, 1),
                                          tf.nn.l2_normalize(model.output, 1), 1)
+    else:
+        loss = 0
 
     normalized_loss = tf.abs(tf.reduce_mean(model.output))
     loss += normalized_loss
@@ -381,12 +397,14 @@ def main():
                                                args.decay_epoch * total_step,
                                                args.decay_rate,
                                                staircase=True)
-    if args.optimizer == 'MOM':
+    if args.optimizer == 'momentum':
         optimizer = tf.train.MomentumOptimizer(learning_rate, 0.9)
-    elif args.optimizer == 'ADAM':
+    elif args.optimizer == 'adam':
         optimizer = tf.train.AdamOptimizer(learning_rate)
-    else:
+    elif args.optimizer == 'sgd':
         optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+    else:
+        optimizer = None
 
     grads_and_vars = optimizer.compute_gradients(loss)
     gradients, variables = list(zip(*grads_and_vars))
@@ -492,7 +510,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_shards', default=128, help='Number of tfrecords.', type=int)
     parser.add_argument('--tfrecord', action='store_true', help='Create tfrecords.')
     parser.add_argument('--checkpoint_file', default=None, help='Checkpoint file')
-    parser.add_argument('--learning_rate', default=1E-6,
+    parser.add_argument('--learning_rate', default=1E-2,
                         help='Initial learning rate.', type=float)
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
     parser.add_argument('--batch_size', default=4096, help='Batch size of training.', type=int)
@@ -502,15 +520,18 @@ if __name__ == '__main__':
     parser.add_argument('--epoch', default=200, help='Training epochs', type=int)
     parser.add_argument('--decay_epoch', default=10, help='Span of epochs at decay.', type=int)
     parser.add_argument('--decay_rate', default=0.87, help='Decay rate.', type=float)
-    parser.add_argument('--optimizer', default='ADAM', help='Training policy.')
+    parser.add_argument('--optimizer', default='adam', help='Training policy (adam / momentum / sgd).')
     parser.add_argument('--max_length', default=20, help='Maximal word length.', type=int)
-    parser.add_argument('--loss', default='COS', help='Loss function')
+    parser.add_argument('--loss', default='cos', help='Loss function')
     parser.add_argument('--clip_norm', default=0.1, help='Norm value of gradient clipping.', type=float)
     parser.add_argument('--initializer', default='id', help='Initializer of weight.')
     parser.add_argument('--multi_rnn', action='store_true', help='Multi-layer rnn.')
+    parser.add_argument('--rnn_cell', default='GRU', help='RNN cell type.')
+    parser.add_argument('--bias_init', default=1.0, help='RNN cell bias initialization value.', type=float)
 
     args = parser.parse_args()
     print(vars(args))
+    print([parser.get_default(key) for key in vars(args).keys()])
     # if args.process:
     #     process()
     # if args.tfrecord:
