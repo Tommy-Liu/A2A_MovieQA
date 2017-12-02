@@ -111,10 +111,8 @@ class VLLabMemoryModel(object):
         return o, s
 
     def mean_embedding(self, x, length, max_length):
-        subt_mask = tf.tile(
-            tf.expand_dims(
-                tf.sequence_mask(length,
-                                 maxlen=max_length), axis=2),
+        subt_mask = tf.tile(tf.expand_dims(
+            tf.sequence_mask(length, maxlen=max_length), axis=2),
             [1, 1, config.embedding_size])
         zeros = tf.zeros_like(x)
         masked_x = tf.where(subt_mask, x, zeros)
