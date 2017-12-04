@@ -17,7 +17,6 @@ from tqdm import tqdm, trange
 
 import data_utils as du
 from config import MovieQAConfig
-# from model import extract_axis_1
 from qa_preprocessing import load_embedding
 
 UNK = 'UNK'
@@ -66,7 +65,7 @@ class EmbeddingData(object):
 
 
 class MyConvModel(object):
-    def __init__(self, data, char_dim=64):
+    def __init__(self, data, char_dim=64, conv_channel=512):
         self.data = data
         if args.initializer == 'identity':
             initializer = tf.identity_initializer()
@@ -84,10 +83,22 @@ class MyConvModel(object):
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, char_dim],
                                            tf.float32, initializer, trainable=True)
         self.char_embedding = tf.nn.embedding_lookup(embedding_matrix, self.data.word)
+
+        conv_output = []
+        for i in range(6):
+            conv_output.append(layers.conv2d(self.char_embedding, conv_channel,
+                                             [i + 1], padding='VALID', activation_fn=tf.nn.leaky_relu))
+            print(conv_output[i].shape)
+
+        for i in range(6):
+            conv_output[i] = layers.maxout(conv_output[i], 1, axis=1)
+            print(conv_output[i].shape)
+        self.outputs = conv_output
 
 
 class MyModel(object):
-    def __init__(self, data, char_dim=embedding_size, hidden_dim=embedding_size, num_layers=2):
+    def __init__(self, data, char_dim=64, hidden_dim=256, num_layers=2):
+        start_time = time.time()
         self.data = data
         if args.initializer == 'identity':
             initializer = tf.identity_initializer()
@@ -105,7 +116,7 @@ class MyModel(object):
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, char_dim],
                                            tf.float32, initializer, trainable=True)
         self.char_embedding = tf.nn.embedding_lookup(embedding_matrix, self.data.word)
-
+        # self.char_embedding = tf.unstack(self.char_embedding, args.max_length, axis=1)
         # subt_mask = tf.tile(tf.expand_dims(
         #     tf.sequence_mask(self.data.len, args.max_length), axis=2), [1, 1, char_dim])
         # zeros = tf.zeros_like(self.char_embedding)
@@ -113,60 +124,52 @@ class MyModel(object):
         # self.mean_embedding = tf.divide(tf.reduce_sum(masked_x, axis=1),
         #                                 tf.expand_dims(tf.cast(self.data.len, tf.float32), axis=1))
         # print(self.mean_embedding.shape)
-        output_list = []
-        for i in trange(embedding_size):
-            with tf.variable_scope('embedding_output%d' % i,):
-                if args.rnn_cell == 'GRU':
-                    cell_fn = partial(tf.nn.rnn_cell.GRUCell, num_units=hidden_dim,
-                                      activation=tf.nn.relu,
-                                      kernel_initializer=initializer,
-                                      bias_initializer=tf.constant_initializer(args.bias_init))
-                elif args.rnn_cell == 'LSTM':
-                    cell_fn = partial(tf.nn.rnn_cell.LSTMCell, num_units=hidden_dim,
-                                      activation=tf.nn.relu, initializer=initializer,
-                                      forget_bias=args.bias_init)
-                elif args.rnn_cell == 'BasicRNN':
-                    cell_fn = partial(tf.nn.rnn_cell.BasicRNNCell, num_units=hidden_dim,
-                                      activation=tf.nn.relu)
-                else:
-                    cell_fn = None
+        # output_list = []
+        # for i in trange(embedding_size):
+        #     with tf.variable_scope('embedding_output%d' % i, ):
+        total_units = hidden_dim * 16
+        if args.rnn_cell == 'GRU':
+            cell_fn = partial(tf.nn.rnn_cell.GRUCell, num_units=total_units,
+                              kernel_initializer=initializer,
+                              bias_initializer=tf.constant_initializer(args.bias_init),
+                              activation=tf.nn.leaky_relu)
+        elif args.rnn_cell == 'LSTM':
+            cell_fn = partial(tf.nn.rnn_cell.LSTMCell, num_units=total_units,
+                              initializer=initializer,
+                              forget_bias=args.bias_init,
+                              activation=tf.nn.leaky_relu)
+        elif args.rnn_cell == 'BasicRNN':
+            cell_fn = partial(tf.nn.rnn_cell.BasicRNNCell, num_units=total_units,
+                              activation=tf.nn.leaky_relu)
+        else:
+            cell_fn = None
 
-                if args.rnn == 'multi':
-                    lstm_cell_fw = tf.nn.rnn_cell.MultiRNNCell([cell_fn() for _ in range(num_layers)])
-                    lstm_cell_bw = tf.nn.rnn_cell.MultiRNNCell([cell_fn() for _ in range(num_layers)])
-                else:
-                    lstm_cell_fw = cell_fn()
-                    lstm_cell_bw = cell_fn()
+        if args.rnn == 'multi':
+            lstm_cell_fw = tf.nn.rnn_cell.MultiRNNCell([cell_fn() for _ in range(num_layers)])
+            lstm_cell_bw = tf.nn.rnn_cell.MultiRNNCell([cell_fn() for _ in range(num_layers)])
+        else:
+            lstm_cell_fw = cell_fn()
+            lstm_cell_bw = cell_fn()
 
-                self.rnn_outputs, self.rnn_final_state = tf.nn.bidirectional_dynamic_rnn(
-                    lstm_cell_fw, lstm_cell_bw, self.char_embedding, self.data.len, dtype=tf.float32)
+        self.rnn_outputs, self.rnn_final_state = tf.nn.bidirectional_dynamic_rnn(
+            lstm_cell_fw, lstm_cell_bw, self.char_embedding, self.data.len, dtype=tf.float32)
 
-                self.fw, self.bw = self.rnn_final_state
+        # self.rnn_outputs = tf.transpose(tf.stack(self.rnn_outputs), [1, 0, 2])
+        # print(self.rnn_outputs.shape)
+        # print(self.fw.shape, self.bw.shape)
+        # self.rnn_outputs = list(zip(*self.rnn_outputs))
+        # self.val_f, self.val_b = extract_axis_1(self.rnn_outputs[:, :, :hidden_dim],
+        #                                         self.data.len - 1), \
+        #                          extract_axis_1(self.rnn_outputs[:, :, hidden_dim:],
+        #                                         tf.zeros_like(self.data.len))
+        # print(self.val_f.shape, self.val_b.shape)
+        self.fw, self.bw = self.rnn_final_state
+        self.fc1 = tf.concat([self.fw, self.bw], axis=1)
+        self.fc2 = layers.fully_connected(self.fc1, total_units * 2 // 4, activation_fn=tf.nn.leaky_relu)
+        self.fc3 = layers.fully_connected(self.fc2, total_units * 2 // 16, activation_fn=tf.nn.leaky_relu)
+        self.output = layers.fully_connected(self.fc3, 300, activation_fn=None)
 
-                if args.rnn == 'multi':
-                    self.fw = tf.concat([t for t in self.fw], axis=1)
-                    self.bw = tf.concat([t for t in self.bw], axis=1)
-                self.fc = tf.concat([self.fw, self.bw], axis=1)
-                if args.rnn == 'multi':
-                    self.fc = layers.fully_connected(self.fc, 1024)
-                self.fc = layers.fully_connected(self.fc, embedding_size)
-                output_list.append(layers.fully_connected(self.fc, 1, activation_fn=None))
-        print(output_list[0].shape)
-        # self.output = tf.concat(output_list, axis=1)
-
-        # print(self.fw, self.bw, sep='\n\n')
-        # self.fw_atten, self.bw_atten = tf.sigmoid(tf.reduce_sum(self.fw * self.mean_embedding, 1, keep_dims=True)), \
-        #                                tf.sigmoid(tf.reduce_sum(self.bw * self.mean_embedding, 1, keep_dims=True))
-        # print(self.fw_atten.shape, self.bw_atten.shape)
-        # if args.rnn == 'multi':
-        #     self.highway_like = 0
-        #     for i in range(num_layers):
-        #         self.highway_like += self.fw[i] * self.fw_atten[i]
-        #         self.highway_like += self.bw[i] * self.bw_atten[i]
-        # else:
-        #     self.highway_like = self.fw * self.fw_atten + self.bw * self.bw_atten
-        # print(self.highway_like.shape)
-        # self.fc = layers.fully_connected(self.highway_like, 300)
+        print('Elapsed time: %.3f' % (time.time() - start_time))
 
 
 # identity / truncated / random / orthogonal/ glorot
@@ -434,43 +437,59 @@ def process():
 
 
 def inspect():
-    data = EmbeddingData(4)
-    model = MyModel(data)
-    # # norm_y, norm_y_ = tf.nn.l2_normalize(model.output, 1), tf.nn.l2_normalize(data.vec, 1)
-    # # loss = tf.losses.cosine_distance(norm_y_, norm_y, 1)
-    # with tf.Session() as sess:
-    #     sess.run(data.iterator.initializer, feed_dict={
-    #         data.file_names_placeholder: data.file_names
-    #     })
-    #     sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
-    #     print(*sess.run([model.highway_like, model.output]), sep='\n\n')
+    data = EmbeddingData(1)
+    model = MyConvModel(data)
+    for v in tf.global_variables():
+        print(v, v.shape)
+        # # norm_y, norm_y_ = tf.nn.l2_normalize(model.output, 1), tf.nn.l2_normalize(data.vec, 1)
+        # # loss = tf.losses.cosine_distance(norm_y_, norm_y, 1)
+    config_ = tf.ConfigProto(allow_soft_placement=True, )
+    config_.gpu_options.allow_growth = True
 
-    # l, y, y_ = sess.run([loss, norm_y, norm_y_])
-    # print('Loss: %.4f' % l)
-    # print('Normalized output\'s shape:')
-    # pp.pprint(y.shape)
-    # print('Normalized label\'s shape:')
-    # pp.pprint(y_.shape)
-    # final_state, f, b = sess.run([model.rnn_final_state, model.val_f, model.val_b])
-    # print(np.array_equal(final_state[0], f))
-    # print(np.array_equal(final_state[1], b))
-    # print(final_state[0], '='*87, final_state[1], sep='\n')
-    # embedding_keys, embedding_vecs = load_embedding_vec()
-    #
-    # du.pprint(['w2v\'s # of embedding: %d' % len(embedding_keys),
-    #            'w2v\'s shape of embedding vec: ' + str(embedding_vecs.shape)])
-    #
-    # filter_stat(embedding_keys, embedding_vecs)
+    with tf.Session(config=config_) as sess:
+        sess.run(data.iterator.initializer, feed_dict={
+            data.file_names_placeholder: data.file_names
+        })
+        sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+        outs = sess.run(model.outputs)
+        # print(*outs)
+        print(*[t.shape for t in outs])
+        #     fw, bw, output = sess.run([model.fw, model.bw, model.output])
+        #     print(fw.shape, bw.shape, output.shape)
+        #     print(output)
+        # out = sess.run(model.output)
+        # print(out.shape)
+        # print(out)
+        # print(*sess.run([model.highway_like, model.output]), sep='\n\n')
 
-    # vocab = du.load_json(config.char_vocab_file)
-    # length = np.load(config.encode_embedding_len_file)
-    # vecs = np.load(config.encode_embedding_vec_file)
-    # lack = [ch for ch in string.ascii_lowercase + string.digits if ch not in vocab]
-    #
-    # print(lack)
-    # print(vocab)
-    # print(max(length))
-    # print(vecs.shape)
+        # l, y, y_ = sess.run([loss, norm_y, norm_y_])
+        # print('Loss: %.4f' % l)
+        # print('Normalized output\'s shape:')
+        # pp.pprint(y.shape)
+        # print('Normalized label\'s shape:')
+        # pp.pprint(y_.shape)
+        #     fw, bw, f, b = sess.run([model.fw, model.bw, model.val_f, model.val_b])
+        #     print(f.shape, b.shape)
+        #     print(fw.shape, bw.shape)
+        #     print(np.array_equal(fw, f))
+        #     print(np.array_equal(bw, b))
+        #     print(fw, '=' * 87, bw, sep='\n')
+        # embedding_keys, embedding_vecs = load_embedding_vec()
+        #
+        # du.pprint(['w2v\'s # of embedding: %d' % len(embedding_keys),
+        #            'w2v\'s shape of embedding vec: ' + str(embedding_vecs.shape)])
+        #
+        # filter_stat(embedding_keys, embedding_vecs)
+
+        # vocab = du.load_json(config.char_vocab_file)
+        # length = np.load(config.encode_embedding_len_file)
+        # vecs = np.load(config.encode_embedding_vec_file)
+        # lack = [ch for ch in string.ascii_lowercase + string.digits if ch not in vocab]
+        #
+        # print(lack)
+        # print(vocab)
+        # print(max(length))
+        # print(vecs.shape)
 
 
 def main():
@@ -488,13 +507,13 @@ def main():
     checkpoint_dir = join(config.checkpoint_dir, 'embedding_checkpoint', exp_name)
     checkpoint_name = join(checkpoint_dir, 'embedding')
 
-    du.exist_make_dirs(log_dir)
-    du.exist_make_dirs(checkpoint_dir)
     if args.reset:
         if exists(checkpoint_dir):
             os.system('rm -rf %s' % os.path.join(checkpoint_dir, '*'))
         if os.path.exists(log_dir):
             os.system('rm -rf %s' % os.path.join(log_dir, '*'))
+    du.exist_make_dirs(log_dir)
+    du.exist_make_dirs(checkpoint_dir)
 
     if args.loss == 'mse':
         loss = tf.losses.mean_squared_error(data.vec, model.output)
@@ -596,17 +615,17 @@ def main():
                             [train_op, loss, normalized_loss, global_step, model.output, data.vec])
                         pp.pprint([y_[-1], y[-1]])
                         time.sleep(10)
-                    elif step % 10 == 0:
+                    elif step % max((total_step // 100), 10) == 0:
                         gv_summary, summary, _, l, n_l, step = sess.run([train_gv_summaries_op, train_summaries_op,
                                                                          train_op, loss, normalized_loss, global_step])
                         save_sum(summary)
                         save_sum(gv_summary)
-                        if step % 1000 == 0:
-                            save()
                     else:
                         _, l, n_l, step = sess.run([train_op, loss, normalized_loss, global_step])
                     pbar.set_description(
                         '[%s/%s] step: %d loss: %.4f norm: %.4f' % (epoch_, args.epoch, step, l, n_l))
+                    if step % max((total_step // 10), 100) == 0:
+                        save()
 
                 except tf.errors.OutOfRangeError:
                     break
@@ -637,10 +656,10 @@ if __name__ == '__main__':
     parser.add_argument('--learning_rate', default=1E-3,
                         help='Initial learning rate.', type=float)
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
-    parser.add_argument('--batch_size', default=64, help='Batch size of training.', type=int)
+    parser.add_argument('--batch_size', default=1, help='Batch size of training.', type=int)
     parser.add_argument('--dropout_prob', default=1.0, help='Probability of dropout.', type=float)
     parser.add_argument('--char_embed_dim', default=64, help='Dimension of char embedding', type=int)
-    parser.add_argument('--hidden_dim', default=300, help='Dimension of hidden state.', type=int)
+    parser.add_argument('--hidden_dim', default=256, help='Dimension of hidden state.', type=int)
     parser.add_argument('--epoch', default=200, help='Training epochs', type=int)
     parser.add_argument('--decay_epoch', default=2, help='Span of epochs at decay.', type=int)
     parser.add_argument('--decay_rate', default=0.93, help='Decay rate.', type=float)
