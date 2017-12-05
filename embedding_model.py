@@ -1,4 +1,5 @@
 import argparse
+import io
 import math
 import os
 import pprint
@@ -13,17 +14,62 @@ from random import shuffle
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.layers as layers
+import tensorflow.contrib.rnn as rnn
 from tqdm import tqdm, trange
 
 import data_utils as du
 from config import MovieQAConfig
-from qa_preprocessing import load_embedding
 
 UNK = 'UNK'
 RECORD_FILE_PATTERN = join('./embedding', 'embedding_dataset', 'embedding_%05d-of-%05d.tfrecord')
 pp = pprint.PrettyPrinter(indent=4, compact=True)
 embedding_size = 300
 config = MovieQAConfig()
+
+
+def load_w2v(file):
+    embedding = {}
+
+    with open(file, 'r') as f:
+        num, dim = [int(comp) for comp in f.readline().strip().split()]
+        for _ in trange(num, desc='Load word embedding %dd' % dim):
+            word, *vec = f.readline().rstrip().rsplit(sep=' ', maxsplit=dim)
+            vec = [float(e) for e in vec]
+            embedding[word] = vec
+        assert len(embedding) == num, 'Wrong size of embedding.'
+    return embedding
+
+
+def load_glove(filename):
+    embedding = {}
+
+    # Read in the data.
+    with io.open(filename, 'r', encoding='utf-8') as savefile:
+        for i, line in enumerate(tqdm(savefile)):
+            tokens = line.rstrip().split(sep=' ', maxsplit=embedding_size)
+
+            word, *entries = tokens
+
+            embedding[word] = [float(x) for x in entries]
+            assert len(embedding[word]) == embedding_size, 'Wrong embedding dim.'
+
+    return embedding
+
+
+def get_initializer():
+    if args.initializer == 'identity':
+        initializer = tf.identity_initializer()
+    elif args.initializer == 'truncated':
+        initializer = tf.truncated_normal_initializer(-1.0, 1.0)
+    elif args.initializer == 'random':
+        initializer = tf.random_uniform_initializer(-0.08, 0.08)
+    elif args.initializer == 'orthogonal':
+        initializer = tf.orthogonal_initializer()
+    elif args.initializer == 'glorot' or args.initializer == 'xavier':
+        initializer = tf.glorot_uniform_initializer()
+    else:
+        initializer = None
+    return initializer
 
 
 def feature_parser(record):
@@ -67,18 +113,7 @@ class EmbeddingData(object):
 class MyConvModel(object):
     def __init__(self, data, char_dim=64, conv_channel=512):
         self.data = data
-        if args.initializer == 'identity':
-            initializer = tf.identity_initializer()
-        elif args.initializer == 'truncated':
-            initializer = tf.truncated_normal_initializer(-1.0, 1.0)
-        elif args.initializer == 'random':
-            initializer = tf.random_uniform_initializer(-0.08, 0.08)
-        elif args.initializer == 'orthogonal':
-            initializer = tf.orthogonal_initializer()
-        elif args.initializer == 'glorot':
-            initializer = tf.glorot_uniform_initializer()
-        else:
-            initializer = None
+        initializer = get_initializer()
 
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, char_dim],
                                            tf.float32, initializer, trainable=True)
@@ -87,31 +122,23 @@ class MyConvModel(object):
         conv_output = []
         for i in range(6):
             conv_output.append(layers.conv2d(self.char_embedding, conv_channel,
-                                             [i + 1], padding='VALID', activation_fn=tf.nn.leaky_relu))
+                                             [i + 1], padding='VALID', activation_fn=None))
             print(conv_output[i].shape)
 
         for i in range(6):
             conv_output[i] = layers.maxout(conv_output[i], 1, axis=1)
             print(conv_output[i].shape)
-        self.outputs = conv_output
+        self.conv_concat = tf.squeeze(tf.concat(conv_output, 2), 1)
+        self.fc1 = layers.fully_connected(self.conv_concat, embedding_size, activation_fn=None)
+        self.output = layers.fully_connected(self.fc1, embedding_size, activation_fn=None)
+        print(self.output.shape)
 
 
 class MyModel(object):
     def __init__(self, data, char_dim=64, hidden_dim=256, num_layers=2):
         start_time = time.time()
         self.data = data
-        if args.initializer == 'identity':
-            initializer = tf.identity_initializer()
-        elif args.initializer == 'truncated':
-            initializer = tf.truncated_normal_initializer(-1.0, 1.0)
-        elif args.initializer == 'random':
-            initializer = tf.random_uniform_initializer(-0.08, 0.08)
-        elif args.initializer == 'orthogonal':
-            initializer = tf.orthogonal_initializer()
-        elif args.initializer == 'glorot':
-            initializer = tf.glorot_uniform_initializer()
-        else:
-            initializer = None
+        initializer = get_initializer()
 
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, char_dim],
                                            tf.float32, initializer, trainable=True)
@@ -174,20 +201,9 @@ class MyModel(object):
 
 # identity / truncated / random / orthogonal/ glorot
 class EmbeddingModel(object):
-    def __init__(self, data, is_training=True, dropout_prob=1, char_embed_dim=100, hidden_dim=256):
+    def __init__(self, data, char_embed_dim=100, hidden_dim=256):
         self.data = data
-        if args.initializer == 'identity':
-            initializer = tf.identity_initializer()
-        elif args.initializer == 'truncated':
-            initializer = tf.truncated_normal_initializer(-1.0, 1.0)
-        elif args.initializer == 'random':
-            initializer = tf.random_uniform_initializer(-0.08, 0.08)
-        elif args.initializer == 'orthogonal':
-            initializer = tf.orthogonal_initializer()
-        elif args.initializer == 'glorot':
-            initializer = tf.glorot_uniform_initializer()
-        else:
-            initializer = None
+        initializer = get_initializer()
 
         embedding_matrix = tf.get_variable(
             name="embedding_matrix", initializer=initializer,
@@ -195,17 +211,13 @@ class EmbeddingModel(object):
         self.char_embedding = tf.nn.embedding_lookup(embedding_matrix, self.data.word)
 
         if args.rnn_cell == 'GRU':
-            cell_fn = partial(tf.nn.rnn_cell.GRUCell, num_units=hidden_dim,
-                              activation=tf.nn.relu,
+            cell_fn = partial(rnn.GRUCell, num_units=hidden_dim,
                               kernel_initializer=initializer,
                               bias_initializer=tf.constant_initializer(args.bias_init))
         elif args.rnn_cell == 'LSTM':
-            cell_fn = partial(tf.nn.rnn_cell.LSTMCell, num_units=hidden_dim,
-                              activation=tf.nn.relu, initializer=initializer,
-                              forget_bias=args.bias_init)
+            cell_fn = partial(rnn.CoupledInputForgetGateLSTMCell, num_units=hidden_dim, initializer=initializer)
         elif args.rnn_cell == 'BasicRNN':
-            cell_fn = partial(tf.nn.rnn_cell.BasicRNNCell, num_units=hidden_dim,
-                              activation=tf.nn.relu)
+            cell_fn = partial(tf.nn.rnn_cell.BasicRNNCell, num_units=hidden_dim)
         else:
             cell_fn = None
 
@@ -215,13 +227,19 @@ class EmbeddingModel(object):
         else:
             lstm_cell_fw = cell_fn()
             lstm_cell_bw = cell_fn()
-        # init_fw_state = tf.get_variable('initial_forward_state', initializer=initializer,
-        #                                 shape=[self.data.batch_size, hidden_dim], trainable=True)
-        # init_bw_state = tf.get_variable('initial_backward_state', initializer=initializer,
-        #                                 shape=[self.data.batch_size, hidden_dim], trainable=True)
+
+        init_fw_c_state = tf.get_variable("init_fw_c_state", [1, hidden_dim], tf.float32, initializer)
+        init_fw_h_state = tf.get_variable("init_fw_h_state", [1, hidden_dim], tf.float32, initializer)
+        fw_state = rnn.LSTMStateTuple(tf.tile(init_fw_c_state, [self.data.batch_size, 1]),
+                                      tf.tile(init_fw_h_state, [self.data.batch_size, 1]))
+
+        init_bw_c_state = tf.get_variable("init_bw_c_state", [1, hidden_dim], tf.float32, initializer)
+        init_bw_h_state = tf.get_variable("init_bw_h_state", [1, hidden_dim], tf.float32, initializer)
+        bw_state = rnn.LSTMStateTuple(tf.tile(init_bw_c_state, [self.data.batch_size, 1]),
+                                      tf.tile(init_bw_h_state, [self.data.batch_size, 1]))
 
         self.rnn_outputs, self.rnn_final_state = tf.nn.bidirectional_dynamic_rnn(
-            lstm_cell_fw, lstm_cell_bw, self.char_embedding, self.data.len, dtype=tf.float32)
+            lstm_cell_fw, lstm_cell_bw, self.char_embedding, self.data.len, fw_state, bw_state, tf.float32)
         # init_fw_state, init_bw_state, tf.float32)
         # self.val_f, self.val_b = extract_axis_1(self.rnn_outputs[0],
         #                                         self.data.len - 1), \
@@ -235,13 +253,13 @@ class EmbeddingModel(object):
         if args.rnn == 'multi':
             self.fw = tf.concat([t for t in self.fw], axis=1)
             self.bw = tf.concat([t for t in self.bw], axis=1)
-        self.fc = tf.concat([self.fw, self.bw], axis=1)
+        self.fc = tf.concat([self.fw.h, self.bw.h], axis=1)
         if args.rnn == 'multi':
             self.fc = layers.fully_connected(self.fc, 1024)
-        self.fc = layers.fully_connected(self.fc, 512)
+        self.fc = layers.fully_connected(self.fc, embedding_size, activation_fn=tf.nn.tanh)
         # weights_initializer=initializer,
         # biases_initializer=tf.constant_initializer(0.1))
-        self.output = layers.fully_connected(self.fc, 300, activation_fn=None)
+        self.output = layers.fully_connected(self.fc, embedding_size, activation_fn=None)
         # self.qq = [of, ob0, ob1, sf, sb]
         # self.qq = [of, ob, sf, sb]
 
@@ -310,18 +328,39 @@ def create_records():
 
 def load_embedding_vec():
     start_time = time.time()
-    if exists(config.w2v_embedding_key_file) and exists(config.w2v_embedding_vec_file):
-        embedding_keys = du.load_json(config.w2v_embedding_key_file)
-        embedding_vecs = np.load(config.w2v_embedding_vec_file)
+    if args.target == 'glove':
+        key_file = config.glove_embedding_key_file
+        vec_file = config.glove_embedding_vec_file
+        raw_file = config.glove_file
+        load_fn = load_glove
+    elif args.target == 'w2v':
+        key_file = config.w2v_embedding_key_file
+        vec_file = config.w2v_embedding_vec_file
+        raw_file = config.word2vec_file
+        load_fn = load_w2v
+    elif args.target == 'fasttext':
+        key_file = config.ft_embedding_key_file
+        vec_file = config.ft_embedding_vec_file
+        raw_file = config.fasttext_file
+        load_fn = load_glove
     else:
-        embedding = load_embedding(config.word2vec_file)
+        key_file = None
+        vec_file = None
+        raw_file = None
+        load_fn = None
+
+    if exists(key_file) and exists(vec_file):
+        embedding_keys = du.load_json(key_file)
+        embedding_vecs = np.load(vec_file)
+    else:
+        embedding = load_fn(raw_file)
         embedding_keys = []
         embedding_vecs = np.zeros((len(embedding), embedding_size), dtype=np.float32)
         for i, k in enumerate(embedding.keys()):
             embedding_keys.append(k)
             embedding_vecs[i] = embedding[k]
-        du.write_json(embedding_keys, config.w2v_embedding_key_file)
-        np.save(config.w2v_embedding_vec_file, embedding_vecs)
+        du.write_json(embedding_keys, key_file)
+        np.save(vec_file, embedding_vecs)
 
     print('Loading embedding done. %.3f s' % (time.time() - start_time))
     return embedding_keys, embedding_vecs
@@ -349,11 +388,6 @@ def filter_stat(embedding_keys, embedding_vecs):
                 else:
                     keys[k.lower().strip()] = i
     std = math.sqrt(std / count)
-    # U, s, V = np.linalg.svd(embedding_vecs)
-    # print('Eigen value:')
-    # pp.pprint(s)
-    # print('Eigen vector:')
-    # pp.pprint(V)
     vecs = embedding_vecs[list(keys.values())]
     embedding_keys, embedding_vecs = list(keys.keys()), vecs
 
@@ -368,6 +402,7 @@ def filter_stat(embedding_keys, embedding_vecs):
                ])
     print('Element mean of embedding vec:')
     pp.pprint(np.mean(embedding_vecs, axis=0))
+    return embedding_keys, embedding_vecs
 
 
 def process():
@@ -376,10 +411,10 @@ def process():
 
     embedding_keys, embedding_vecs = load_embedding_vec()
 
-    du.pprint(['w2v\'s # of embedding: %d' % len(embedding_keys),
-               'w2v\'s shape of embedding vec: ' + str(embedding_vecs.shape)])
+    du.pprint(['%s\'s # of embedding: %d' % (args.target, len(embedding_keys)),
+               '%s\'s shape of embedding vec: %s' % (args.target, str(embedding_vecs.shape))])
 
-    filter_stat(embedding_keys, embedding_vecs)
+    embedding_keys, embedding_vecs = filter_stat(embedding_keys, embedding_vecs)
 
     embed_char_counter = Counter()
     for k in tqdm(embedding_keys):
@@ -414,7 +449,7 @@ def process():
     print('Filtered vocab:', vocab)
     du.write_json(vocab, config.char_vocab_file)
     # vocab = du.load_json(config.char_vocab_file)
-    encode_embedding_keys = np.zeros((len(embedding_keys), args.max_length), dtype=np.int64)
+    encode_embedding_keys = np.ones((len(embedding_keys), args.max_length), dtype=np.int64) * (len(vocab) - 1)
     length = np.zeros(len(embedding_keys), dtype=np.int64)
     for i, k in enumerate(tqdm(embedding_keys, desc='Encoding...')):
         encode_embedding_keys[i, :len(k)] = [
@@ -424,8 +459,8 @@ def process():
         assert all([idx < len(vocab) for idx in encode_embedding_keys[i]]), \
             "Wrong index!"
         length[i] = len(k)
-    du.pprint(['Shape of encoded key: %s' % encode_embedding_keys.shape,
-               'Shape of encoded key length: %s' % length.shape])
+    du.pprint(['Shape of encoded key: %s' % str(encode_embedding_keys.shape),
+               'Shape of encoded key length: %s' % str(length.shape)])
     start_time = time.time()
     du.exist_then_remove(config.encode_embedding_key_file)
     du.exist_then_remove(config.encode_embedding_len_file)
@@ -438,7 +473,7 @@ def process():
 
 def inspect():
     data = EmbeddingData(1)
-    model = MyConvModel(data)
+    model = EmbeddingModel(data)
     for v in tf.global_variables():
         print(v, v.shape)
         # # norm_y, norm_y_ = tf.nn.l2_normalize(model.output, 1), tf.nn.l2_normalize(data.vec, 1)
@@ -451,9 +486,10 @@ def inspect():
             data.file_names_placeholder: data.file_names
         })
         sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
-        outs = sess.run(model.outputs)
-        # print(*outs)
-        print(*[t.shape for t in outs])
+        outs = sess.run(model.output)
+        print(outs)
+        print(outs.shape)
+        # print(*[t.shape for t in outs])
         #     fw, bw, output = sess.run([model.fw, model.bw, model.output])
         #     print(fw.shape, bw.shape, output.shape)
         #     print(output)
@@ -494,7 +530,15 @@ def inspect():
 
 def main():
     data = EmbeddingData(args.batch_size)
-    model = MyModel(data, char_dim=args.char_embed_dim, hidden_dim=args.hidden_dim, num_layers=args.nlayers)
+    if args.model == 'myconv':
+        model = MyConvModel(data, char_dim=args.char_embed_dim, conv_channel=args.conv_channel)
+    elif args.model == 'myrnn':
+        model = MyModel(data, char_dim=args.char_embed_dim, hidden_dim=args.hidden_dim, num_layers=args.nlayers)
+    elif args.model == 'mimick':
+        model = EmbeddingModel(data, char_embed_dim=args.char_embed_dim, hidden_dim=args.hidden_dim)
+    else:
+        model = None
+
     args_dict = vars(args)
     pairs = [(k, str(args_dict[k])) for k in sorted(args_dict.keys())
              if args_dict[k] != parser.get_default(k) and not isinstance(args_dict[k], bool)]
@@ -527,9 +571,6 @@ def main():
     else:
         loss = 0
 
-    normalized_loss = tf.losses.compute_weighted_loss(tf.abs(tf.reduce_mean(model.output, axis=1) + 0.00036))
-    loss += normalized_loss
-
     global_step = tf.train.get_or_create_global_step()
     total_step = int(math.ceil(data.num_example / args.batch_size))
     learning_rate = tf.train.exponential_decay(args.learning_rate,
@@ -552,7 +593,12 @@ def main():
     gradients, variables = list(zip(*grads_and_vars))
     for var in variables:
         print(var.name, var.shape)
-    capped_grads_and_vars = [(tf.clip_by_norm(gv[0], args.clip_norm), gv[1]) for gv in grads_and_vars]
+
+    if not args.model == 'myconv':
+        capped_grads_and_vars = [(tf.clip_by_norm(gv[0], args.clip_norm), gv[1]) for gv in grads_and_vars]
+    else:
+        capped_grads_and_vars = grads_and_vars
+
     train_op = optimizer.apply_gradients(capped_grads_and_vars, global_step)
     saver = tf.train.Saver(tf.global_variables(), )
 
@@ -611,19 +657,18 @@ def main():
             for _ in pbar:
                 try:
                     if step % total_step == total_step - 1:
-                        _, l, n_l, step, y, y_ = sess.run(
-                            [train_op, loss, normalized_loss, global_step, model.output, data.vec])
+                        _, l, step, y, y_ = sess.run([train_op, loss, global_step, model.output, data.vec])
                         pp.pprint([y_[-1], y[-1]])
                         time.sleep(10)
                     elif step % max((total_step // 100), 10) == 0:
-                        gv_summary, summary, _, l, n_l, step = sess.run([train_gv_summaries_op, train_summaries_op,
-                                                                         train_op, loss, normalized_loss, global_step])
+                        gv_summary, summary, _, l, step = sess.run(
+                            [train_gv_summaries_op, train_summaries_op, train_op, loss, global_step])
                         save_sum(summary)
                         save_sum(gv_summary)
                     else:
-                        _, l, n_l, step = sess.run([train_op, loss, normalized_loss, global_step])
+                        _, l, step = sess.run([train_op, loss, global_step])
                     pbar.set_description(
-                        '[%s/%s] step: %d loss: %.4f norm: %.4f' % (epoch_, args.epoch, step, l, n_l))
+                        '[%s/%s] step: %d loss: %.4f ' % (epoch_, args.epoch, step, l))
                     if step % max((total_step // 10), 100) == 0:
                         save()
 
@@ -648,31 +693,33 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--process', action='store_true',
                         help='Process the data which creating tfrecords needs.')
+    parser.add_argument('--target', default='glove', help='Learning target of word embedding.')
     parser.add_argument('--inspect', action='store_true', help='Inspect the data stat.')
     parser.add_argument('--num_shards', default=128, help='Number of tfrecords.', type=int)
     parser.add_argument('--give_shards', default=1, help='Number of training shards given', type=int)
     parser.add_argument('--tfrecord', action='store_true', help='Create tfrecords.')
     parser.add_argument('--checkpoint_file', default=None, help='Checkpoint file')
-    parser.add_argument('--learning_rate', default=1E-3,
-                        help='Initial learning rate.', type=float)
+    parser.add_argument('--learning_rate', default=1E-2, help='Initial learning rate.', type=float)
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
     parser.add_argument('--batch_size', default=1, help='Batch size of training.', type=int)
     parser.add_argument('--dropout_prob', default=1.0, help='Probability of dropout.', type=float)
     parser.add_argument('--char_embed_dim', default=64, help='Dimension of char embedding', type=int)
     parser.add_argument('--hidden_dim', default=256, help='Dimension of hidden state.', type=int)
+    parser.add_argument('--conv_channel', default=512, help='Output channel of convolution layer.', type=int)
     parser.add_argument('--epoch', default=200, help='Training epochs', type=int)
     parser.add_argument('--decay_epoch', default=2, help='Span of epochs at decay.', type=int)
     parser.add_argument('--decay_rate', default=0.93, help='Decay rate.', type=float)
-    parser.add_argument('--optimizer', default='rms', help='Training policy (adam / momentum / sgd / rms).')
-    parser.add_argument('--max_length', default=20, help='Maximal word length.', type=int)
-    parser.add_argument('--loss', default='l2', help='Loss function (mse / cos / abs / l2)')
+    parser.add_argument('--optimizer', default='momentum', help='Training policy (adam / momentum / sgd / rms).')
+    parser.add_argument('--max_length', default=12, help='Maximal word length.', type=int)
+    parser.add_argument('--loss', default='mse', help='Loss function (mse / cos / abs / l2)')
     parser.add_argument('--clip_norm', default=0.1, help='Norm value of gradient clipping.', type=float)
-    parser.add_argument('--initializer', default='orthogonal',
+    parser.add_argument('--initializer', default='glorot',
                         help='Initializer of weight.\n(identity / truncated / random / orthogonal / glorot)')
     parser.add_argument('--rnn', default='single', help='Multi / Single-layer rnn.')
     parser.add_argument('--nlayers', default=2, help='Number of Layers in rnn.', type=int)
-    parser.add_argument('--rnn_cell', default='GRU', help='RNN cell type. (GRU / LSTM / BasicRNN)')
+    parser.add_argument('--rnn_cell', default='LSTM', help='RNN cell type. (GRU / LSTM / BasicRNN)')
     parser.add_argument('--bias_init', default=0.0, help='RNN cell bias initialization value.', type=float)
+    parser.add_argument('--model', default='mimick', help='Model modality.')
 
     args = parser.parse_args()
     if args.process:
