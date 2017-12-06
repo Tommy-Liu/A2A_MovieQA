@@ -13,9 +13,9 @@ from random import shuffle
 
 import numpy as np
 import tensorflow as tf
+import tensorflow.contrib.data as data
 import tensorflow.contrib.layers as layers
 import tensorflow.contrib.rnn as rnn
-import tensorflow.contrib.data as data
 from tqdm import tqdm, trange
 
 import data_utils as du
@@ -216,7 +216,7 @@ class EmbeddingModel(object):
                               kernel_initializer=initializer,
                               bias_initializer=tf.constant_initializer(args.bias_init))
         elif args.rnn_cell == 'LSTM':
-            cell_fn = partial(rnn.CoupledInputForgetGateLSTMCell, num_units=hidden_dim, initializer=initializer)
+            cell_fn = partial(rnn.CoupledInputForgetGateLSTMCell, num_units=hidden_dim * 16, initializer=initializer)
         elif args.rnn_cell == 'BasicRNN':
             cell_fn = partial(tf.nn.rnn_cell.BasicRNNCell, num_units=hidden_dim)
         else:
@@ -250,17 +250,26 @@ class EmbeddingModel(object):
         # of, ob0, ob1 = extract_axis_1(o[0], self.data.len - 1), extract_axis_1(o[1], np.zeros(64)), extract_axis_1(
         #     o[1], self.data.len - 1)
         # sf, sb = s
+
         self.fw, self.bw = self.rnn_final_state
         if args.rnn == 'multi':
             self.fw = tf.concat([t for t in self.fw], axis=1)
             self.bw = tf.concat([t for t in self.bw], axis=1)
-        self.fc = tf.concat([self.fw.h, self.bw.h], axis=1)
-        if args.rnn == 'multi':
-            self.fc = layers.fully_connected(self.fc, 1024)
-        self.fc = layers.fully_connected(self.fc, embedding_size, activation_fn=tf.nn.tanh)
-        # weights_initializer=initializer,
-        # biases_initializer=tf.constant_initializer(0.1))
-        self.output = layers.fully_connected(self.fc, embedding_size, activation_fn=None)
+        self.fw_h, self.bw_h = tf.transpose(tf.reshape(self.fw.h, [-1, 16, hidden_dim]), [1, 0, 2]), \
+                               tf.transpose(tf.reshape(self.bw.h, [-1, 16, hidden_dim]), [1, 0, 2])
+        self.fc = tf.concat([self.fw_h, self.bw_h], axis=2)
+        self.attention = tf.transpose(
+            layers.fully_connected(tf.reshape(self.fc, [-1, 16 * hidden_dim]), 16, tf.nn.softmax),
+            [0, 1])
+        self.output = 0
+        for i in range(16):
+            with tf.variable_scope('Affine_Transform_%d' % i):
+                if args.rnn == 'multi':
+                    self.fc = layers.fully_connected(self.fc, 1024)
+                fc2 = layers.fully_connected(self.fc, embedding_size, activation_fn=tf.nn.tanh)
+                # weights_initializer=initializer,
+                # biases_initializer=tf.constant_initializer(0.1))
+                out = layers.fully_connected(self.fc, embedding_size, activation_fn=None)
         # self.qq = [of, ob0, ob1, sf, sb]
         # self.qq = [of, ob, sf, sb]
 
