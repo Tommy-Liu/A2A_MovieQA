@@ -216,7 +216,7 @@ class EmbeddingModel(object):
                               kernel_initializer=initializer,
                               bias_initializer=tf.constant_initializer(args.bias_init))
         elif args.rnn_cell == 'LSTM':
-            cell_fn = partial(rnn.CoupledInputForgetGateLSTMCell, num_units=hidden_dim * 16, initializer=initializer)
+            cell_fn = partial(rnn.CoupledInputForgetGateLSTMCell, num_units=hidden_dim, initializer=initializer)
         elif args.rnn_cell == 'BasicRNN':
             cell_fn = partial(tf.nn.rnn_cell.BasicRNNCell, num_units=hidden_dim)
         else:
@@ -229,13 +229,13 @@ class EmbeddingModel(object):
             lstm_cell_fw = cell_fn()
             lstm_cell_bw = cell_fn()
 
-        init_fw_c_state = tf.get_variable("init_fw_c_state", [1, hidden_dim * 16], tf.float32, initializer)
-        init_fw_h_state = tf.get_variable("init_fw_h_state", [1, hidden_dim * 16], tf.float32, initializer)
+        init_fw_c_state = tf.get_variable("init_fw_c_state", [1, hidden_dim], tf.float32, initializer)
+        init_fw_h_state = tf.get_variable("init_fw_h_state", [1, hidden_dim], tf.float32, initializer)
         fw_state = rnn.LSTMStateTuple(tf.tile(init_fw_c_state, [self.data.batch_size, 1]),
                                       tf.tile(init_fw_h_state, [self.data.batch_size, 1]))
 
-        init_bw_c_state = tf.get_variable("init_bw_c_state", [1, hidden_dim * 16], tf.float32, initializer)
-        init_bw_h_state = tf.get_variable("init_bw_h_state", [1, hidden_dim * 16], tf.float32, initializer)
+        init_bw_c_state = tf.get_variable("init_bw_c_state", [1, hidden_dim], tf.float32, initializer)
+        init_bw_h_state = tf.get_variable("init_bw_h_state", [1, hidden_dim], tf.float32, initializer)
         bw_state = rnn.LSTMStateTuple(tf.tile(init_bw_c_state, [self.data.batch_size, 1]),
                                       tf.tile(init_bw_h_state, [self.data.batch_size, 1]))
 
@@ -255,11 +255,16 @@ class EmbeddingModel(object):
         if args.rnn == 'multi':
             self.fw = tf.concat([t for t in self.fw], axis=1)
             self.bw = tf.concat([t for t in self.bw], axis=1)
-        self.fw_h, self.bw_h = tf.reshape(self.fw.h, [-1, 16, hidden_dim]), tf.reshape(self.bw.h, [-1, 16, hidden_dim])
-        self.fc = tf.concat([self.fw_h, self.bw_h], axis=2)
-        self.fct = tf.transpose(self.fc, [1, 0, 2])
+        # self.fw_h, self.bw_h = tf.reshape(self.fw.h, [-1, 16, hidden_dim]),
+        # tf.reshape(self.bw.h, [-1, 16, hidden_dim])
+        self.fw_h, self.bw_h = self.fw.h, self.bw.h
+        self.fc = tf.concat([self.fw_h, self.bw_h], axis=1)
+        # self.fct = tf.transpose(self.fc, [1, 0, 2])
+        # self.attention = tf.expand_dims(tf.transpose(
+        #     layers.fully_connected(layers.flatten(self.fc), 16, tf.nn.softmax,
+        #                            biases_initializer=tf.constant_initializer(args.bias_init)), [1, 0]), 2)
         self.attention = tf.expand_dims(tf.transpose(
-            layers.fully_connected(layers.flatten(self.fc), 16, tf.nn.softmax,
+            layers.fully_connected(self.fc, 16, tf.nn.softmax,
                                    biases_initializer=tf.constant_initializer(args.bias_init)), [1, 0]), 2)
 
         output_list = []
@@ -267,7 +272,7 @@ class EmbeddingModel(object):
             with tf.variable_scope('Affine_Transform_%d' % i):
                 if args.rnn == 'multi':
                     self.fc = layers.fully_connected(self.fc, 1024)
-                fc2 = layers.fully_connected(self.fct[i], embedding_size, activation_fn=tf.nn.tanh,
+                fc2 = layers.fully_connected(self.fc, embedding_size, activation_fn=tf.nn.tanh,
                                              biases_initializer=tf.constant_initializer(args.bias_init))
                 output_list.append(layers.fully_connected(fc2, embedding_size, activation_fn=None) * self.attention[i])
         print(output_list[0].shape)
@@ -294,6 +299,23 @@ class EmbeddingModel(object):
             # print(of, sf.h, sep='\n\nFUCK\n\n')
             # print(ob0, sb.h, sep='\n\nFUCK\n\n')
 
+
+class MatricesModel(object):
+    def __init__(self, data):
+        self.data = data
+        initializer = get_initializer()
+
+        embedding_matrix = tf.get_variable(
+            name="embedding_matrix", initializer=initializer,
+            shape=[self.data.vocab_size, embedding_size, embedding_size], trainable=True)
+        self.char_embedding = tf.nn.embedding_lookup(embedding_matrix, self.data.word)
+        print(self.char_embedding.shape)
+
+        cell = rnn.BasicRNNCell(embedding_size, activation=None)
+
+        print(*[var.shape for var in cell.weights])
+
+        outputs, state = tf.nn.dynamic_rnn(cell, self.data.word, self.data.len)
 
 def create_one_example(v, w, l):
     feature = {
@@ -486,22 +508,22 @@ def process():
 
 def inspect():
     data = EmbeddingData(1)
-    model = EmbeddingModel(data)
+    model = MatricesModel(data)
     for v in tf.global_variables():
         print(v, v.shape)
         # # norm_y, norm_y_ = tf.nn.l2_normalize(model.output, 1), tf.nn.l2_normalize(data.vec, 1)
         # # loss = tf.losses.cosine_distance(norm_y_, norm_y, 1)
-    config_ = tf.ConfigProto(allow_soft_placement=True, )
-    config_.gpu_options.allow_growth = True
-
-    with tf.Session(config=config_) as sess:
-        sess.run(data.iterator.initializer, feed_dict={
-            data.file_names_placeholder: data.file_names
-        })
-        sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
-        outs = sess.run(model.output)
-        print(outs)
-        print(outs.shape)
+        # config_ = tf.ConfigProto(allow_soft_placement=True, )
+        # config_.gpu_options.allow_growth = True
+        #
+        # with tf.Session(config=config_) as sess:
+        #     sess.run(data.iterator.initializer, feed_dict={
+        #         data.file_names_placeholder: data.file_names
+        #     })
+        #     sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+        #     outs = sess.run(model.output)
+        #     print(outs)
+        #     print(outs.shape)
         # print(*[t.shape for t in outs])
         #     fw, bw, output = sess.run([model.fw, model.bw, model.output])
         #     print(fw.shape, bw.shape, output.shape)
@@ -686,6 +708,7 @@ def main():
                     return True
 
             print("Training Loop Epoch %d Done..." % epoch_)
+            print(y_, y)
             time.sleep(10)
             save()
             return False
