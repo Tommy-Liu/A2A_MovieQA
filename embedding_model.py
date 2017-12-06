@@ -15,6 +15,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.layers as layers
 import tensorflow.contrib.rnn as rnn
+import tensorflow.contrib.data as data
 from tqdm import tqdm, trange
 
 import data_utils as du
@@ -95,7 +96,7 @@ class EmbeddingData(object):
         self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
         self.dataset = tf.data.TFRecordDataset(self.file_names_placeholder) \
             .map(feature_parser, num_parallel_calls=num_thread).prefetch(num_thread * batch_size * 4) \
-            .shuffle(buffer_size=num_thread * batch_size * 8).batch(batch_size)
+            .shuffle(buffer_size=num_thread * batch_size * 8).apply(data.batch_and_drop_remainder(batch_size))
         self.iterator = self.dataset.make_initializable_iterator()
         self.vec, self.word, self.len = self.iterator.get_next()
         self.vocab = du.load_json(config.char_vocab_file)
@@ -572,7 +573,7 @@ def main():
         loss = 0
 
     global_step = tf.train.get_or_create_global_step()
-    total_step = int(math.ceil(data.num_example / args.batch_size))
+    total_step = int(math.floor(data.num_example / args.batch_size))
     learning_rate = tf.train.exponential_decay(args.learning_rate,
                                                global_step,
                                                args.decay_epoch * total_step,
@@ -656,30 +657,24 @@ def main():
             pbar = trange(step, total_step)
             for _ in pbar:
                 try:
-                    if step % total_step == total_step - 1:
-                        _, l, step, y, y_ = sess.run([train_op, loss, global_step, model.output, data.vec])
-                        pp.pprint([y_[-1], y[-1]])
-                        time.sleep(10)
-                    elif step % max((total_step // 100), 10) == 0:
-                        gv_summary, summary, _, l, step = sess.run(
-                            [train_gv_summaries_op, train_summaries_op, train_op, loss, global_step])
+                    _, l, step, y, y_, gv_summary, summary = sess.run(
+                        [train_op, loss, global_step,
+                         model.output, data.vec,
+                         train_gv_summaries_op, train_summaries_op])
+                    if step % max((total_step // 100), 10) == 0:
                         save_sum(summary)
                         save_sum(gv_summary)
-                    else:
-                        _, l, step = sess.run([train_op, loss, global_step])
-                    pbar.set_description(
-                        '[%s/%s] step: %d loss: %.4f ' % (epoch_, args.epoch, step, l))
                     if step % max((total_step // 10), 100) == 0:
                         save()
-
-                except tf.errors.OutOfRangeError:
-                    break
+                    pbar.set_description(
+                        '[%s/%s] step: %d loss: %.4f ' % (epoch_, args.epoch, step, l))
                 except KeyboardInterrupt:
                     save()
                     print()
                     return True
 
             print("Training Loop Epoch %d Done..." % epoch_)
+            time.sleep(10)
             save()
             return False
 
