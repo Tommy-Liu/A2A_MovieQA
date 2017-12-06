@@ -126,7 +126,7 @@ class MovieQAConfig(Config):
             # Word embedding, Vocabulary file
             self.fasttext_file = join(self.data_dir, 'crawl-300d-2M.vec')
             self.word2vec_file = join(self.data_dir, 'GoogleNews-vectors-negative300.txt')
-            self.glove_file = join(self.data_dir, 'glove.840B.300d.w2v.txt')
+            self.glove_file = join(self.data_dir, 'glove.840B.300d.txt')
 
             # Word vocabulary of qa
             self.qa_word_vocab_file = join(self.embedding_dir, 'qa_word_vocab.json')
@@ -146,8 +146,8 @@ class MovieQAConfig(Config):
             self.w2v_embedding_vec_file = join(self.embedding_dir, 'w2v_embedding.npy')
             self.ft_embedding_key_file = join(self.embedding_dir, 'ft_embedding.json')
             self.ft_embedding_vec_file = join(self.embedding_dir, 'ft_embedding.npy')
-            self.glove_embedding_key_file = join(self.embedding_dir, 'globe_embedding.json')
-            self.glove_embedding_vec_file = join(self.embedding_dir, 'globe_embedding.npy')
+            self.glove_embedding_key_file = join(self.embedding_dir, 'glove_embedding.json')
+            self.glove_embedding_vec_file = join(self.embedding_dir, 'glove_embedding.npy')
 
         # Names
         self.dataset_name = 'movieqa'

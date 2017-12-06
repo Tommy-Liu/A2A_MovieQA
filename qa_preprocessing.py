@@ -8,10 +8,11 @@ from os.path import exists
 import numpy as np
 # from nltk.tokenize.moses import MosesTokenizer
 from nltk.tokenize import word_tokenize  # , RegexpTokenizer, TweetTokenizer
-from tqdm import tqdm, trange
+from tqdm import tqdm
 
 import data_utils as du
 from config import MovieQAConfig
+from embedding_model import load_w2v
 
 config = MovieQAConfig()
 video_img = config.video_img_dir
@@ -45,19 +46,6 @@ def get_imdb_key(d):
 
 def qid_split(qa_):
     return qa_['qid'].split(':')[0]
-
-
-def load_embedding(file):
-    embedding = {}
-
-    with open(file, 'r') as f:
-        num, dim = [int(comp) for comp in f.readline().strip().split()]
-        for _ in trange(num, desc='Load word embedding %dd' % dim):
-            word, *vec = f.readline().rstrip().rsplit(sep=' ', maxsplit=dim)
-            vec = [float(e) for e in vec]
-            embedding[word] = vec
-        assert len(embedding) == num, 'Wrong size of embedding.'
-    return embedding
 
 
 def insert_unk(qa_embedding, vocab, inverse_vocab):
@@ -206,7 +194,7 @@ def main():
     embedding = None
     embed_exist = exists(avail_embed_file) and exists(avail_embed_npy_file)
     if embed_file and not embed_exist:
-        embedding = load_embedding(embed_file)
+        embedding = load_w2v(embed_file)
 
     print('Loading json file done!! Take %.4f sec.' % (time.time() - start_time))
 
