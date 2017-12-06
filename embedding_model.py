@@ -229,13 +229,13 @@ class EmbeddingModel(object):
             lstm_cell_fw = cell_fn()
             lstm_cell_bw = cell_fn()
 
-        init_fw_c_state = tf.get_variable("init_fw_c_state", [1, hidden_dim], tf.float32, initializer)
-        init_fw_h_state = tf.get_variable("init_fw_h_state", [1, hidden_dim], tf.float32, initializer)
+        init_fw_c_state = tf.get_variable("init_fw_c_state", [1, hidden_dim * 16], tf.float32, initializer)
+        init_fw_h_state = tf.get_variable("init_fw_h_state", [1, hidden_dim * 16], tf.float32, initializer)
         fw_state = rnn.LSTMStateTuple(tf.tile(init_fw_c_state, [self.data.batch_size, 1]),
                                       tf.tile(init_fw_h_state, [self.data.batch_size, 1]))
 
-        init_bw_c_state = tf.get_variable("init_bw_c_state", [1, hidden_dim], tf.float32, initializer)
-        init_bw_h_state = tf.get_variable("init_bw_h_state", [1, hidden_dim], tf.float32, initializer)
+        init_bw_c_state = tf.get_variable("init_bw_c_state", [1, hidden_dim * 16], tf.float32, initializer)
+        init_bw_h_state = tf.get_variable("init_bw_h_state", [1, hidden_dim * 16], tf.float32, initializer)
         bw_state = rnn.LSTMStateTuple(tf.tile(init_bw_c_state, [self.data.batch_size, 1]),
                                       tf.tile(init_bw_h_state, [self.data.batch_size, 1]))
 
@@ -255,21 +255,24 @@ class EmbeddingModel(object):
         if args.rnn == 'multi':
             self.fw = tf.concat([t for t in self.fw], axis=1)
             self.bw = tf.concat([t for t in self.bw], axis=1)
-        self.fw_h, self.bw_h = tf.transpose(tf.reshape(self.fw.h, [-1, 16, hidden_dim]), [1, 0, 2]), \
-                               tf.transpose(tf.reshape(self.bw.h, [-1, 16, hidden_dim]), [1, 0, 2])
+        self.fw_h, self.bw_h = tf.reshape(self.fw.h, [-1, 16, hidden_dim]), tf.reshape(self.bw.h, [-1, 16, hidden_dim])
         self.fc = tf.concat([self.fw_h, self.bw_h], axis=2)
-        self.attention = tf.transpose(
-            layers.fully_connected(tf.reshape(self.fc, [-1, 16 * hidden_dim]), 16, tf.nn.softmax),
-            [0, 1])
-        self.output = 0
+        self.fct = tf.transpose(self.fc, [1, 0, 2])
+        self.attention = tf.expand_dims(tf.transpose(
+            layers.fully_connected(layers.flatten(self.fc), 16, tf.nn.softmax,
+                                   biases_initializer=tf.constant_initializer(args.bias_init)), [1, 0]), 2)
+
+        output_list = []
         for i in range(16):
             with tf.variable_scope('Affine_Transform_%d' % i):
                 if args.rnn == 'multi':
                     self.fc = layers.fully_connected(self.fc, 1024)
-                fc2 = layers.fully_connected(self.fc, embedding_size, activation_fn=tf.nn.tanh)
-                # weights_initializer=initializer,
-                # biases_initializer=tf.constant_initializer(0.1))
-                out = layers.fully_connected(self.fc, embedding_size, activation_fn=None)
+                fc2 = layers.fully_connected(self.fct[i], embedding_size, activation_fn=tf.nn.tanh,
+                                             biases_initializer=tf.constant_initializer(args.bias_init))
+                output_list.append(layers.fully_connected(fc2, embedding_size, activation_fn=None) * self.attention[i])
+        print(output_list[0].shape)
+        self.output = tf.reduce_sum(tf.stack(output_list, 0), 0)
+        print(self.output.shape)
         # self.qq = [of, ob0, ob1, sf, sb]
         # self.qq = [of, ob, sf, sb]
 
@@ -703,26 +706,26 @@ if __name__ == '__main__':
     parser.add_argument('--give_shards', default=1, help='Number of training shards given', type=int)
     parser.add_argument('--tfrecord', action='store_true', help='Create tfrecords.')
     parser.add_argument('--checkpoint_file', default=None, help='Checkpoint file')
-    parser.add_argument('--learning_rate', default=1E-2, help='Initial learning rate.', type=float)
+    parser.add_argument('--learning_rate', default=1.0, help='Initial learning rate.', type=float)
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
-    parser.add_argument('--batch_size', default=1, help='Batch size of training.', type=int)
+    parser.add_argument('--batch_size', default=32, help='Batch size of training.', type=int)
     parser.add_argument('--dropout_prob', default=1.0, help='Probability of dropout.', type=float)
     parser.add_argument('--char_embed_dim', default=64, help='Dimension of char embedding', type=int)
     parser.add_argument('--hidden_dim', default=256, help='Dimension of hidden state.', type=int)
     parser.add_argument('--conv_channel', default=512, help='Output channel of convolution layer.', type=int)
     parser.add_argument('--epoch', default=200, help='Training epochs', type=int)
     parser.add_argument('--decay_epoch', default=2, help='Span of epochs at decay.', type=int)
-    parser.add_argument('--decay_rate', default=0.93, help='Decay rate.', type=float)
+    parser.add_argument('--decay_rate', default=0.87, help='Decay rate.', type=float)
     parser.add_argument('--optimizer', default='momentum', help='Training policy (adam / momentum / sgd / rms).')
     parser.add_argument('--max_length', default=12, help='Maximal word length.', type=int)
     parser.add_argument('--loss', default='mse', help='Loss function (mse / cos / abs / l2)')
-    parser.add_argument('--clip_norm', default=0.1, help='Norm value of gradient clipping.', type=float)
+    parser.add_argument('--clip_norm', default=1.0, help='Norm value of gradient clipping.', type=float)
     parser.add_argument('--initializer', default='glorot',
                         help='Initializer of weight.\n(identity / truncated / random / orthogonal / glorot)')
     parser.add_argument('--rnn', default='single', help='Multi / Single-layer rnn.')
     parser.add_argument('--nlayers', default=2, help='Number of Layers in rnn.', type=int)
     parser.add_argument('--rnn_cell', default='LSTM', help='RNN cell type. (GRU / LSTM / BasicRNN)')
-    parser.add_argument('--bias_init', default=0.0, help='RNN cell bias initialization value.', type=float)
+    parser.add_argument('--bias_init', default=1.0, help='RNN cell bias initialization value.', type=float)
     parser.add_argument('--model', default='mimick', help='Model modality.')
 
     args = parser.parse_args()
