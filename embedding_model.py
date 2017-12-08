@@ -13,10 +13,11 @@ from random import shuffle
 
 import numpy as np
 import tensorflow as tf
-import tensorflow.contrib.data as data
+import tensorflow.contrib.data as tfdata
 import tensorflow.contrib.layers as layers
 import tensorflow.contrib.rnn as rnn
 from tqdm import tqdm, trange
+from model import extract_axis_1
 
 import data_utils as du
 from config import MovieQAConfig
@@ -96,7 +97,7 @@ class EmbeddingData(object):
         self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
         self.dataset = tf.data.TFRecordDataset(self.file_names_placeholder) \
             .map(feature_parser, num_parallel_calls=num_thread).prefetch(num_thread * batch_size * 4) \
-            .shuffle(buffer_size=num_thread * batch_size * 8).apply(data.batch_and_drop_remainder(batch_size))
+            .shuffle(buffer_size=num_thread * batch_size * 8).apply(tfdata.batch_and_drop_remainder(batch_size))
         self.iterator = self.dataset.make_initializable_iterator()
         self.vec, self.word, self.len = self.iterator.get_next()
         self.vocab = du.load_json(config.char_vocab_file)
@@ -109,6 +110,29 @@ class EmbeddingData(object):
             })
 
             print(sess.run([self.vec, self.word, self.len]))
+
+
+class MatricesModel(object):
+    def __init__(self, data):
+        self.data = data
+        initializer = get_initializer()
+
+        embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, embedding_size, embedding_size],
+                                           tf.float32, initializer, trainable=True)
+        self.char_embedding = tf.transpose(tf.nn.embedding_lookup(embedding_matrix, self.data.word), [1, 0, 2, 3])
+
+        mat_init = tf.get_variable('mat_init', [1, 1, embedding_size], tf.float32, initializer)
+
+        self.mat_init = tf.tile(mat_init, [self.data.batch_size, 1, 1])
+        print(self.mat_init.shape)
+
+        self.chain_mul = tf.transpose(tf.scan(lambda a, x: tf.matmul(a, x), self.char_embedding,
+                                              initializer=self.mat_init),
+                                      [1, 0, 2, 3])
+        print(self.chain_mul.shape)
+
+        self.output = extract_axis_1(tf.squeeze(self.chain_mul, 2), self.data.len - 1)
+        print(self.output.shape)
 
 
 class MyConvModel(object):
@@ -300,23 +324,6 @@ class EmbeddingModel(object):
             # print(ob0, sb.h, sep='\n\nFUCK\n\n')
 
 
-class MatricesModel(object):
-    def __init__(self, data):
-        self.data = data
-        initializer = get_initializer()
-
-        embedding_matrix = tf.get_variable(
-            name="embedding_matrix", initializer=initializer,
-            shape=[self.data.vocab_size, embedding_size, embedding_size], trainable=True)
-        self.char_embedding = tf.nn.embedding_lookup(embedding_matrix, self.data.word)
-        print(self.char_embedding.shape)
-
-        cell = rnn.BasicRNNCell(embedding_size, activation=None)
-
-        print(*[var.shape for var in cell.weights])
-
-        outputs, state = tf.nn.dynamic_rnn(cell, self.data.word, self.data.len)
-
 def create_one_example(v, w, l):
     feature = {
         "vec": du.to_feature(v),
@@ -507,20 +514,24 @@ def process():
 
 
 def inspect():
-    data = EmbeddingData(1)
+    data = EmbeddingData(2)
     model = MatricesModel(data)
     for v in tf.global_variables():
         print(v, v.shape)
         # # norm_y, norm_y_ = tf.nn.l2_normalize(model.output, 1), tf.nn.l2_normalize(data.vec, 1)
         # # loss = tf.losses.cosine_distance(norm_y_, norm_y, 1)
-        # config_ = tf.ConfigProto(allow_soft_placement=True, )
-        # config_.gpu_options.allow_growth = True
-        #
-        # with tf.Session(config=config_) as sess:
-        #     sess.run(data.iterator.initializer, feed_dict={
-        #         data.file_names_placeholder: data.file_names
-        #     })
-        #     sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+    config_ = tf.ConfigProto(allow_soft_placement=True, )
+    config_.gpu_options.allow_growth = True
+
+    with tf.Session(config=config_) as sess:
+        sess.run(data.iterator.initializer, feed_dict={
+            data.file_names_placeholder: data.file_names
+        })
+        sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+        outs = sess.run(model.gather)
+        print(outs)
+        print(outs.shape)
+
         #     outs = sess.run(model.output)
         #     print(outs)
         #     print(outs.shape)
@@ -571,6 +582,8 @@ def main():
         model = MyModel(data, char_dim=args.char_embed_dim, hidden_dim=args.hidden_dim, num_layers=args.nlayers)
     elif args.model == 'mimick':
         model = EmbeddingModel(data, char_embed_dim=args.char_embed_dim, hidden_dim=args.hidden_dim)
+    elif args.model == 'matrice':
+        model = MatricesModel(data)
     else:
         model = None
 
@@ -708,7 +721,7 @@ def main():
                     return True
 
             print("Training Loop Epoch %d Done..." % epoch_)
-            print(y_, y)
+            print(y_, y, sep='\n\n\n')
             time.sleep(10)
             save()
             return False
@@ -729,9 +742,9 @@ if __name__ == '__main__':
     parser.add_argument('--give_shards', default=1, help='Number of training shards given', type=int)
     parser.add_argument('--tfrecord', action='store_true', help='Create tfrecords.')
     parser.add_argument('--checkpoint_file', default=None, help='Checkpoint file')
-    parser.add_argument('--learning_rate', default=1.0, help='Initial learning rate.', type=float)
+    parser.add_argument('--learning_rate', default=1E-4, help='Initial learning rate.', type=float)
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
-    parser.add_argument('--batch_size', default=32, help='Batch size of training.', type=int)
+    parser.add_argument('--batch_size', default=2, help='Batch size of training.', type=int)
     parser.add_argument('--dropout_prob', default=1.0, help='Probability of dropout.', type=float)
     parser.add_argument('--char_embed_dim', default=64, help='Dimension of char embedding', type=int)
     parser.add_argument('--hidden_dim', default=256, help='Dimension of hidden state.', type=int)
@@ -739,7 +752,7 @@ if __name__ == '__main__':
     parser.add_argument('--epoch', default=200, help='Training epochs', type=int)
     parser.add_argument('--decay_epoch', default=2, help='Span of epochs at decay.', type=int)
     parser.add_argument('--decay_rate', default=0.87, help='Decay rate.', type=float)
-    parser.add_argument('--optimizer', default='momentum', help='Training policy (adam / momentum / sgd / rms).')
+    parser.add_argument('--optimizer', default='adam', help='Training policy (adam / momentum / sgd / rms).')
     parser.add_argument('--max_length', default=12, help='Maximal word length.', type=int)
     parser.add_argument('--loss', default='mse', help='Loss function (mse / cos / abs / l2)')
     parser.add_argument('--clip_norm', default=1.0, help='Norm value of gradient clipping.', type=float)
@@ -749,7 +762,7 @@ if __name__ == '__main__':
     parser.add_argument('--nlayers', default=2, help='Number of Layers in rnn.', type=int)
     parser.add_argument('--rnn_cell', default='LSTM', help='RNN cell type. (GRU / LSTM / BasicRNN)')
     parser.add_argument('--bias_init', default=1.0, help='RNN cell bias initialization value.', type=float)
-    parser.add_argument('--model', default='mimick', help='Model modality.')
+    parser.add_argument('--model', default='matrice', help='Model modality.')
 
     args = parser.parse_args()
     if args.process:
