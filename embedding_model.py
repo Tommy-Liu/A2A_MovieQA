@@ -93,17 +93,20 @@ class EmbeddingData(object):
     def __init__(self, batch_size=128, num_thread=16):
         self.batch_size = batch_size
         self.num_example = len(np.load(config.encode_embedding_len_file))
-        num_per_shard = int(math.ceil(self.num_example / float(args.num_shards)))
-        self.num_example = min(self.num_example, num_per_shard * args.give_shards)
-        self.file_names = glob(self.RECORD_FILE_PATTERN_)
-        self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
-        self.dataset = tf.data.TFRecordDataset(self.file_names_placeholder) \
-            .map(feature_parser, num_parallel_calls=num_thread).prefetch(num_thread * batch_size * 4) \
-            .shuffle(buffer_size=num_thread * batch_size * 8).apply(tfdata.batch_and_drop_remainder(batch_size))
-        self.iterator = self.dataset.make_initializable_iterator()
-        self.vec, self.word, self.len = self.iterator.get_next()
-        self.vocab = du.load_json(config.char_vocab_file)
-        self.vocab_size = len(self.vocab)
+        if args.raw_input:
+            pass
+        else:
+            num_per_shard = int(math.ceil(self.num_example / float(args.num_shards)))
+            self.num_example = min(self.num_example, num_per_shard * args.give_shards)
+            self.file_names = glob(self.RECORD_FILE_PATTERN_)
+            self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
+            self.dataset = tf.data.TFRecordDataset(self.file_names_placeholder) \
+                .map(feature_parser, num_parallel_calls=num_thread).prefetch(num_thread * batch_size * 4) \
+                .shuffle(buffer_size=num_thread * batch_size * 8).apply(tfdata.batch_and_drop_remainder(batch_size))
+            self.iterator = self.dataset.make_initializable_iterator()
+            self.vec, self.word, self.len = self.iterator.get_next()
+            self.vocab = du.load_json(config.char_vocab_file)
+            self.vocab_size = len(self.vocab)
 
     def test(self):
         with tf.Session() as sess:
@@ -760,6 +763,7 @@ if __name__ == '__main__':
     parser.add_argument('--target', default='glove', help='Learning target of word embedding.')
     parser.add_argument('--num_shards', default=128, help='Number of tfrecords.', type=int)
     parser.add_argument('--max_length', default=12, help='Maximal word length.', type=int)
+    parser.add_argument('--raw_input', action='store_ture', help='Use raw data as input without tfreord.')
     # Training Setting
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
     parser.add_argument('--give_shards', default=1, help='Number of training shards given', type=int)
