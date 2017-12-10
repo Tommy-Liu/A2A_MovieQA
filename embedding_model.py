@@ -17,13 +17,13 @@ import tensorflow.contrib.data as tfdata
 import tensorflow.contrib.layers as layers
 import tensorflow.contrib.rnn as rnn
 from tqdm import tqdm, trange
-from model import extract_axis_1
 
 import data_utils as du
 from config import MovieQAConfig
+from model import extract_axis_1
 
 UNK = 'UNK'
-RECORD_FILE_PATTERN = join('./embedding', 'embedding_dataset', 'embedding_%05d-of-%05d.tfrecord')
+RECORD_FILE_PATTERN = join('./embedding_dataset', 'embedding_%05d-of-%05d.tfrecord')
 pp = pprint.PrettyPrinter(indent=4, compact=True)
 embedding_size = 300
 config = MovieQAConfig()
@@ -62,9 +62,11 @@ def get_initializer():
     if args.initializer == 'identity':
         initializer = tf.identity_initializer()
     elif args.initializer == 'truncated':
-        initializer = tf.truncated_normal_initializer(-1.0, 1.0)
-    elif args.initializer == 'random':
+        initializer = tf.truncated_normal_initializer(0, args.init_scale)
+    elif args.initializer == 'uniform':
         initializer = tf.random_uniform_initializer(-0.08, 0.08)
+    elif args.initializer == 'normal':
+        initializer = tf.random_normal_initializer(0, args.init_scale)
     elif args.initializer == 'orthogonal':
         initializer = tf.orthogonal_initializer()
     elif args.initializer == 'glorot' or args.initializer == 'xavier':
@@ -86,7 +88,7 @@ def feature_parser(record):
 
 
 class EmbeddingData(object):
-    RECORD_FILE_PATTERN_ = join('./embedding', 'embedding_dataset', 'embedding_*.tfrecord')
+    RECORD_FILE_PATTERN_ = join('embedding_dataset', 'embedding_*.tfrecord')
 
     def __init__(self, batch_size=128, num_thread=16):
         self.batch_size = batch_size
@@ -119,6 +121,8 @@ class MatricesModel(object):
 
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, embedding_size, embedding_size],
                                            tf.float32, initializer, trainable=True)
+        # bias_matrix = tf.get_variable("bias_matrix", [self.data.vocab_size, embedding_size],
+        #                               tf.float32, initializer, trainable=True)
         self.char_embedding = tf.transpose(tf.nn.embedding_lookup(embedding_matrix, self.data.word), [1, 0, 2, 3])
 
         mat_init = tf.get_variable('mat_init', [1, 1, embedding_size], tf.float32, initializer)
@@ -528,7 +532,7 @@ def inspect():
             data.file_names_placeholder: data.file_names
         })
         sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
-        outs = sess.run(model.gather)
+        outs = sess.run(model.output)
         print(outs)
         print(outs.shape)
 
@@ -574,6 +578,25 @@ def inspect():
         # print(vecs.shape)
 
 
+def get_loss(name, data, model):
+    if name == 'mse':
+        loss = tf.losses.mean_squared_error(data.vec, model.output)
+    elif name == 'abs':
+        loss = tf.losses.absolute_difference(data.vec, model.output)
+    elif name == 'l2':
+        loss = tf.losses.compute_weighted_loss(tf.norm(data.vec - model.output, axis=1))
+    elif name == 'cos':
+        loss = tf.losses.cosine_distance(tf.nn.l2_normalize(data.vec, 1),
+                                         tf.nn.l2_normalize(model.output, 1), 1)
+    elif name == 'huber':
+        loss = tf.losses.huber_loss(data.vec, model.output)
+    elif name == 'mpse':
+        loss = tf.losses.mean_pairwise_squared_error(data.vec, model.output)
+    else:
+        loss = 0
+    return loss
+
+
 def main():
     data = EmbeddingData(args.batch_size)
     if args.model == 'myconv':
@@ -607,17 +630,9 @@ def main():
     du.exist_make_dirs(log_dir)
     du.exist_make_dirs(checkpoint_dir)
 
-    if args.loss == 'mse':
-        loss = tf.losses.mean_squared_error(data.vec, model.output)
-    elif args.loss == 'abs':
-        loss = tf.losses.absolute_difference(data.vec, model.output)
-    elif args.loss == 'l2':
-        loss = tf.losses.compute_weighted_loss(tf.norm(data.vec - model.output, axis=1))
-    elif args.loss == 'cos':
-        loss = tf.losses.cosine_distance(tf.nn.l2_normalize(data.vec, 1),
-                                         tf.nn.l2_normalize(model.output, 1), 1)
-    else:
-        loss = 0
+    loss = get_loss(args.loss, data, model) + get_loss(args.sec_loss, data, model)
+
+    baseline = tf.losses.mean_squared_error(data.vec, model.output)
 
     global_step = tf.train.get_or_create_global_step()
     total_step = int(math.floor(data.num_example / args.batch_size))
@@ -660,6 +675,7 @@ def main():
 
     train_summaries = [
         tf.summary.scalar('loss', loss),
+        tf.summary.scalar('baseline', baseline),
         tf.summary.scalar('learning_rate', learning_rate)
     ]
     train_summaries_op = tf.summary.merge(train_summaries)
@@ -683,6 +699,7 @@ def main():
     # with sv.managed_session() as sess:
     with tf.Session(config=config_) as sess, tf.summary.FileWriter(log_dir) as sw:
         sess.run(init_op)
+
         if checkpoint_file:
             saver.restore(sess, checkpoint_file)
 
@@ -693,7 +710,7 @@ def main():
             sw.add_summary(summary_, tf.train.global_step(sess, global_step))
 
         # Training loop
-        def train_loop(epoch_):
+        def train_loop(epoch_, y=0, y_=0):
             shuffle(data.file_names)
             sess.run(data.iterator.initializer, feed_dict={
                 data.file_names_placeholder: data.file_names[:args.give_shards],
@@ -704,8 +721,8 @@ def main():
             pbar = trange(step, total_step)
             for _ in pbar:
                 try:
-                    _, l, step, y, y_, gv_summary, summary = sess.run(
-                        [train_op, loss, global_step,
+                    _, l, bl, step, y, y_, gv_summary, summary = sess.run(
+                        [train_op, loss, baseline, global_step,
                          model.output, data.vec,
                          train_gv_summaries_op, train_summaries_op])
                     if step % max((total_step // 100), 10) == 0:
@@ -714,7 +731,7 @@ def main():
                     if step % max((total_step // 10), 100) == 0:
                         save()
                     pbar.set_description(
-                        '[%s/%s] step: %d loss: %.4f ' % (epoch_, args.epoch, step, l))
+                        '[%s/%s] step: %d loss: %.3f base: %.3f' % (epoch_, args.epoch, step, l, bl))
                 except KeyboardInterrupt:
                     save()
                     print()
@@ -734,16 +751,20 @@ def main():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    # Program Mode
     parser.add_argument('--process', action='store_true',
                         help='Process the data which creating tfrecords needs.')
-    parser.add_argument('--target', default='glove', help='Learning target of word embedding.')
     parser.add_argument('--inspect', action='store_true', help='Inspect the data stat.')
-    parser.add_argument('--num_shards', default=128, help='Number of tfrecords.', type=int)
-    parser.add_argument('--give_shards', default=1, help='Number of training shards given', type=int)
     parser.add_argument('--tfrecord', action='store_true', help='Create tfrecords.')
+    # Embedding Target
+    parser.add_argument('--target', default='glove', help='Learning target of word embedding.')
+    parser.add_argument('--num_shards', default=128, help='Number of tfrecords.', type=int)
+    parser.add_argument('--max_length', default=12, help='Maximal word length.', type=int)
+    # Training Setting
+    parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
+    parser.add_argument('--give_shards', default=1, help='Number of training shards given', type=int)
     parser.add_argument('--checkpoint_file', default=None, help='Checkpoint file')
     parser.add_argument('--learning_rate', default=1E-4, help='Initial learning rate.', type=float)
-    parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
     parser.add_argument('--batch_size', default=2, help='Batch size of training.', type=int)
     parser.add_argument('--dropout_prob', default=1.0, help='Probability of dropout.', type=float)
     parser.add_argument('--char_embed_dim', default=64, help='Dimension of char embedding', type=int)
@@ -753,16 +774,17 @@ if __name__ == '__main__':
     parser.add_argument('--decay_epoch', default=2, help='Span of epochs at decay.', type=int)
     parser.add_argument('--decay_rate', default=0.87, help='Decay rate.', type=float)
     parser.add_argument('--optimizer', default='adam', help='Training policy (adam / momentum / sgd / rms).')
-    parser.add_argument('--max_length', default=12, help='Maximal word length.', type=int)
-    parser.add_argument('--loss', default='mse', help='Loss function (mse / cos / abs / l2)')
+    parser.add_argument('--loss', default='mse', help='Fist loss function. (mse / cos / abs / l2 / huber / mpse)')
+    parser.add_argument('--sec_loss', default=None, help='Second loss function. (mse / cos / abs / l2 / huber / mpse)')
     parser.add_argument('--clip_norm', default=1.0, help='Norm value of gradient clipping.', type=float)
-    parser.add_argument('--initializer', default='glorot',
+    parser.add_argument('--initializer', default='truncated',
                         help='Initializer of weight.\n(identity / truncated / random / orthogonal / glorot)')
     parser.add_argument('--rnn', default='single', help='Multi / Single-layer rnn.')
     parser.add_argument('--nlayers', default=2, help='Number of Layers in rnn.', type=int)
     parser.add_argument('--rnn_cell', default='LSTM', help='RNN cell type. (GRU / LSTM / BasicRNN)')
     parser.add_argument('--bias_init', default=1.0, help='RNN cell bias initialization value.', type=float)
     parser.add_argument('--model', default='matrice', help='Model modality.')
+    parser.add_argument('--init_scale', default=0.15, help='Initial value of weight.', type=float)
 
     args = parser.parse_args()
     if args.process:
