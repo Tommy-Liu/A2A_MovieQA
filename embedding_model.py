@@ -2,6 +2,7 @@ import io
 import math
 import os
 import pprint
+import sys
 import time
 from collections import Counter
 from functools import partial
@@ -23,7 +24,7 @@ from config import MovieQAConfig
 from model import extract_axis_1
 
 UNK = 'UNK'
-RECORD_FILE_PATTERN = join('./embedding_dataset', 'embedding_%05d-of-%05d.tfrecord')
+RECORD_FILE_PATTERN = join('./embedding_dataset', 'embedding_%s%05d-of-%05d.tfrecord')
 pp = pprint.PrettyPrinter(indent=4, compact=True)
 embedding_size = 300
 config = MovieQAConfig()
@@ -90,23 +91,59 @@ def feature_parser(record):
 class EmbeddingData(object):
     RECORD_FILE_PATTERN_ = join('embedding_dataset', 'embedding_*.tfrecord')
 
-    def __init__(self, batch_size=128, num_thread=16):
+    def __init__(self, batch_size=128, num_thread=16, num_given=sys.maxsize,
+                 use_length=12, raw_input=False):
+        start_time = time.time()
+        self.raw_len = np.load(config.encode_embedding_len_file)
         self.batch_size = batch_size
-        self.num_example = len(np.load(config.encode_embedding_len_file))
-        if args.raw_input:
-            pass
+        # TODO(tommy8054): Raw input from numpy array. Is it necessary to implement this? QQ
+        if raw_input:
+            # Filter instances
+            length = np.load(config.encode_embedding_len_file)
+            vec = np.load(config.encode_embedding_vec_file)[length <= use_length]
+            word = np.load(config.encode_embedding_key_file)[length <= use_length]
+            length = length[length <= use_length]
+            vec = vec[:min(len(vec), num_given)]
+            word = word[:min(len(word), num_given)]
+            length = length[:min(len(length), num_given)]
+            # Build up input pipeline
+            self.load = {'vec': vec, 'word': word, 'len': length}
+            self.vec, self.word, self.len = tf.placeholder(tf.float32, [None, embedding_size], 'vec'), \
+                                            tf.placeholder(tf.int64, [None, args.max_length], 'word'), \
+                                            tf.placeholder(tf.int64, [None], 'length')
+
+            self.vec_temp, self.word_temp, self.len_temp = tf.placeholder(tf.float32, [None, embedding_size],
+                                                                          'vec_temp'), \
+                                                           tf.placeholder(tf.int64, [None, args.max_length],
+                                                                          'word_temp'), \
+                                                           tf.placeholder(tf.int64, [None], 'length_temp')
+
+            self.dataset = tfdata.Dataset.from_tensor_slices(
+                (self.vec_temp, self.word_temp, self.len_temp)) \
+                .prefetch(num_thread * batch_size * 4) \
+                .shuffle(buffer_size=num_thread * batch_size * 8) \
+                .apply(tfdata.batch_and_drop_remainder(batch_size))
+            self.iterator = self.dataset.make_initializable_iterator()
+            self.input = self.iterator.get_next()
         else:
-            num_per_shard = int(math.ceil(self.num_example / float(args.num_shards)))
-            self.num_example = min(self.num_example, num_per_shard * args.give_shards)
+            self.num_each_len = [np.sum(self.raw_len == (i + 1), dtype=np.int64) for i in range(args.max_length)]
+            self.num_example = min(len(self.raw_len), num_given)
             self.file_names = glob(self.RECORD_FILE_PATTERN_)
             self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
+            self.len_placeholder = tf.placeholder(tf.int64, shape=[None])
             self.dataset = tf.data.TFRecordDataset(self.file_names_placeholder) \
-                .map(feature_parser, num_parallel_calls=num_thread).prefetch(num_thread * batch_size * 4) \
-                .shuffle(buffer_size=num_thread * batch_size * 8).apply(tfdata.batch_and_drop_remainder(batch_size))
+                .shuffle(buffer_size=4) \
+                .map(feature_parser, num_parallel_calls=num_thread) \
+                .filter(lambda v, w, l: tf.reduce_any(tf.equal(l, self.len_placeholder))) \
+                .prefetch(batch_size * 8) \
+                .shuffle(buffer_size=1000) \
+                .apply(tfdata.batch_and_drop_remainder(batch_size))
+            # self.datasets = [dataset.filter(lambda _, _, l: tf.equal(l, i+1)) for i in range(args.max_length)]
             self.iterator = self.dataset.make_initializable_iterator()
             self.vec, self.word, self.len = self.iterator.get_next()
-            self.vocab = du.load_json(config.char_vocab_file)
-            self.vocab_size = len(self.vocab)
+        self.vocab = du.load_json(config.char_vocab_file)
+        self.vocab_size = len(self.vocab)
+        print('Data Loading Finished with %.3f s.' % (time.time() - start_time))
 
     def test(self):
         with tf.Session() as sess:
@@ -133,7 +170,7 @@ class MatricesModel(object):
         self.mat_init = tf.tile(mat_init, [self.data.batch_size, 1, 1])
         print(self.mat_init.shape)
 
-        self.chain_mul = tf.transpose(tf.scan(lambda a, x: tf.matmul(a, x), self.char_embedding,
+        self.chain_mul = tf.transpose(tf.scan(lambda a, x: tf.matmul(a, x) + a, self.char_embedding,
                                               initializer=self.mat_init),
                                       [1, 0, 2, 3])
         print(self.chain_mul.shape)
@@ -344,8 +381,7 @@ def create_one_example(v, w, l):
 
 
 def create_one_record(ex_tuple):
-    shard_id, example_list = ex_tuple
-    output_filename = RECORD_FILE_PATTERN % (shard_id + 1, args.num_shards)
+    output_filename, example_list = ex_tuple
     du.exist_then_remove(output_filename)
     with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
         for i in range(len(example_list)):
@@ -355,23 +391,41 @@ def create_one_record(ex_tuple):
 
 
 def create_records():
+    '''
+    Inputs list contains tuples <- (record name, list of tuple <- (vec, word, length))
+    It is for multiprocessing.
+    :return:
+    '''
     start_time = time.time()
     embedding_vec = np.load(config.encode_embedding_vec_file)
     embedding_word = np.load(config.encode_embedding_key_file)
     embedding_word_length = np.load(config.encode_embedding_len_file)
-    print('Loading file done. Spend %f sec' % (time.time() - start_time))
+    inputs = []
+    print('Loading file done. Spend %.3f sec' % (time.time() - start_time))
     du.pprint(['embedding_vec\'s shape:' + str(embedding_vec.shape),
                'embedding_word\'s shape:' + str(embedding_word.shape),
                'embedding_word_length\'s shape:' + str(embedding_word_length.shape)])
-    num_per_shard = int(math.ceil(len(embedding_word_length) / float(args.num_shards)))
-    example_list = []
-    for j in trange(args.num_shards):
-        start_ndx = j * num_per_shard
-        end_ndx = min((j + 1) * num_per_shard, len(embedding_word_length))
-        example_list.append((j, [(embedding_vec[i], embedding_word[i], embedding_word_length[i])
-                                 for i in range(start_ndx, end_ndx)]))
-    with Pool(8) as pool, tqdm(total=args.num_shards, desc='Tfrecord') as pbar:
-        for _ in pool.imap_unordered(create_one_record, example_list):
+    if args.sorted:
+        for i in trange(args.max_length):
+            vec = embedding_vec[embedding_word_length == (i + 1)]
+            word = embedding_word[embedding_word_length == (i + 1)]
+            length = embedding_word_length[embedding_word_length == (i + 1)]
+            num_shards = int(math.ceil(len(length) / float(args.num_per_shard)))
+            for j in trange(num_shards):
+                start_ndx = j * args.num_per_shard
+                end_ndx = min((j + 1) * args.num_per_shard, len(length))
+                inputs.append((RECORD_FILE_PATTERN % ('length_%d_' % (i + 1), j + 1, num_shards),
+                               [(vec[k], word[k], length[k]) for k in range(start_ndx, end_ndx)]))
+    else:
+        num_per_shard = int(math.ceil(len(embedding_word_length) / float(args.num_shards)))
+        for j in trange(args.num_shards):
+            start_ndx = j * num_per_shard
+            end_ndx = min((j + 1) * num_per_shard, len(embedding_word_length))
+            inputs.append((RECORD_FILE_PATTERN % ('', j + 1, args.num_shards),
+                           [(embedding_vec[i], embedding_word[i], embedding_word_length[i])
+                            for i in range(start_ndx, end_ndx)]))
+    with Pool(8) as pool, tqdm(total=len(inputs), desc='Tfrecord') as pbar:
+        for _ in pool.imap_unordered(create_one_record, inputs):
             pbar.update()
 
 
@@ -523,62 +577,88 @@ def process():
 def inspect():
     data = EmbeddingData(2)
     model = MatricesModel(data)
-    for v in tf.global_variables():
-        print(v, v.shape)
-        # # norm_y, norm_y_ = tf.nn.l2_normalize(model.output, 1), tf.nn.l2_normalize(data.vec, 1)
-        # # loss = tf.losses.cosine_distance(norm_y_, norm_y, 1)
+    # for v in tf.global_variables():
+    #     print(v, v.shape)
+    #     # # norm_y, norm_y_ = tf.nn.l2_normalize(model.output, 1), tf.nn.l2_normalize(data.vec, 1)
+    #     # # loss = tf.losses.cosine_distance(norm_y_, norm_y, 1)
     config_ = tf.ConfigProto(allow_soft_placement=True, )
     config_.gpu_options.allow_growth = True
-
+    print((data.num_each_len[0] + data.num_each_len[1]) // 2)
     with tf.Session(config=config_) as sess:
-        sess.run(data.iterator.initializer, feed_dict={
-            data.file_names_placeholder: data.file_names
-        })
-        sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
-        outs = sess.run(model.output)
-        print(outs)
-        print(outs.shape)
+        sess.run([data.iterator.initializer,
+                  tf.global_variables_initializer(),
+                  tf.local_variables_initializer()],
+                 feed_dict={
+                     data.file_names_placeholder: data.file_names,
+                     data.len_placeholder: [1, 2]
+                 })
+        cn = 0
+        start_time = time.time()
+        while True:
+            try:
+                _ = sess.run(model.output)
+                cn += 1
+            except tf.errors.OutOfRangeError:
+                break
+        print(cn)
+        print('%.3f s' % (time.time() - start_time))
+    #     sess.run(data.iterator.initializer, feed_dict={
+    #         data.word_temp: data.load['word'],
+    #         data.vec_temp: data.load['vec'],
+    #         data.len_temp: data.load['len']
+    #     })
+    #     sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+    #     inputs = sess.run(data.input)
+    #     print(sess.run(model.output, feed_dict={
+    #         data.vec: inputs[0],
+    #         data.word: inputs[1],
+    #         data.len: inputs[2]
+    #     }))
 
-        #     outs = sess.run(model.output)
-        #     print(outs)
-        #     print(outs.shape)
-        # print(*[t.shape for t in outs])
-        #     fw, bw, output = sess.run([model.fw, model.bw, model.output])
-        #     print(fw.shape, bw.shape, output.shape)
-        #     print(output)
-        # out = sess.run(model.output)
-        # print(out.shape)
-        # print(out)
-        # print(*sess.run([model.highway_like, model.output]), sep='\n\n')
+    #     outs = sess.run(model.output)
+    #     print(outs)
+    #     print(outs.shape)
 
-        # l, y, y_ = sess.run([loss, norm_y, norm_y_])
-        # print('Loss: %.4f' % l)
-        # print('Normalized output\'s shape:')
-        # pp.pprint(y.shape)
-        # print('Normalized label\'s shape:')
-        # pp.pprint(y_.shape)
-        #     fw, bw, f, b = sess.run([model.fw, model.bw, model.val_f, model.val_b])
-        #     print(f.shape, b.shape)
-        #     print(fw.shape, bw.shape)
-        #     print(np.array_equal(fw, f))
-        #     print(np.array_equal(bw, b))
-        #     print(fw, '=' * 87, bw, sep='\n')
-        # embedding_keys, embedding_vecs = load_embedding_vec()
-        #
-        # du.pprint(['w2v\'s # of embedding: %d' % len(embedding_keys),
-        #            'w2v\'s shape of embedding vec: ' + str(embedding_vecs.shape)])
-        #
-        # filter_stat(embedding_keys, embedding_vecs)
+    #     outs = sess.run(model.output)
+    #     print(outs)
+    #     print(outs.shape)
+    # print(*[t.shape for t in outs])
+    #     fw, bw, output = sess.run([model.fw, model.bw, model.output])
+    #     print(fw.shape, bw.shape, output.shape)
+    #     print(output)
+    # out = sess.run(model.output)
+    # print(out.shape)
+    # print(out)
+    # print(*sess.run([model.highway_like, model.output]), sep='\n\n')
 
-        # vocab = du.load_json(config.char_vocab_file)
-        # length = np.load(config.encode_embedding_len_file)
-        # vecs = np.load(config.encode_embedding_vec_file)
-        # lack = [ch for ch in string.ascii_lowercase + string.digits if ch not in vocab]
-        #
-        # print(lack)
-        # print(vocab)
-        # print(max(length))
-        # print(vecs.shape)
+    # l, y, y_ = sess.run([loss, norm_y, norm_y_])
+    # print('Loss: %.4f' % l)
+    # print('Normalized output\'s shape:')
+    # pp.pprint(y.shape)
+    # print('Normalized label\'s shape:')
+    # pp.pprint(y_.shape)
+    #     fw, bw, f, b = sess.run([model.fw, model.bw, model.val_f, model.val_b])
+    #     print(f.shape, b.shape)
+    #     print(fw.shape, bw.shape)
+    #     print(np.array_equal(fw, f))
+    #     print(np.array_equal(bw, b))
+    #     print(fw, '=' * 87, bw, sep='\n')
+    # embedding_keys, embedding_vecs = load_embedding_vec()
+    #
+    # du.pprint(['w2v\'s # of embedding: %d' % len(embedding_keys),
+    #            'w2v\'s shape of embedding vec: ' + str(embedding_vecs.shape)])
+    #
+    # filter_stat(embedding_keys, embedding_vecs)
+
+    # vocab = du.load_json(config.char_vocab_file)
+    # length = np.load(config.encode_embedding_len_file)
+    # vecs = np.load(config.encode_embedding_vec_file)
+    # lack = [ch for ch in string.ascii_lowercase + string.digits if ch not in vocab]
+    #
+    # print(lack)
+    # print(vocab)
+    # print(max(length))
+    # print(vecs.shape)
 
 
 def get_loss(name, data, model):

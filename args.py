@@ -3,17 +3,19 @@ import argparse
 
 def args_parse():
     parser = argparse.ArgumentParser()
-    #                    Program Mode
+    #                      Program Mode
     parser.add_argument('--process', action='store_true',
                         help='Process the data which creating tfrecords needs.')
     parser.add_argument('--inspect', action='store_true', help='Inspect the data stat.')
     parser.add_argument('--tfrecord', action='store_true', help='Create tfrecords.')
-    #                    Embedding Target
+    #                      Embedding Target
     parser.add_argument('--target', default='glove', help='Learning target of word embedding.')
     parser.add_argument('--num_shards', default=128, help='Number of tfrecords.', type=int)
+    parser.add_argument('--num_per_shard', default=10000, help='Number of instances in a shard.', type=int)
     parser.add_argument('--max_length', default=12, help='Maximal word length.', type=int)
     parser.add_argument('--raw_input', action='store_true', help='Use raw data as input without tfreord.')
-    #                    Training Setting
+    parser.add_argument('--sorted', action='store_true', help='Divide data into groups of same length')
+    #                      Training Setting
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
     parser.add_argument('--give_shards', default=1, help='Number of training shards given', type=int)
     parser.add_argument('--checkpoint_file', default=None, help='Checkpoint file')
@@ -37,7 +39,7 @@ def args_parse():
 
     parser.add_argument('--model', default='matrice', help='Model modality.')
 
-    # #                  Initializer args
+    # #                    Initializer args
     parser.add_argument('--initializer', default='truncated',
                         help='Initializer of weight.\n(identity / truncated / random / orthogonal / glorot)')
     parser.add_argument('--bias_init', default=1.0, help='RNN cell bias initialization value.', type=float)
