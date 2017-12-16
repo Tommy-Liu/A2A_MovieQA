@@ -144,7 +144,8 @@ class EmbeddingData(object):
                 .map(feature_parser, num_parallel_calls=num_thread) \
                 .prefetch(2000) \
                 .shuffle(buffer_size=1000) \
-                .apply(tfdata.batch_and_drop_remainder(batch_size))
+                .apply(tfdata.batch_and_drop_remainder(batch_size)) \
+                .repeat()
             self.iterator = self.dataset.make_initializable_iterator()
             self.vec, self.word, self.len = self.iterator.get_next()
         self.vocab = du.load_json(config.char_vocab_file)
@@ -802,7 +803,7 @@ class EmbeddingTrainManager(object):
                 while abs(now_loss - prev_loss) > 1E-4:
                     sess.run(self.data.iterator.initializer, feed_dict={
                         self.data.file_names_placeholder: self.data.get_records(list(range(1, max_length + 1)))})
-                    for _ in trange()
+
             # Training loop
             def train_loop(epoch_, y=0, y_=0):
                 sess.run(data.iterator.initializer, feed_dict={
