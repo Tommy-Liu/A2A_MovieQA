@@ -712,7 +712,8 @@ class EmbeddingTrainManager(object):
     def __init__(self, arguments, args_parser):
         self.args = arguments
         self.data = EmbeddingData(self.args.batch_size)
-        self.model = self.get_model()
+        with tf.variable_scope('model'):
+            self.model = self.get_model()
         args_dict = vars(self.args)
         pairs = [(k, str(args_dict[k])) for k in sorted(args_dict.keys())
                  if args_dict[k] != args_parser.get_default(k) and not isinstance(args_dict[k], bool)]
@@ -742,16 +743,16 @@ class EmbeddingTrainManager(object):
 
         self.global_step = tf.train.get_or_create_global_step()
 
-        # self.lr_placeholder = tf.placeholder(tf.float32, name='lr_placeholder')
-        # self.step_placeholder = tf.placeholder(tf.int64, name='step_placeholder')
-        # self.dr_placeholder = tf.placeholder(tf.float32, name='dr_placeholder')
-        # self.learning_rate = tf.train.exponential_decay(self.lr_placeholder,
-        #                                                 self.global_step,
-        #                                                 self.args.decay_epoch * self.step_placeholder,
-        #                                                 self.dr_placeholder,
-        #                                                 staircase=True)
+        self.lr_placeholder = tf.placeholder(tf.float32, name='lr_placeholder')
+        self.step_placeholder = tf.placeholder(tf.int64, name='step_placeholder')
+        self.dr_placeholder = tf.placeholder(tf.float32, name='dr_placeholder')
+        self.learning_rate = tf.train.exponential_decay(self.lr_placeholder,
+                                                        self.global_step,
+                                                        self.args.decay_epoch * self.step_placeholder,
+                                                        self.dr_placeholder,
+                                                        staircase=True)
         with tf.variable_scope('optimizer'):
-            self.optimizer = get_opt(self.args.optimizer, self.args.learning_rate)
+            self.optimizer = get_opt(self.args.optimizer, self.learning_rate)
 
         grads_and_vars = self.optimizer.compute_gradients(self.loss)
         gradients, variables = list(zip(*grads_and_vars))
@@ -775,7 +776,7 @@ class EmbeddingTrainManager(object):
         tf.summary.scalar('baseline', self.baseline),
         # tf.summary.scalar('learning_rate', self.learning_rate)
 
-        self.init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+        self.init_op = tf.variables_initializer(tf.global_variables() + tf.local_variables())
 
         if args.checkpoint_file:
             self.checkpoint_file = args.checkpoint_file
@@ -786,27 +787,59 @@ class EmbeddingTrainManager(object):
     def train(self):
         config_ = tf.ConfigProto(allow_soft_placement=True, )
         config_.gpu_options.allow_growth = True
+        with tf.Session(config=config_) as sess, tf.summary.FileWriter(self.log_dir) as sw:
+            sess.run(self.init_op)
+            if self.checkpoint_file:
+                self.saver.restore(sess, self.checkpoint_file)
 
-        # with sv.managed_session() as sess:
-        with tf.train.MonitoredSession(tf.train.ChiefSessionCreator(config=config_),
-                                       [saver_hook, summary_hook]) as sess:
-            sess.run(self.init_op, feed_dict={
-                self.data.file_names_placeholder:
-                    self.data.get_records(list(range(1, self.args.max_length + 1)))
-            })
-            # if self.checkpoint_file:
-            #     self.saver.restore(sess, self.checkpoint_file)
-            avg_loss, now_loss, epoch = 0, 1, 0
-            print(self.data.get_records(list(range(1, self.args.max_length + 1))))
-            # TODO(tommy8054): First test whole dataset.
-            # while abs(avg_loss - now_loss):
-            #     sess.run(self.data.iterator.initializer, feed_dict={
-            #         self.data.file_names_placeholder:
-            #             self.data.get_records(list(range(1, self.args.max_length + 1)))
-            #     })
-            #     time.sleep(3)
-            #     while not sess.should_stop():
-            #         print(sess.run(self.train_op))
+            def save():
+                self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))
+
+            def save_sum(summary_):
+                sw.add_summary(summary_, tf.train.global_step(sess, self.global_step))
+            max_length, now_loss, prev_loss = 1, 1 ,0
+            while max_length < 13:
+                while abs(now_loss - prev_loss) > 1E-4:
+                    sess.run(self.data.iterator.initializer, feed_dict={
+                        self.data.file_names_placeholder: self.data.get_records(list(range(1, max_length + 1)))})
+                    for _ in trange()
+            # Training loop
+            def train_loop(epoch_, y=0, y_=0):
+                sess.run(data.iterator.initializer, feed_dict={
+                    data.file_names_placeholder: data.file_names[:args.give_shards],
+                })
+                step = tf.train.global_step(sess, global_step)
+                print("Training Loop Epoch %d" % epoch_)
+                step = step % total_step
+                pbar = trange(step, total_step)
+                for _ in pbar:
+                    try:
+                        _, l, bl, step, y, y_, gv_summary, summary = sess.run(
+                            [train_op, loss, baseline, global_step,
+                             model.output, data.vec,
+                             train_gv_summaries_op, train_summaries_op])
+                        if step % max((total_step // 100), 10) == 0:
+                            save_sum(summary)
+                            save_sum(gv_summary)
+                        if step % max((total_step // 10), 100) == 0:
+                            save()
+                        pbar.set_description(
+                            '[%s/%s] step: %d loss: %.3f base: %.3f' % (epoch_, args.epoch, step, l, bl))
+                    except KeyboardInterrupt:
+                        save()
+                        print()
+                        return True
+
+                print("Training Loop Epoch %d Done..." % epoch_)
+                print(y_, y, sep='\n\n\n')
+                time.sleep(10)
+                save()
+                return False
+
+            now_epoch = tf.train.global_step(sess, global_step) // total_step + 1
+            for epoch in range(now_epoch, args.epoch + 1):
+                if train_loop(epoch):
+                    break
 
     def get_model(self):
         if self.args.model == 'myconv':
@@ -863,13 +896,13 @@ def main():
 
     global_step = tf.train.get_or_create_global_step()
     total_step = int(math.floor(data.num_example / args.batch_size))
-    learning_rate = tf.train.exponential_decay(args.learning_rate,
-                                               global_step,
-                                               args.decay_epoch * total_step,
-                                               args.decay_rate,
-                                               staircase=True)
-
-    optimizer = get_opt(args.optimizer)
+    # learning_rate = tf.train.exponential_decay(args.learning_rate,
+    #                                            global_step,
+    #                                            args.decay_epoch * total_step,
+    #                                            args.decay_rate,
+    #                                            staircase=True)
+    learning_rate = args.learning_rate
+    optimizer = get_opt(args.optimizer, learning_rate)
 
     grads_and_vars = optimizer.compute_gradients(loss)
     gradients, variables = list(zip(*grads_and_vars))
