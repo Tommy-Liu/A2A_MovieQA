@@ -2,6 +2,7 @@ import io
 import math
 import os
 import pprint
+import shutil
 import sys
 import time
 from collections import Counter
@@ -89,10 +90,16 @@ def feature_parser(record):
 
 
 class EmbeddingData(object):
-    RECORD_FILE_PATTERN_ = join('embedding_dataset', 'embedding_*.tfrecord')
+    RECORD_FILE_PATTERN_ = join('embedding_dataset', 'embedding_%s*.tfrecord')
 
     def __init__(self, batch_size=128, num_thread=16, num_given=sys.maxsize,
                  use_length=12, raw_input=False):
+        '''
+        initial target:
+        self.iterator.initializer
+        feed_dict:
+        file_names_placeholder
+        '''
         start_time = time.time()
         self.raw_len = np.load(config.encode_embedding_len_file)
         self.batch_size = batch_size
@@ -128,17 +135,16 @@ class EmbeddingData(object):
         else:
             self.num_each_len = [np.sum(self.raw_len == (i + 1), dtype=np.int64) for i in range(args.max_length)]
             self.num_example = min(len(self.raw_len), num_given)
-            self.file_names = glob(self.RECORD_FILE_PATTERN_)
+            # Use floor instead of ceil because we drop last batch.
+            self.total_step = int(math.floor(self.num_example / self.batch_size))
+            self.file_names = glob(self.RECORD_FILE_PATTERN_ % 'length_')
             self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
-            self.len_placeholder = tf.placeholder(tf.int64, shape=[None])
             self.dataset = tf.data.TFRecordDataset(self.file_names_placeholder) \
-                .shuffle(buffer_size=4) \
+                .shuffle(buffer_size=160) \
                 .map(feature_parser, num_parallel_calls=num_thread) \
-                .filter(lambda v, w, l: tf.reduce_any(tf.equal(l, self.len_placeholder))) \
-                .prefetch(batch_size * 8) \
+                .prefetch(2000) \
                 .shuffle(buffer_size=1000) \
                 .apply(tfdata.batch_and_drop_remainder(batch_size))
-            # self.datasets = [dataset.filter(lambda _, _, l: tf.equal(l, i+1)) for i in range(args.max_length)]
             self.iterator = self.dataset.make_initializable_iterator()
             self.vec, self.word, self.len = self.iterator.get_next()
         self.vocab = du.load_json(config.char_vocab_file)
@@ -152,6 +158,11 @@ class EmbeddingData(object):
             })
 
             print(sess.run([self.vec, self.word, self.len]))
+
+    def get_records(self, length):
+        self.num_example = sum([self.num_each_len[i - 1] for i in length])
+        self.total_step = int(math.floor(self.num_example / self.batch_size))
+        return [n for n in self.file_names for l in length if 'length_%d_' % l in n]
 
 
 class MatricesModel(object):
@@ -270,13 +281,13 @@ class MyModel(object):
 
 # identity / truncated / random / orthogonal/ glorot
 class EmbeddingModel(object):
-    def __init__(self, data, char_embed_dim=100, hidden_dim=256):
+    def __init__(self, data, char_dim=100, hidden_dim=256):
         self.data = data
         initializer = get_initializer()
 
         embedding_matrix = tf.get_variable(
             name="embedding_matrix", initializer=initializer,
-            shape=[self.data.vocab_size, char_embed_dim], trainable=True)
+            shape=[self.data.vocab_size, char_dim], trainable=True)
         self.char_embedding = tf.nn.embedding_lookup(embedding_matrix, self.data.word)
 
         if args.rnn_cell == 'GRU':
@@ -575,33 +586,34 @@ def process():
 
 
 def inspect():
-    data = EmbeddingData(2)
-    model = MatricesModel(data)
-    # for v in tf.global_variables():
-    #     print(v, v.shape)
-    #     # # norm_y, norm_y_ = tf.nn.l2_normalize(model.output, 1), tf.nn.l2_normalize(data.vec, 1)
-    #     # # loss = tf.losses.cosine_distance(norm_y_, norm_y, 1)
-    config_ = tf.ConfigProto(allow_soft_placement=True, )
-    config_.gpu_options.allow_growth = True
-    print((data.num_each_len[0] + data.num_each_len[1]) // 2)
-    with tf.Session(config=config_) as sess:
-        sess.run([data.iterator.initializer,
-                  tf.global_variables_initializer(),
-                  tf.local_variables_initializer()],
-                 feed_dict={
-                     data.file_names_placeholder: data.file_names,
-                     data.len_placeholder: [1, 2]
-                 })
-        cn = 0
-        start_time = time.time()
-        while True:
-            try:
-                _ = sess.run(model.output)
-                cn += 1
-            except tf.errors.OutOfRangeError:
-                break
-        print(cn)
-        print('%.3f s' % (time.time() - start_time))
+    manager = EmbeddingTrainManager(args, parser)
+    manager.train()
+    # data = EmbeddingData(2)
+    # model = MatricesModel(data)
+    # # for v in tf.global_variables():
+    # #     print(v, v.shape)
+    # #     # # norm_y, norm_y_ = tf.nn.l2_normalize(model.output, 1), tf.nn.l2_normalize(data.vec, 1)
+    # #     # # loss = tf.losses.cosine_distance(norm_y_, norm_y, 1)
+    # config_ = tf.ConfigProto(allow_soft_placement=True, )
+    # config_.gpu_options.allow_growth = True
+    # with tf.Session(config=config_) as sess:
+    #     sess.run([data.iterator.initializer,
+    #               tf.global_variables_initializer(),
+    #               tf.local_variables_initializer()],
+    #              feed_dict={
+    #                  data.file_names_placeholder: data.get_records([1, 2]),
+    #              })
+    #     cn, y = 0, 0
+    #     start_time = time.time()
+    #     while True:
+    #         try:
+    #             y = sess.run(model.output)
+    #             cn += 1
+    #         except tf.errors.OutOfRangeError:
+    #             break
+    #     print(y)
+    #     print(cn)
+    #     print('%.3f s' % (time.time() - start_time))
     #     sess.run(data.iterator.initializer, feed_dict={
     #         data.word_temp: data.load['word'],
     #         data.vec_temp: data.load['vec'],
@@ -680,14 +692,146 @@ def get_loss(name, data, model):
     return loss
 
 
+def get_opt(name, learning_rate):
+    if name == 'momentum':
+        optimizer = tf.train.MomentumOptimizer(learning_rate, 0.9)
+    elif name == 'adam':
+        optimizer = tf.train.AdamOptimizer(learning_rate)
+    elif name == 'sgd':
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+    elif name == 'rms':
+        optimizer = tf.train.RMSPropOptimizer(learning_rate)
+    else:
+        optimizer = None
+
+    return optimizer
+
+
+# TODO(tommy8054): Well... A little bit lazy to implement this... Maybe later?
+class EmbeddingTrainManager(object):
+    def __init__(self, arguments, args_parser):
+        self.args = arguments
+        self.data = EmbeddingData(self.args.batch_size)
+        self.model = self.get_model()
+        args_dict = vars(self.args)
+        pairs = [(k, str(args_dict[k])) for k in sorted(args_dict.keys())
+                 if args_dict[k] != args_parser.get_default(k) and not isinstance(args_dict[k], bool)]
+        if pairs:
+            self.exp_name = '_'.join(['.'.join(pair) for pair in pairs])
+        else:
+            self.exp_name = '.'.join(('learning_rate', str(args.learning_rate)))
+
+        self.log_dir = join(config.log_dir, 'embedding_log', self.exp_name)
+        self.checkpoint_dir = join(config.checkpoint_dir, 'embedding_checkpoint', self.exp_name)
+        self.checkpoint_name = join(self.checkpoint_dir, 'embedding')
+
+        if self.args.reset:
+            if exists(self.checkpoint_dir):
+                shutil.rmtree(self.checkpoint_dir)
+                # os.system('rm -rf %s' % os.path.join(self.checkpoint_dir, '*'))
+            if os.path.exists(self.log_dir):
+                shutil.rmtree(self.log_dir)
+                # os.system('rm -rf %s' % os.path.join(self.log_dir, '*'))
+        du.exist_make_dirs(self.log_dir)
+        du.exist_make_dirs(self.checkpoint_dir)
+
+        self.loss = get_loss(self.args.loss, self.data, self.model) + \
+                    get_loss(self.args.sec_loss, self.data, self.model)
+
+        self.baseline = tf.losses.mean_squared_error(self.data.vec, self.model.output)
+
+        self.global_step = tf.train.get_or_create_global_step()
+
+        # self.lr_placeholder = tf.placeholder(tf.float32, name='lr_placeholder')
+        # self.step_placeholder = tf.placeholder(tf.int64, name='step_placeholder')
+        # self.dr_placeholder = tf.placeholder(tf.float32, name='dr_placeholder')
+        # self.learning_rate = tf.train.exponential_decay(self.lr_placeholder,
+        #                                                 self.global_step,
+        #                                                 self.args.decay_epoch * self.step_placeholder,
+        #                                                 self.dr_placeholder,
+        #                                                 staircase=True)
+        with tf.variable_scope('optimizer'):
+            self.optimizer = get_opt(self.args.optimizer, self.args.learning_rate)
+
+        grads_and_vars = self.optimizer.compute_gradients(self.loss)
+        gradients, variables = list(zip(*grads_and_vars))
+        for var in variables:
+            print(var.name, var.shape)
+
+        if not args.model == 'myconv':
+            capped_grads_and_vars = [(tf.clip_by_norm(gv[0], args.clip_norm), gv[1]) for gv in grads_and_vars]
+        else:
+            capped_grads_and_vars = grads_and_vars
+
+        self.train_op = self.optimizer.apply_gradients(capped_grads_and_vars, self.global_step)
+        self.saver = tf.train.Saver(tf.global_variables(), )
+
+        # Summary
+        for idx, var in enumerate(variables):
+            tf.summary.histogram('gradient/' + var.name, gradients[idx])
+            tf.summary.histogram(var.name, var)
+
+        tf.summary.scalar('loss', self.loss),
+        tf.summary.scalar('baseline', self.baseline),
+        # tf.summary.scalar('learning_rate', self.learning_rate)
+
+        self.init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+
+        if args.checkpoint_file:
+            self.checkpoint_file = args.checkpoint_file
+        else:
+            self.checkpoint_file = tf.train.latest_checkpoint(self.checkpoint_dir)
+        pp.pprint(tf.global_variables())
+
+    def train(self):
+        config_ = tf.ConfigProto(allow_soft_placement=True, )
+        config_.gpu_options.allow_growth = True
+
+        # with sv.managed_session() as sess:
+        with tf.train.MonitoredSession(tf.train.ChiefSessionCreator(config=config_),
+                                       [saver_hook, summary_hook]) as sess:
+            sess.run(self.init_op, feed_dict={
+                self.data.file_names_placeholder:
+                    self.data.get_records(list(range(1, self.args.max_length + 1)))
+            })
+            # if self.checkpoint_file:
+            #     self.saver.restore(sess, self.checkpoint_file)
+            avg_loss, now_loss, epoch = 0, 1, 0
+            print(self.data.get_records(list(range(1, self.args.max_length + 1))))
+            # TODO(tommy8054): First test whole dataset.
+            # while abs(avg_loss - now_loss):
+            #     sess.run(self.data.iterator.initializer, feed_dict={
+            #         self.data.file_names_placeholder:
+            #             self.data.get_records(list(range(1, self.args.max_length + 1)))
+            #     })
+            #     time.sleep(3)
+            #     while not sess.should_stop():
+            #         print(sess.run(self.train_op))
+
+    def get_model(self):
+        if self.args.model == 'myconv':
+            model = MyConvModel(self.data, char_dim=self.args.char_dim, conv_channel=self.args.conv_channel)
+        elif self.args.model == 'myrnn':
+            model = MyModel(self.data, char_dim=self.args.char_dim,
+                            hidden_dim=self.args.hidden_dim, num_layers=self.args.nlayers)
+        elif self.args.model == 'mimick':
+            model = EmbeddingModel(self.data, char_dim=self.args.char_dim, hidden_dim=self.args.hidden_dim)
+        elif self.args.model == 'matrice':
+            model = MatricesModel(self.data)
+        else:
+            model = None
+
+        return model
+
+
 def main():
     data = EmbeddingData(args.batch_size)
     if args.model == 'myconv':
-        model = MyConvModel(data, char_dim=args.char_embed_dim, conv_channel=args.conv_channel)
+        model = MyConvModel(data, char_dim=args.char_dim, conv_channel=args.conv_channel)
     elif args.model == 'myrnn':
-        model = MyModel(data, char_dim=args.char_embed_dim, hidden_dim=args.hidden_dim, num_layers=args.nlayers)
+        model = MyModel(data, char_dim=args.char_dim, hidden_dim=args.hidden_dim, num_layers=args.nlayers)
     elif args.model == 'mimick':
-        model = EmbeddingModel(data, char_embed_dim=args.char_embed_dim, hidden_dim=args.hidden_dim)
+        model = EmbeddingModel(data, char_dim=args.char_dim, hidden_dim=args.hidden_dim)
     elif args.model == 'matrice':
         model = MatricesModel(data)
     else:
@@ -724,16 +868,8 @@ def main():
                                                args.decay_epoch * total_step,
                                                args.decay_rate,
                                                staircase=True)
-    if args.optimizer == 'momentum':
-        optimizer = tf.train.MomentumOptimizer(learning_rate, 0.9)
-    elif args.optimizer == 'adam':
-        optimizer = tf.train.AdamOptimizer(learning_rate)
-    elif args.optimizer == 'sgd':
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-    elif args.optimizer == 'rms':
-        optimizer = tf.train.RMSPropOptimizer(learning_rate)
-    else:
-        optimizer = None
+
+    optimizer = get_opt(args.optimizer)
 
     grads_and_vars = optimizer.compute_gradients(loss)
     gradients, variables = list(zip(*grads_and_vars))
@@ -779,7 +915,6 @@ def main():
 
     config_ = tf.ConfigProto(allow_soft_placement=True, )
     config_.gpu_options.allow_growth = True
-    # with sv.managed_session() as sess:
     with tf.Session(config=config_) as sess, tf.summary.FileWriter(log_dir) as sw:
         sess.run(init_op)
 

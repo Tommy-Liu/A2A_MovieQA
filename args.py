@@ -4,8 +4,7 @@ import argparse
 def args_parse():
     parser = argparse.ArgumentParser()
     #                      Program Mode
-    parser.add_argument('--process', action='store_true',
-                        help='Process the data which creating tfrecords needs.')
+    parser.add_argument('--process', action='store_true', help='Process the data which creating tfrecords needs.')
     parser.add_argument('--inspect', action='store_true', help='Inspect the data stat.')
     parser.add_argument('--tfrecord', action='store_true', help='Create tfrecords.')
     #                      Embedding Target
@@ -22,7 +21,7 @@ def args_parse():
     parser.add_argument('--learning_rate', default=1E-4, help='Initial learning rate.', type=float)
     parser.add_argument('--batch_size', default=2, help='Batch size of training.', type=int)
     parser.add_argument('--dropout_prob', default=1.0, help='Probability of dropout.', type=float)
-    parser.add_argument('--char_embed_dim', default=64, help='Dimension of char embedding', type=int)
+    parser.add_argument('--char_dim', default=64, help='Dimension of char embedding', type=int)
     parser.add_argument('--hidden_dim', default=256, help='Dimension of hidden state.', type=int)
     parser.add_argument('--conv_channel', default=512, help='Output channel of convolution layer.', type=int)
     parser.add_argument('--epoch', default=200, help='Training epochs', type=int)
@@ -32,11 +31,9 @@ def args_parse():
     parser.add_argument('--loss', default='mse', help='Fist loss function. (mse / cos / abs / l2 / huber / mpse)')
     parser.add_argument('--sec_loss', default=None, help='Second loss function. (mse / cos / abs / l2 / huber / mpse)')
     parser.add_argument('--clip_norm', default=1.0, help='Norm value of gradient clipping.', type=float)
-
     parser.add_argument('--rnn', default='single', help='Multi / Single-layer rnn.')
     parser.add_argument('--nlayers', default=2, help='Number of Layers in rnn.', type=int)
     parser.add_argument('--rnn_cell', default='LSTM', help='RNN cell type. (GRU / LSTM / BasicRNN)')
-
     parser.add_argument('--model', default='matrice', help='Model modality.')
 
     # #                    Initializer args
