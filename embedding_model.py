@@ -23,6 +23,7 @@ import data_utils as du
 from args import args_parse
 from config import MovieQAConfig
 from model import extract_axis_1
+from odds import LUL
 
 UNK = 'UNK'
 RECORD_FILE_PATTERN = join('./embedding_dataset', 'embedding_%s%05d-of-%05d.tfrecord')
@@ -193,6 +194,7 @@ class MatricesModel(object):
 
         self.output = extract_axis_1(tf.squeeze(self.chain_mul, 2), self.data.len - 1)
         print(self.output.shape)
+
 
 class MyConvModel(object):
     def __init__(self, data, char_dim=64, conv_channel=512):
@@ -591,7 +593,8 @@ def process():
 
 def inspect():
     manager = EmbeddingTrainManager(args, parser)
-    manager.train()
+    manager.__init__(manager.args, manager.args_parser)
+    # manager.train()
     # data = EmbeddingData(2)
     # model = MatricesModel(data)
     # # for v in tf.global_variables():
@@ -715,35 +718,29 @@ def get_opt(name, learning_rate):
 class EmbeddingTrainManager(object):
     def __init__(self, arguments, args_parser):
         self.args = arguments
+        self.args_parser = args_parser
         self.data = EmbeddingData(self.args.batch_size)
-        with tf.variable_scope('model'):
-            self.model = self.get_model()
-        args_dict = vars(self.args)
-        pairs = [(k, str(args_dict[k])) for k in sorted(args_dict.keys())
-                 if args_dict[k] != args_parser.get_default(k) and not isinstance(args_dict[k], bool)]
-        if pairs:
-            self.exp_name = '_'.join(['.'.join(pair) for pair in pairs])
-        else:
-            self.exp_name = '.'.join(('learning_rate', str(args.learning_rate)))
 
-        self.log_dir = join(config.log_dir, 'embedding_log', self.exp_name)
-        self.checkpoint_dir = join(config.checkpoint_dir, 'embedding_checkpoint', self.exp_name)
-        self.checkpoint_name = join(self.checkpoint_dir, 'embedding')
-
-        if self.args.reset:
-            if exists(self.checkpoint_dir):
-                shutil.rmtree(self.checkpoint_dir)
-                # os.system('rm -rf %s' % os.path.join(self.checkpoint_dir, '*'))
-            if os.path.exists(self.log_dir):
-                shutil.rmtree(self.log_dir)
-                # os.system('rm -rf %s' % os.path.join(self.log_dir, '*'))
         du.exist_make_dirs(self.log_dir)
         du.exist_make_dirs(self.checkpoint_dir)
 
+        if args.checkpoint_file:
+            self.checkpoint_file = args.checkpoint_file
+        else:
+            self.checkpoint_file = tf.train.latest_checkpoint(self.checkpoint_dir)
+
+        self.performance = LUL()
+        self.performance.__dict__ = {
+            'baseline': 0, 'max_length': 1, 'trace': 0
+        }
+
+        tf.reset_default_graph()
+        with tf.variable_scope('model'):
+            self.model = self.get_model()
         self.loss = get_loss(self.args.loss, self.data, self.model) + \
                     get_loss(self.args.sec_loss, self.data, self.model)
 
-        self.baseline = tf.losses.mean_squared_error(self.data.vec, self.model.output)
+        self.baseline = get_loss('mse', self.data, self.model)
 
         self.global_step = tf.train.get_or_create_global_step()
 
@@ -787,19 +784,49 @@ class EmbeddingTrainManager(object):
 
         self.init_op = tf.variables_initializer(tf.global_variables() + tf.local_variables())
 
-        if args.checkpoint_file:
-            self.checkpoint_file = args.checkpoint_file
-        else:
-            self.checkpoint_file = tf.train.latest_checkpoint(self.checkpoint_dir)
         pp.pprint(tf.global_variables())
 
-    def setting(self):
-        pass
+    @property
+    def exp_name(self):
+        args_dict = vars(self.args)
+        pairs = [(k, str(args_dict[k])) for k in sorted(args_dict.keys())
+                 if self.args_parser.get_default(k, None) is not None and
+                 args_dict[k] != self.args_parser.get_default(k) and
+                 not isinstance(args_dict[k], bool)]
+        if pairs:
+            return '_'.join(['.'.join(pair) for pair in pairs])
+        else:
+            return '.'.join(('learning_rate', str(args.learning_rate)))
+
+    @property
+    def log_dir(self):
+        return join(config.log_dir, 'embedding_log', self.exp_name)
+
+    @property
+    def checkpoint_dir(self):
+        return join(config.checkpoint_dir, 'embedding_checkpoint', self.exp_name)
+
+    @property
+    def checkpoint_name(self):
+        return join(self.checkpoint_dir, 'embedding')
+
+    @property
+    def param_file(self):
+        return join(self.log_dir, '%s.json' % self.exp_name)
+
+    def reset(self):
+        if exists(self.checkpoint_dir):
+            shutil.rmtree(self.checkpoint_dir)
+        if exists(self.log_dir):
+            shutil.rmtree(self.log_dir)
+        self.__init__(self.args, self.args_parser)
+
     def train(self):
         config_ = tf.ConfigProto(allow_soft_placement=True, )
         config_.gpu_options.allow_growth = True
         with tf.Session(config=config_) as sess, tf.summary.FileWriter(self.log_dir) as sw:
-            sess.run(self.init_op)
+            sess.run(self.init_op, feed_dict={
+            })
             if self.checkpoint_file:
                 self.saver.restore(sess, self.checkpoint_file)
 
@@ -816,13 +843,15 @@ class EmbeddingTrainManager(object):
                             sw.add_summary(summary, tf.train.global_step(sess, self.global_step))
                         if step % 100 == 0:
                             self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))
-                        print('[%d/%d] step: %d loss: %.3f base: %.3f' % (max_length, self.args.max_length, step, l, bl))
-                        delta = (l - avg_loss) / step
+                        print(
+                            '[%d/%d] step: %d loss: %.3f base: %.3f' % (max_length, self.args.max_length, step, l, bl))
+                        delta = (bl - avg_loss) / step
                         avg_loss = avg_loss + delta
                     if avg_loss > 1E-3:
                         sess.run(self.init_op)
                         max_length = 1
                     else:
+
                         max_length += 1
                 except KeyboardInterrupt:
                     self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))

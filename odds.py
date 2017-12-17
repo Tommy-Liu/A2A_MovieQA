@@ -7,6 +7,10 @@ from config import MovieQAConfig
 config = MovieQAConfig()
 
 
+class LUL:
+    pass
+
+
 # To be implemented
 class EmbeddingDataSet(Dataset):
     def __init__(self, num_given=0, use_length=12):
