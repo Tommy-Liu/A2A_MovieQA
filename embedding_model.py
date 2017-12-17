@@ -60,19 +60,21 @@ def load_glove(filename):
     return embedding
 
 
-def get_initializer():
+def get_initializer(m=0.0, s=1.0):
     if args.initializer == 'identity':
-        initializer = tf.identity_initializer()
+        initializer = tf.identity_initializer(s)
     elif args.initializer == 'truncated':
-        initializer = tf.truncated_normal_initializer(0, args.init_scale)
+        initializer = tf.truncated_normal_initializer(m, s)
     elif args.initializer == 'uniform':
-        initializer = tf.random_uniform_initializer(-0.08, 0.08)
+        initializer = tf.random_uniform_initializer(-s, s)
     elif args.initializer == 'normal':
-        initializer = tf.random_normal_initializer(0, args.init_scale)
+        initializer = tf.random_normal_initializer(m, s)
     elif args.initializer == 'orthogonal':
-        initializer = tf.orthogonal_initializer()
+        initializer = tf.orthogonal_initializer(s)
     elif args.initializer == 'glorot' or args.initializer == 'xavier':
         initializer = tf.glorot_uniform_initializer()
+    elif args.initializer == 'variance':
+        initializer = tf.variance_scaling_initializer(s)
     else:
         initializer = None
     return initializer
@@ -169,7 +171,9 @@ class EmbeddingData(object):
 class MatricesModel(object):
     def __init__(self, data):
         self.data = data
-        initializer = get_initializer()
+        self.init_mean, self.init_stddev = tf.placeholder(tf.float32, name='init_mean'), \
+                                           tf.placeholder(tf.float32, name='init_stddev')
+        initializer = get_initializer(self.init_mean, self.init_stddev)
 
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, embedding_size, embedding_size],
                                            tf.float32, initializer, trainable=True)
@@ -189,7 +193,6 @@ class MatricesModel(object):
 
         self.output = extract_axis_1(tf.squeeze(self.chain_mul, 2), self.data.len - 1)
         print(self.output.shape)
-
 
 class MyConvModel(object):
     def __init__(self, data, char_dim=64, conv_channel=512):
@@ -744,14 +747,17 @@ class EmbeddingTrainManager(object):
 
         self.global_step = tf.train.get_or_create_global_step()
 
-        self.lr_placeholder = tf.placeholder(tf.float32, name='lr_placeholder')
-        self.step_placeholder = tf.placeholder(tf.int64, name='step_placeholder')
-        self.dr_placeholder = tf.placeholder(tf.float32, name='dr_placeholder')
-        self.learning_rate = tf.train.exponential_decay(self.lr_placeholder,
+        # self.lr_placeholder = tf.placeholder(tf.float32, name='lr_placeholder')
+        # self.step_placeholder = tf.placeholder(tf.int64, name='step_placeholder')
+        # self.dr_placeholder = tf.placeholder(tf.float32, name='dr_placeholder')
+        # self.learning_rate = tf.train.exponential_decay(self.lr_placeholder,
+        #                                                 self.global_step,
+        #                                                 self.args.decay_epoch * self.step_placeholder,
+        #                                                 self.dr_placeholder,
+        #                                                 staircase=True)
+        self.learning_rate = tf.train.exponential_decay(self.args.learning_rate,
                                                         self.global_step,
-                                                        self.args.decay_epoch * self.step_placeholder,
-                                                        self.dr_placeholder,
-                                                        staircase=True)
+                                                        9999, self.args.decay_rate)
         with tf.variable_scope('optimizer'):
             self.optimizer = get_opt(self.args.optimizer, self.learning_rate)
 
@@ -775,7 +781,9 @@ class EmbeddingTrainManager(object):
 
         tf.summary.scalar('loss', self.loss),
         tf.summary.scalar('baseline', self.baseline),
-        # tf.summary.scalar('learning_rate', self.learning_rate)
+        tf.summary.scalar('learning_rate', self.learning_rate)
+
+        self.train_summaries_op = tf.summary.merge_all()
 
         self.init_op = tf.variables_initializer(tf.global_variables() + tf.local_variables())
 
@@ -785,6 +793,8 @@ class EmbeddingTrainManager(object):
             self.checkpoint_file = tf.train.latest_checkpoint(self.checkpoint_dir)
         pp.pprint(tf.global_variables())
 
+    def setting(self):
+        pass
     def train(self):
         config_ = tf.ConfigProto(allow_soft_placement=True, )
         config_.gpu_options.allow_growth = True
@@ -793,54 +803,29 @@ class EmbeddingTrainManager(object):
             if self.checkpoint_file:
                 self.saver.restore(sess, self.checkpoint_file)
 
-            def save():
-                self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))
-
-            def save_sum(summary_):
-                sw.add_summary(summary_, tf.train.global_step(sess, self.global_step))
-            max_length, now_loss, prev_loss = 1, 1 ,0
+            max_length, delta, avg_loss, step = 1, 1, 0, 1
             while max_length < 13:
-                while abs(now_loss - prev_loss) > 1E-4:
+                try:
                     sess.run(self.data.iterator.initializer, feed_dict={
                         self.data.file_names_placeholder: self.data.get_records(list(range(1, max_length + 1)))})
-
-            # Training loop
-            def train_loop(epoch_, y=0, y_=0):
-                sess.run(data.iterator.initializer, feed_dict={
-                    data.file_names_placeholder: data.file_names[:args.give_shards],
-                })
-                step = tf.train.global_step(sess, global_step)
-                print("Training Loop Epoch %d" % epoch_)
-                step = step % total_step
-                pbar = trange(step, total_step)
-                for _ in pbar:
-                    try:
-                        _, l, bl, step, y, y_, gv_summary, summary = sess.run(
-                            [train_op, loss, baseline, global_step,
-                             model.output, data.vec,
-                             train_gv_summaries_op, train_summaries_op])
-                        if step % max((total_step // 100), 10) == 0:
-                            save_sum(summary)
-                            save_sum(gv_summary)
-                        if step % max((total_step // 10), 100) == 0:
-                            save()
-                        pbar.set_description(
-                            '[%s/%s] step: %d loss: %.3f base: %.3f' % (epoch_, args.epoch, step, l, bl))
-                    except KeyboardInterrupt:
-                        save()
-                        print()
-                        return True
-
-                print("Training Loop Epoch %d Done..." % epoch_)
-                print(y_, y, sep='\n\n\n')
-                time.sleep(10)
-                save()
-                return False
-
-            now_epoch = tf.train.global_step(sess, global_step) // total_step + 1
-            for epoch in range(now_epoch, args.epoch + 1):
-                if train_loop(epoch):
-                    break
+                    while abs(delta) > 1E-4:
+                        _, l, bl, step, y, y_, summary = sess.run(
+                            [self.train_op, self.loss, self.baseline, self.global_step,
+                             self.model.output, self.data.vec, self.train_summaries_op])
+                        if step % 10 == 0:
+                            sw.add_summary(summary, tf.train.global_step(sess, self.global_step))
+                        if step % 100 == 0:
+                            self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))
+                        print('[%d/%d] step: %d loss: %.3f base: %.3f' % (max_length, self.args.max_length, step, l, bl))
+                        delta = (l - avg_loss) / step
+                        avg_loss = avg_loss + delta
+                    if avg_loss > 1E-3:
+                        sess.run(self.init_op)
+                        max_length = 1
+                    else:
+                        max_length += 1
+                except KeyboardInterrupt:
+                    self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))
 
     def get_model(self):
         if self.args.model == 'myconv':
