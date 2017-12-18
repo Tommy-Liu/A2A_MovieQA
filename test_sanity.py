@@ -40,7 +40,7 @@ def check_tfrecord():
 
 
 def test_npy():
-    video_data = du.load_json(config.video_data_file)
+    video_data = du.jload(config.video_data_file)
 
     for key in tqdm(video_data.keys(),
                     desc="Check sanity of features"):

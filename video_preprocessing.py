@@ -370,9 +370,9 @@ def video_process(manager, shared_videos_clips, keys):
             pbar.update()
 
     du.exist_then_remove(config.video_data_file)
-    du.write_json(shared_video_data.copy(), config.video_data_file)
+    du.jdump(shared_video_data.copy(), config.video_data_file)
     du.exist_then_remove(config.shot_boundary_file)
-    du.write_json(shared_shot_boundary.copy(), config.shot_boundary_file)
+    du.jdump(shared_shot_boundary.copy(), config.shot_boundary_file)
 
     return shared_video_data
 
@@ -394,11 +394,11 @@ def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
             pbar.update()
 
     du.exist_then_remove(config.subtitle_file)
-    du.write_json(shared_video_subtitle.copy(), config.subtitle_file)
+    du.jdump(shared_video_subtitle.copy(), config.subtitle_file)
     du.exist_then_remove(config.frame_time_file)
-    du.write_json(shared_frame_time.copy(), config.frame_time_file)
+    du.jdump(shared_frame_time.copy(), config.frame_time_file)
     du.exist_then_remove(config.subtitle_shot_file)
-    du.write_json(shared_video_subtitle_shot.copy(), config.subtitle_shot_file)
+    du.jdump(shared_video_subtitle_shot.copy(), config.subtitle_shot_file)
 
 
 def main():
@@ -409,7 +409,7 @@ def main():
         if not args.no_video:
             shared_video_data = video_process(manager, shared_videos_clips, keys)
         else:
-            shared_video_data = du.load_json(config.video_data_file)
+            shared_video_data = du.jload(config.video_data_file)
 
         if not args.no_subt:
             subtitle_process(manager, shared_videos_clips, shared_video_data, keys)

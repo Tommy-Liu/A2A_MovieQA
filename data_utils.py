@@ -31,12 +31,12 @@ def pad_list_numpy(l, length):
     return arr
 
 
-def write_json(obj, file_name, ensure_ascii=False, indent=4):
+def jdump(obj, file_name, ensure_ascii=False, indent=4):
     with open(file_name, 'w') as f:
         json.dump(obj, f, ensure_ascii=ensure_ascii, indent=indent)
 
 
-def load_json(file_name):
+def jload(file_name):
     with open(file_name, 'r') as f:
         data = json.load(f)
     return data

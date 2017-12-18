@@ -1,4 +1,5 @@
 import io
+import itertools
 import math
 import os
 import pprint
@@ -151,7 +152,7 @@ class EmbeddingData(object):
                 .repeat()
             self.iterator = self.dataset.make_initializable_iterator()
             self.vec, self.word, self.len = self.iterator.get_next()
-        self.vocab = du.load_json(config.char_vocab_file)
+        self.vocab = du.jload(config.char_vocab_file)
         self.vocab_size = len(self.vocab)
         print('Data Loading Finished with %.3f s.' % (time.time() - start_time))
 
@@ -470,7 +471,7 @@ def load_embedding_vec():
         load_fn = None
 
     if exists(key_file) and exists(vec_file):
-        embedding_keys = du.load_json(key_file)
+        embedding_keys = du.jload(key_file)
         embedding_vecs = np.load(vec_file)
     else:
         embedding = load_fn(raw_file)
@@ -479,7 +480,7 @@ def load_embedding_vec():
         for i, k in enumerate(embedding.keys()):
             embedding_keys.append(k)
             embedding_vecs[i] = embedding[k]
-        du.write_json(embedding_keys, key_file)
+        du.jdump(embedding_keys, key_file)
         np.save(vec_file, embedding_vecs)
 
     print('Loading embedding done. %.3f s' % (time.time() - start_time))
@@ -526,8 +527,8 @@ def filter_stat(embedding_keys, embedding_vecs):
 
 
 def process():
-    # tokenize_qa = du.load_json(config.avail_tokenize_qa_file)
-    # subtitle = du.load_json(config.subtitle_file)
+    # tokenize_qa = du.jload(config.avail_tokenize_qa_file)
+    # subtitle = du.jload(config.subtitle_file)
 
     embedding_keys, embedding_vecs = load_embedding_vec()
 
@@ -553,8 +554,8 @@ def process():
     #                 for w in l:
     #                     qa_char_counter.update(w)
 
-    du.write_json(embed_char_counter, config.embed_char_counter_file)
-    # du.write_json(qa_char_counter, config.qa_char_counter_file)
+    du.jdump(embed_char_counter, config.embed_char_counter_file)
+    # du.jdump(qa_char_counter, config.qa_char_counter_file)
 
     # count_array = np.array(list(embed_char_counter.values()), dtype=np.float32)
     # m, v, md, f = np.mean(count_array), np.std(count_array), np.median(count_array), np.percentile(count_array, 95)
@@ -564,11 +565,11 @@ def process():
     # below_mean = dict(filter(lambda item: item[1] < f, embed_char_counter.items()))
     # below_occur = set(filter(lambda k: k in qa_char_counter, below_mean.keys()))
     # final_set = below_occur.union(set(above_mean.keys()))
-    # du.write_json(list(final_set) + [UNK], config.char_vocab_file)
+    # du.jdump(list(final_set) + [UNK], config.char_vocab_file)
     vocab = list(embed_char_counter.keys()) + [UNK]
     print('Filtered vocab:', vocab)
-    du.write_json(vocab, config.char_vocab_file)
-    # vocab = du.load_json(config.char_vocab_file)
+    du.jdump(vocab, config.char_vocab_file)
+    # vocab = du.jload(config.char_vocab_file)
     encode_embedding_keys = np.ones((len(embedding_keys), args.max_length), dtype=np.int64) * (len(vocab) - 1)
     length = np.zeros(len(embedding_keys), dtype=np.int64)
     for i, k in enumerate(tqdm(embedding_keys, desc='Encoding...')):
@@ -669,7 +670,7 @@ def inspect():
     #
     # filter_stat(embedding_keys, embedding_vecs)
 
-    # vocab = du.load_json(config.char_vocab_file)
+    # vocab = du.jload(config.char_vocab_file)
     # length = np.load(config.encode_embedding_len_file)
     # vecs = np.load(config.encode_embedding_vec_file)
     # lack = [ch for ch in string.ascii_lowercase + string.digits if ch not in vocab]
@@ -716,6 +717,18 @@ def get_opt(name, learning_rate):
 
 # TODO(tommy8054): Well... A little bit lazy to implement this... Maybe later?
 class EmbeddingTrainManager(object):
+    perturbation = {
+        'learning_rate': lambda a, i: a * (10 ** i),
+        'init_mean': lambda a, i: a + (0.1 * i),
+        'init_scale': lambda a, i: a + (0.025 * i)
+    }
+    diff = {
+        'learning_rate': lambda a, b: round(math.log10(b / a)),
+        'init_mean': lambda a, b: round((b - a) / 0.1),
+        'init_scale': lambda a, b: round((b - a) / 0.025)
+    }
+    target = ['learning_rate', 'init_mean', 'init_scale']
+
     def __init__(self, arguments, args_parser):
         self.args = arguments
         self.args_parser = args_parser
@@ -729,10 +742,8 @@ class EmbeddingTrainManager(object):
         else:
             self.checkpoint_file = tf.train.latest_checkpoint(self.checkpoint_dir)
 
-        self.performance = LUL()
-        self.performance.__dict__ = {
-            'baseline': 0, 'max_length': 1, 'trace': 0
-        }
+        self.val = LUL()
+        self.val.__dict__ = {'baseline': 0, 'max_length': 1, 'lock': True}
 
         tf.reset_default_graph()
         with tf.variable_scope('model'):
@@ -814,6 +825,39 @@ class EmbeddingTrainManager(object):
     def param_file(self):
         return join(self.log_dir, '%s.json' % self.exp_name)
 
+    def search_param(self):
+        exp_paths = glob(join(config.log_dir, 'embedding_log', '**', '*.json'), recursive=True)
+        exps = [du.jload(p) for p in exp_paths]
+
+        grid = set([(self.diff[k](self.args.__dict__[k], exp['args'][k])
+                     for k in self.target) for exp in exps])
+        base = set(list(itertools.product(range(-1, 2), repeat=len(self.target))))
+
+        chosen = base.difference(grid)
+
+        for idx, p in enumerate(list(chosen)[0]):
+            param = self.target[idx]
+            self.args.__dict__[param] = self.perturbation[param]()
+
+    def inject_param(self, arg=None, val=None):
+        if arg:
+            for k in arg:
+                if self.args.__dict__.get(k, None):
+                    self.args.__dict__[k] = arg[k]
+        if val:
+            for k in val:
+                if self.val.__dict__.get(k, None):
+                    self.val.__dict__[k] = val[k]
+        du.jdump({'args': self.args.__dict__, 'val': self.val.__dict__}, self.param_file)
+
+    def retrieve_param(self, file_name=None):
+        if file_name:
+            d = du.jload(file_name)
+        else:
+            d = du.jload(file_name)
+
+        self.args, self.val = d['args'], d['val']
+
     def reset(self):
         if exists(self.checkpoint_dir):
             shutil.rmtree(self.checkpoint_dir)
@@ -851,10 +895,19 @@ class EmbeddingTrainManager(object):
                         sess.run(self.init_op)
                         max_length = 1
                     else:
-
+                        du.jdump({'args': self.args.__dict__,
+                                  'val': {'max_length': max_length, 'base_line': avg_loss, 'lock': True}},
+                                 self.param_file)
                         max_length += 1
                 except KeyboardInterrupt:
                     self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))
+                    param = du.jload(self.param_file)
+                    param['val']['lock'] = False
+                    du.jdump(param, self.param_file)
+
+            du.jdump({'args': self.args.__dict__,
+                      'val': {'max_length': max_length, 'base_line': avg_loss, 'lock': True}},
+                     self.param_file)
 
     def get_model(self):
         if self.args.model == 'myconv':

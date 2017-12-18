@@ -295,7 +295,7 @@ class TrainManager(object):
 
     def _update_exp(self, item):
         self.exp.update(item)
-        du.write_json(self.exp, config.exp_file)
+        du.jdump(self.exp, config.exp_file)
 
 
 def main(_):

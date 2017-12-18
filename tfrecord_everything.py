@@ -1,11 +1,12 @@
 # import argparse
 import math
-import numpy as np
-import tensorflow as tf
 from functools import partial
 from glob import glob
 from multiprocessing import Pool
 from os.path import join, exists
+
+import numpy as np
+import tensorflow as tf
 from tensorflow.contrib.data import TFRecordDataset
 from tqdm import trange, tqdm
 
@@ -44,7 +45,7 @@ class TfRecordDataSet(object):
 
     def __init__(self, target=None, dset_name='default', num_shards=128, num_threads=8):
         if exists(self.info_file):
-            self.info = du.load_json(self.info_file)
+            self.info = du.jload(self.info_file)
         self.dset_name = dset_name
         du.exist_make_dirs(self.dset_dir)
         self.num_shards = num_shards

@@ -45,7 +45,7 @@ def models(images):
 
 def get_images_path():
     file_names, capacity, npy_names = [], [], []
-    video_data = du.load_json(config.video_data_file)
+    video_data = du.jload(config.video_data_file)
     for key in tqdm(video_data.keys()):
         if video_data[key]['avail']:
             npy_names.append(du.get_npy_name(config.feature_dir, key))

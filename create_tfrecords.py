@@ -188,8 +188,8 @@ def main(_):
         print('Test tfrecords.')
         test()
     else:
-        encode_qa = du.load_json(config.avail_encode_qa_file)
-        encode_subtitle = du.load_json(config.encode_subtitle_file)
+        encode_qa = du.jload(config.avail_encode_qa_file)
+        encode_subtitle = du.jload(config.encode_subtitle_file)
         print('Json file loading done !!')
         du.exist_make_dirs(config.dataset_dir)
         create_tfrecord(encode_qa['encode_qa_%s' % FLAGS.split],

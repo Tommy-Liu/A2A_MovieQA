@@ -1,10 +1,8 @@
 from config import MovieQAConfig
-from data_utils import load_json
+from data_utils import jload
 config = MovieQAConfig()
 
-
-
-avail_video_metadata = load_json(config.avail_video_metadata_file)
+avail_video_metadata = jload(config.avail_video_metadata_file)
 
 print(avail_video_metadata.keys())
 # print(avail_video_metadata['list'])
