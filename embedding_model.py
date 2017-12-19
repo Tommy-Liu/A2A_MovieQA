@@ -1,6 +1,7 @@
 import io
 import itertools
 import math
+import numbers
 import os
 import pprint
 import shutil
@@ -24,7 +25,6 @@ import data_utils as du
 from args import args_parse
 from config import MovieQAConfig
 from model import extract_axis_1
-from odds import LUL
 
 UNK = 'UNK'
 RECORD_FILE_PATTERN = join('./embedding_dataset', 'embedding_%s%05d-of-%05d.tfrecord')
@@ -173,8 +173,8 @@ class EmbeddingData(object):
 class MatricesModel(object):
     def __init__(self, data):
         self.data = data
-        self.init_mean, self.init_stddev = tf.placeholder(tf.float32, name='init_mean'), \
-                                           tf.placeholder(tf.float32, name='init_stddev')
+        self.init_mean, self.init_stddev = tf.placeholder(tf.float32, shape=[1], name='init_mean'), \
+                                           tf.placeholder(tf.float32, shape=[1], name='init_stddev')
         initializer = get_initializer(self.init_mean, self.init_stddev)
 
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, embedding_size, embedding_size],
@@ -594,7 +594,8 @@ def process():
 
 def inspect():
     manager = EmbeddingTrainManager(args, parser)
-    manager.__init__(manager.args, manager.args_parser)
+
+    # manager.__init__(manager.args, manager.args_parser)
     # manager.train()
     # data = EmbeddingData(2)
     # model = MatricesModel(data)
@@ -730,84 +731,108 @@ class EmbeddingTrainManager(object):
     target = ['learning_rate', 'init_mean', 'init_scale']
 
     def __init__(self, arguments, args_parser):
+        # Initialize all constant parameters,
+        # including paths, hyper-parameters, model name...etc.
         self.args = arguments
+        self.args_dict = self.args.__dict__
+        self.val_dict = {'baseline': 0, 'max_length': 1, 'lock': True}
         self.args_parser = args_parser
-        self.data = EmbeddingData(self.args.batch_size)
 
+        if len(sys.argv) == 1:
+            self.search_param()
+
+        if self.args.reset:
+            self.remove()
         du.exist_make_dirs(self.log_dir)
         du.exist_make_dirs(self.checkpoint_dir)
-
         if args.checkpoint_file:
             self.checkpoint_file = args.checkpoint_file
         else:
             self.checkpoint_file = tf.train.latest_checkpoint(self.checkpoint_dir)
+        # Lock the current experiment.
+        self.lock_exp()
+        try:
+            # tensorflow pipeline
+            tf.reset_default_graph()
+            self.data = EmbeddingData(self.args.batch_size)
+            with tf.variable_scope('model'):
+                self.model = self.get_model()
+            self.loss = get_loss(self.args.loss, self.data, self.model) + \
+                        get_loss(self.args.sec_loss, self.data, self.model)
 
-        self.val = LUL()
-        self.val.__dict__ = {'baseline': 0, 'max_length': 1, 'lock': True}
+            self.baseline = get_loss('mse', self.data, self.model)
 
-        tf.reset_default_graph()
-        with tf.variable_scope('model'):
-            self.model = self.get_model()
-        self.loss = get_loss(self.args.loss, self.data, self.model) + \
-                    get_loss(self.args.sec_loss, self.data, self.model)
+            self.global_step = tf.train.get_or_create_global_step()
 
-        self.baseline = get_loss('mse', self.data, self.model)
+            # self.lr_placeholder = tf.placeholder(tf.float32, name='lr_placeholder')
+            # self.step_placeholder = tf.placeholder(tf.int64, name='step_placeholder')
+            # self.dr_placeholder = tf.placeholder(tf.float32, name='dr_placeholder')
+            # self.learning_rate = tf.train.exponential_decay(self.lr_placeholder,
+            #                                                 self.global_step,
+            #                                                 self.args.decay_epoch * self.step_placeholder,
+            #                                                 self.dr_placeholder,
+            #                                                 staircase=True)
+            self.learning_rate = tf.train.exponential_decay(self.args.learning_rate,
+                                                            self.global_step,
+                                                            9999, self.args.decay_rate)
+            with tf.variable_scope('optimizer'):
+                self.optimizer = get_opt(self.args.optimizer, self.learning_rate)
 
-        self.global_step = tf.train.get_or_create_global_step()
+            grads_and_vars = self.optimizer.compute_gradients(self.loss)
+            gradients, variables = list(zip(*grads_and_vars))
+            for var in variables:
+                print(var.name, var.shape)
 
-        # self.lr_placeholder = tf.placeholder(tf.float32, name='lr_placeholder')
-        # self.step_placeholder = tf.placeholder(tf.int64, name='step_placeholder')
-        # self.dr_placeholder = tf.placeholder(tf.float32, name='dr_placeholder')
-        # self.learning_rate = tf.train.exponential_decay(self.lr_placeholder,
-        #                                                 self.global_step,
-        #                                                 self.args.decay_epoch * self.step_placeholder,
-        #                                                 self.dr_placeholder,
-        #                                                 staircase=True)
-        self.learning_rate = tf.train.exponential_decay(self.args.learning_rate,
-                                                        self.global_step,
-                                                        9999, self.args.decay_rate)
-        with tf.variable_scope('optimizer'):
-            self.optimizer = get_opt(self.args.optimizer, self.learning_rate)
+            if not args.model == 'myconv':
+                capped_grads_and_vars = [(tf.clip_by_norm(gv[0], args.clip_norm), gv[1]) for gv in grads_and_vars]
+            else:
+                capped_grads_and_vars = grads_and_vars
 
-        grads_and_vars = self.optimizer.compute_gradients(self.loss)
-        gradients, variables = list(zip(*grads_and_vars))
-        for var in variables:
-            print(var.name, var.shape)
+            self.train_op = self.optimizer.apply_gradients(capped_grads_and_vars, self.global_step)
+            self.saver = tf.train.Saver(tf.global_variables(), )
 
-        if not args.model == 'myconv':
-            capped_grads_and_vars = [(tf.clip_by_norm(gv[0], args.clip_norm), gv[1]) for gv in grads_and_vars]
-        else:
-            capped_grads_and_vars = grads_and_vars
+            # Summary
+            for idx, var in enumerate(variables):
+                tf.summary.histogram('gradient/' + var.name, gradients[idx])
+                tf.summary.histogram(var.name, var)
 
-        self.train_op = self.optimizer.apply_gradients(capped_grads_and_vars, self.global_step)
-        self.saver = tf.train.Saver(tf.global_variables(), )
+            tf.summary.scalar('loss', self.loss),
+            tf.summary.scalar('baseline', self.baseline),
+            tf.summary.scalar('learning_rate', self.learning_rate)
 
-        # Summary
-        for idx, var in enumerate(variables):
-            tf.summary.histogram('gradient/' + var.name, gradients[idx])
-            tf.summary.histogram(var.name, var)
+            self.train_summaries_op = tf.summary.merge_all()
 
-        tf.summary.scalar('loss', self.loss),
-        tf.summary.scalar('baseline', self.baseline),
-        tf.summary.scalar('learning_rate', self.learning_rate)
+            self.init_op = tf.variables_initializer(tf.global_variables() + tf.local_variables())
 
-        self.train_summaries_op = tf.summary.merge_all()
+            pp.pprint(tf.global_variables())
+        finally:
+            self.unlock_exp()
 
-        self.init_op = tf.variables_initializer(tf.global_variables() + tf.local_variables())
+    def lock_exp(self):
+        self.inject_param(val={'lock': True})
 
-        pp.pprint(tf.global_variables())
+    def unlock_exp(self):
+        self.inject_param(val={'lock': False})
 
     @property
     def exp_name(self):
         args_dict = vars(self.args)
-        pairs = [(k, str(args_dict[k])) for k in sorted(args_dict.keys())
-                 if self.args_parser.get_default(k, None) is not None and
-                 args_dict[k] != self.args_parser.get_default(k) and
-                 not isinstance(args_dict[k], bool)]
+        # Filter the different value.
+        pairs = []
+        for k in sorted(args_dict.keys()):
+            default = self.args_parser.get_default(k)
+            if default is not None \
+                    and args_dict[k] != default \
+                    and not isinstance(args_dict[k], bool):
+                if isinstance(default, numbers.Number):
+                    pairs.append((k, '%E' % default))
+                else:
+                    pairs.append((k, str(default)))
+        # Compose the experiment name.
         if pairs:
-            return '_'.join(['.'.join(pair) for pair in pairs])
+            return '$'.join(['.'.join(pair) for pair in pairs])
         else:
-            return '.'.join(('learning_rate', str(args.learning_rate)))
+            return '.'.join(['learning_rate', '%E' % self.args.learning_rate])
 
     @property
     def log_dir(self):
@@ -827,28 +852,45 @@ class EmbeddingTrainManager(object):
 
     def search_param(self):
         exp_paths = glob(join(config.log_dir, 'embedding_log', '**', '*.json'), recursive=True)
-        exps = [du.jload(p) for p in exp_paths]
+        exps = []
+        for p in exp_paths:
+            exps.append({k: du.jload(p)['args'][k] for k in self.target})
+            exps[-1].update({k: du.jload(p)['val'][k] for k in self.val_dict.keys()})
 
-        grid = set([(self.diff[k](self.args.__dict__[k], exp['args'][k])
-                     for k in self.target) for exp in exps])
-        base = set(list(itertools.product(range(-1, 2), repeat=len(self.target))))
+        for idx, exp in enumerate(exps):
+            print('%d.' % (idx + 1))
+            pp.pprint(exp)
 
-        chosen = base.difference(grid)
+        choice = int(input('Choose one (0 or nothing=random perturbation):') or 0)
+        if choice:
+            pp.pprint(exps[choice - 1])
+            for k in self.target:
+                self.args_dict[k] = exps[choice - 1][k]
+            for k in self.val_dict.keys():
+                self.val_dict[k] = exps[choice - 1][k]
+        else:
+            grid = set(tuple(self.diff[k](self.args_dict[k], exp[k])
+                             for k in self.target)
+                       for exp in exps)
+            base = set(list(itertools.product(range(-1, 2), repeat=len(self.target))))
+            chosen = base.difference(grid)
 
-        for idx, p in enumerate(list(chosen)[0]):
-            param = self.target[idx]
-            self.args.__dict__[param] = self.perturbation[param]()
+            for idx, p in enumerate(list(iter(chosen))[0]):
+                param = self.target[idx]
+                self.args_dict[param] = self.perturbation[param](self.args_dict[param], p)
+
+        self.args.reset = bool(input('Reset? (any input=True):'))
 
     def inject_param(self, arg=None, val=None):
         if arg:
             for k in arg:
-                if self.args.__dict__.get(k, None):
-                    self.args.__dict__[k] = arg[k]
+                if k in self.args_dict:
+                    self.args_dict[k] = arg[k]
         if val:
             for k in val:
-                if self.val.__dict__.get(k, None):
-                    self.val.__dict__[k] = val[k]
-        du.jdump({'args': self.args.__dict__, 'val': self.val.__dict__}, self.param_file)
+                if k in self.val_dict:
+                    self.val_dict[k] = val[k]
+        du.jdump({'args': self.args_dict, 'val': self.val_dict}, self.param_file)
 
     def retrieve_param(self, file_name=None):
         if file_name:
@@ -858,23 +900,24 @@ class EmbeddingTrainManager(object):
 
         self.args, self.val = d['args'], d['val']
 
-    def reset(self):
+    def remove(self):
         if exists(self.checkpoint_dir):
             shutil.rmtree(self.checkpoint_dir)
         if exists(self.log_dir):
             shutil.rmtree(self.log_dir)
-        self.__init__(self.args, self.args_parser)
 
     def train(self):
         config_ = tf.ConfigProto(allow_soft_placement=True, )
         config_.gpu_options.allow_growth = True
         with tf.Session(config=config_) as sess, tf.summary.FileWriter(self.log_dir) as sw:
             sess.run(self.init_op, feed_dict={
+                self.model.init_mean: self.args.init_mean,
+                self.model.init_stddev: self.args.init_scale
             })
             if self.checkpoint_file:
                 self.saver.restore(sess, self.checkpoint_file)
 
-            max_length, delta, avg_loss, step = 1, 1, 0, 1
+            max_length, delta, avg_loss, step = self.val_dict['max_length'], 1, self.val_dict['baseline'], 1
             while max_length < 13:
                 try:
                     sess.run(self.data.iterator.initializer, feed_dict={
@@ -895,15 +938,11 @@ class EmbeddingTrainManager(object):
                         sess.run(self.init_op)
                         max_length = 1
                     else:
-                        du.jdump({'args': self.args.__dict__,
-                                  'val': {'max_length': max_length, 'base_line': avg_loss, 'lock': True}},
-                                 self.param_file)
+                        self.inject_param(val={'max_length': max_length, 'base_line': avg_loss})
                         max_length += 1
                 except KeyboardInterrupt:
                     self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))
-                    param = du.jload(self.param_file)
-                    param['val']['lock'] = False
-                    du.jdump(param, self.param_file)
+                    self.inject_param(val={'lock': True})
 
             du.jdump({'args': self.args.__dict__,
                       'val': {'max_length': max_length, 'base_line': avg_loss, 'lock': True}},
@@ -926,6 +965,10 @@ class EmbeddingTrainManager(object):
 
 
 def main():
+    manager = EmbeddingTrainManager(args, parser)
+
+
+def old_main():
     data = EmbeddingData(args.batch_size)
     if args.model == 'myconv':
         model = MyConvModel(data, char_dim=args.char_dim, conv_channel=args.conv_channel)
@@ -1070,12 +1113,13 @@ def main():
 
 if __name__ == '__main__':
     # global
+    print(sys.argv)
     args, parser = args_parse()
-    if args.process:
+    if args.mode == 'process':
         process()
-    if args.tfrecord:
+    elif args.mode == 'tfrecord':
         create_records()
-    if args.inspect:
+    elif args.mode == 'inspect':
         inspect()
-    if not (args.process or args.tfrecord or args.inspect):
+    else:
         main()

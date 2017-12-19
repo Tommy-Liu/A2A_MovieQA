@@ -4,22 +4,26 @@ import argparse
 def args_parse():
     parser = argparse.ArgumentParser()
     # ##################   Program Mode   #############################################################################
-    parser.add_argument('--process', action='store_true', help='Process the data which creating tfrecords needs.')
-    parser.add_argument('--inspect', action='store_true', help='Inspect the data stat.')
-    parser.add_argument('--tfrecord', action='store_true', help='Create tfrecords.')
+    subparsers = parser.add_subparsers(dest='mode')
+    parser_p = subparsers.add_parser('process')
+    parser_i = subparsers.add_parser('inspect')
+    parser_t = subparsers.add_parser('tfrecord')
+    # parser.add_argument('--process', action='store_true', help='Process the data which creating tfrecords needs.')
+    # parser.add_argument('--inspect', action='store_true', help='Inspect the data stat.')
+    # parser.add_argument('--tfrecord', action='store_true', help='Create tfrecords.')
     # #################################################################################################################
 
     # ##################   Embedding Target   #########################################################################
-    parser.add_argument('--target', default='glove', help='Learning target of word embedding.')
-    parser.add_argument('--num_shards', default=128, help='Number of tfrecords.', type=int)
-    parser.add_argument('--num_per_shard', default=10000, help='Number of instances in a shard.', type=int)
+    parser_p.add_argument('--target', default='glove', help='Learning target of word embedding.')
+    parser_p.add_argument('--sorted', action='store_true', help='Divide data into groups of same length')
+    parser_t.add_argument('--num_shards', default=128, help='Number of tfrecords.', type=int)
+    parser_t.add_argument('--num_per_shard', default=10000, help='Number of instances in a shard.', type=int)
     parser.add_argument('--max_length', default=12, help='Maximal word length.', type=int)
-    parser.add_argument('--raw_input', action='store_true', help='Use raw data as input without tfreord.')
-    parser.add_argument('--sorted', action='store_true', help='Divide data into groups of same length')
     # #################################################################################################################
 
     # ##################   Training Setting   #########################################################################
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
+    parser.add_argument('--raw_input', action='store_true', help='Use raw data as input without tfreord.')
     parser.add_argument('--give_shards', default=1, help='Number of training shards given', type=int)
     parser.add_argument('--checkpoint_file', default=None, help='Checkpoint file')
     parser.add_argument('--learning_rate', default=1E-4, help='Initial learning rate.', type=float)
@@ -49,8 +53,13 @@ def args_parse():
                         help='Initializer of weight.\n(identity / truncated / random / orthogonal / glorot)')
     parser.add_argument('--bias_init', default=1.0, help='RNN cell bias initialization value.', type=float)
     parser.add_argument('--init_mean', default=0.0, help='Initial value of weight\'s mean.', type=float)
-    parser.add_argument('--init_scale', default=0.15, help='Initial value of weight\'s scale.', type=float)
+    parser.add_argument('--init_scale', default=0.075, help='Initial value of weight\'s scale.', type=float)
     # ##################################################################################################################
     args = parser.parse_args()
 
     return args, parser
+
+
+if __name__ == '__main__':
+    a, p = args_parse()
+    print(a)
