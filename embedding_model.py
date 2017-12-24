@@ -173,8 +173,8 @@ class EmbeddingData(object):
 class MatricesModel(object):
     def __init__(self, data):
         self.data = data
-        self.init_mean, self.init_stddev = tf.placeholder(tf.float32, shape=[1], name='init_mean'), \
-                                           tf.placeholder(tf.float32, shape=[1], name='init_stddev')
+        self.init_mean, self.init_stddev = tf.placeholder(tf.float32, shape=[], name='init_mean'), \
+                                           tf.placeholder(tf.float32, shape=[], name='init_stddev')
         initializer = get_initializer(self.init_mean, self.init_stddev)
 
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, embedding_size, embedding_size],
@@ -593,8 +593,16 @@ def process():
 
 
 def inspect():
-    manager = EmbeddingTrainManager(args, parser)
+    exp_paths = glob(join(config.log_dir, 'embedding_log', '**', '*.json'), recursive=True)
+    exps = []
+    for p in exp_paths:
+        exps.append({k: du.jload(p)['args'][k] for k in ['learning_rate', 'init_mean', 'init_scale']})
+        exps[-1].update({k: du.jload(p)['val'][k] for k in ['baseline', 'max_length', 'lock']})
 
+    for idx, exp in enumerate(exps):
+        print('%d.' % (idx + 1))
+        pp.pprint(exp)
+    # manager = EmbeddingTrainManager(args, parser)
     # manager.__init__(manager.args, manager.args_parser)
     # manager.train()
     # data = EmbeddingData(2)
@@ -725,8 +733,8 @@ class EmbeddingTrainManager(object):
     }
     diff = {
         'learning_rate': lambda a, b: round(math.log10(b / a)),
-        'init_mean': lambda a, b: round((b - a) / 0.1),
-        'init_scale': lambda a, b: round((b - a) / 0.025)
+        'init_mean': lambda a, b: round((b - a) * 10),
+        'init_scale': lambda a, b: round((b - a) * 40)
     }
     target = ['learning_rate', 'init_mean', 'init_scale']
 
@@ -740,6 +748,8 @@ class EmbeddingTrainManager(object):
 
         if len(sys.argv) == 1:
             self.search_param()
+        else:
+            self.retrieve_param(self.param_file)
 
         if self.args.reset:
             self.remove()
@@ -764,17 +774,14 @@ class EmbeddingTrainManager(object):
 
             self.global_step = tf.train.get_or_create_global_step()
 
-            # self.lr_placeholder = tf.placeholder(tf.float32, name='lr_placeholder')
-            # self.step_placeholder = tf.placeholder(tf.int64, name='step_placeholder')
-            # self.dr_placeholder = tf.placeholder(tf.float32, name='dr_placeholder')
-            # self.learning_rate = tf.train.exponential_decay(self.lr_placeholder,
-            #                                                 self.global_step,
-            #                                                 self.args.decay_epoch * self.step_placeholder,
-            #                                                 self.dr_placeholder,
-            #                                                 staircase=True)
-            self.learning_rate = tf.train.exponential_decay(self.args.learning_rate,
+            self.lr_placeholder = tf.placeholder(tf.float32, name='lr_placeholder')
+            self.step_placeholder = tf.placeholder(tf.int64, name='step_placeholder')
+            self.dr_placeholder = tf.placeholder(tf.float32, name='dr_placeholder')
+            self.learning_rate = tf.train.exponential_decay(self.lr_placeholder,
                                                             self.global_step,
-                                                            9999, self.args.decay_rate)
+                                                            self.args.decay_epoch * self.step_placeholder,
+                                                            self.dr_placeholder,
+                                                            staircase=True)
             with tf.variable_scope('optimizer'):
                 self.optimizer = get_opt(self.args.optimizer, self.learning_rate)
 
@@ -803,6 +810,8 @@ class EmbeddingTrainManager(object):
             self.train_summaries_op = tf.summary.merge_all()
 
             self.init_op = tf.variables_initializer(tf.global_variables() + tf.local_variables())
+            self.init_feed_dict = {self.model.init_mean: self.args.init_mean,
+                                   self.model.init_stddev: self.args.init_scale}
 
             pp.pprint(tf.global_variables())
         finally:
@@ -824,15 +833,15 @@ class EmbeddingTrainManager(object):
             if default is not None \
                     and args_dict[k] != default \
                     and not isinstance(args_dict[k], bool):
-                if isinstance(default, numbers.Number):
-                    pairs.append((k, '%E' % default))
+                if isinstance(args_dict[k], numbers.Number):
+                    pairs.append((k, '%.2E' % args_dict[k]))
                 else:
-                    pairs.append((k, str(default)))
+                    pairs.append((k, str(args_dict[k])))
         # Compose the experiment name.
         if pairs:
             return '$'.join(['.'.join(pair) for pair in pairs])
         else:
-            return '.'.join(['learning_rate', '%E' % self.args.learning_rate])
+            return '.'.join(['learning_rate', '%.2E' % self.args.learning_rate])
 
     @property
     def log_dir(self):
@@ -850,6 +859,14 @@ class EmbeddingTrainManager(object):
     def param_file(self):
         return join(self.log_dir, '%s.json' % self.exp_name)
 
+    @property
+    def train_feed_dict(self):
+        return {
+            self.lr_placeholder: self.args.learning_rate,
+            self.dr_placeholder: self.args.decay_rate,
+            self.step_placeholder: self.args.decay_epoch * self.data.total_step
+        }
+
     def search_param(self):
         exp_paths = glob(join(config.log_dir, 'embedding_log', '**', '*.json'), recursive=True)
         exps = []
@@ -862,6 +879,9 @@ class EmbeddingTrainManager(object):
             pp.pprint(exp)
 
         choice = int(input('Choose one (0 or nothing=random perturbation):') or 0)
+        while choice and exps[choice - 1]['lock']:
+            choice = int(input('Your choice is locked. Please try the other one:') or 0)
+
         if choice:
             pp.pprint(exps[choice - 1])
             for k in self.target:
@@ -874,10 +894,11 @@ class EmbeddingTrainManager(object):
                        for exp in exps)
             base = set(list(itertools.product(range(-1, 2), repeat=len(self.target))))
             chosen = base.difference(grid)
-
+            print(len(grid), len(base), len(chosen))
             for idx, p in enumerate(list(iter(chosen))[0]):
                 param = self.target[idx]
                 self.args_dict[param] = self.perturbation[param](self.args_dict[param], p)
+                print(param + ':', self.args_dict[param])
 
         self.args.reset = bool(input('Reset? (any input=True):'))
 
@@ -893,12 +914,9 @@ class EmbeddingTrainManager(object):
         du.jdump({'args': self.args_dict, 'val': self.val_dict}, self.param_file)
 
     def retrieve_param(self, file_name=None):
-        if file_name:
+        if exists(file_name):
             d = du.jload(file_name)
-        else:
-            d = du.jload(file_name)
-
-        self.args, self.val = d['args'], d['val']
+            self.args_dict, self.val_dict = d['args'], d['val']
 
     def remove(self):
         if exists(self.checkpoint_dir):
@@ -910,43 +928,57 @@ class EmbeddingTrainManager(object):
         config_ = tf.ConfigProto(allow_soft_placement=True, )
         config_.gpu_options.allow_growth = True
         with tf.Session(config=config_) as sess, tf.summary.FileWriter(self.log_dir) as sw:
-            sess.run(self.init_op, feed_dict={
-                self.model.init_mean: self.args.init_mean,
-                self.model.init_stddev: self.args.init_scale
-            })
+            # Initialize all variables
+            sess.run(self.init_op, feed_dict=self.init_feed_dict)
             if self.checkpoint_file:
+                print(self.checkpoint_file)
                 self.saver.restore(sess, self.checkpoint_file)
 
-            max_length, delta, avg_loss, step = self.val_dict['max_length'], 1, self.val_dict['baseline'], 1
-            while max_length < 13:
-                try:
-                    sess.run(self.data.iterator.initializer, feed_dict={
-                        self.data.file_names_placeholder: self.data.get_records(list(range(1, max_length + 1)))})
-                    while abs(delta) > 1E-4:
-                        _, l, bl, step, y, y_, summary = sess.run(
-                            [self.train_op, self.loss, self.baseline, self.global_step,
-                             self.model.output, self.data.vec, self.train_summaries_op])
-                        if step % 10 == 0:
-                            sw.add_summary(summary, tf.train.global_step(sess, self.global_step))
-                        if step % 100 == 0:
-                            self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))
-                        print(
-                            '[%d/%d] step: %d loss: %.3f base: %.3f' % (max_length, self.args.max_length, step, l, bl))
-                        delta = (bl - avg_loss) / step
-                        avg_loss = avg_loss + delta
-                    if avg_loss > 1E-3:
-                        sess.run(self.init_op)
-                        max_length = 1
-                    else:
-                        self.inject_param(val={'max_length': max_length, 'base_line': avg_loss})
-                        max_length += 1
-                except KeyboardInterrupt:
-                    self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))
-                    self.inject_param(val={'lock': True})
-
-            du.jdump({'args': self.args.__dict__,
-                      'val': {'max_length': max_length, 'base_line': avg_loss, 'lock': True}},
-                     self.param_file)
+            max_length = self.val_dict['max_length']
+            # Minimize loss until each of length commits.
+            self.lock_exp()
+            try:
+                while max_length < 13:
+                    delta, prev_loss, step = 1, 0, 1
+                    try:
+                        # Give instances of current length.
+                        sess.run(self.data.iterator.initializer, feed_dict={
+                            self.data.file_names_placeholder: self.data.get_records(list(range(1, max_length + 1)))})
+                        # Minimize loss of current length until loss unimproved.
+                        while abs(delta) > 1E-8:
+                            _, bl, step, summary = sess.run(
+                                [self.train_op, self.baseline, self.global_step, self.train_summaries_op],
+                                feed_dict=self.train_feed_dict)
+                            if step % 10 == 0:
+                                sw.add_summary(summary, tf.train.global_step(sess, self.global_step))
+                                print('|-- total_step:{:>30}'.format(self.data.total_step))
+                                print(
+                                    '\n'.join(['|-- {}: {:>30.2E}'.format(k, self.args_dict[k]) for k in self.target]))
+                            if step % 100 == 0:
+                                self.saver.save(sess, self.checkpoint_name,
+                                                tf.train.global_step(sess, self.global_step))
+                            print('[%d/%d] step: %d delta: %.2E base: %.2E' %
+                                  (max_length, self.args.max_length, step, delta, bl))
+                            delta = bl - prev_loss
+                            prev_loss = bl
+                        # Increment the current length if loss is lower than threshold,
+                        # or reset to 1 to search for other possibility.
+                        pp.pprint(sess.run([self.data.vec, self.model.output]))
+                        print('Length %d loss minimization done.' % max_length)
+                        if bl > 1E-1:
+                            sess.run(self.init_op, feed_dict=self.init_feed_dict)
+                            max_length = 1
+                            print('Length %d fail. Reset all.' % max_length)
+                        else:
+                            sess.run(self.global_step.initializer)
+                            self.inject_param(val={'max_length': max_length, 'base_line': bl})
+                            max_length += 1
+                            print('Length %d commits.' % max_length)
+                    except KeyboardInterrupt:
+                        self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))
+                        break
+            finally:
+                self.unlock_exp()
 
     def get_model(self):
         if self.args.model == 'myconv':
@@ -966,6 +998,7 @@ class EmbeddingTrainManager(object):
 
 def main():
     manager = EmbeddingTrainManager(args, parser)
+    manager.train()
 
 
 def old_main():
