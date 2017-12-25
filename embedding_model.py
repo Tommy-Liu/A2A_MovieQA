@@ -1,4 +1,3 @@
-import io
 import itertools
 import math
 import numbers
@@ -13,10 +12,11 @@ from glob import glob
 from multiprocessing import Pool
 from os.path import join, exists
 from random import shuffle
+from model_utils import get_initializer, get_opt, get_loss
 
 import numpy as np
 import tensorflow as tf
-import tensorflow.contrib.data as tfdata
+import tensorflow.contrib.data as tf_data
 import tensorflow.contrib.layers as layers
 import tensorflow.contrib.rnn as rnn
 from tqdm import tqdm, trange
@@ -31,55 +31,6 @@ RECORD_FILE_PATTERN = join('./embedding_dataset', 'embedding_%s%05d-of-%05d.tfre
 pp = pprint.PrettyPrinter(indent=4, compact=True)
 embedding_size = 300
 config = MovieQAConfig()
-
-
-def load_w2v(file):
-    embedding = {}
-
-    with open(file, 'r') as f:
-        num, dim = [int(comp) for comp in f.readline().strip().split()]
-        for _ in trange(num, desc='Load word embedding %dd' % dim):
-            word, *vec = f.readline().rstrip().rsplit(sep=' ', maxsplit=dim)
-            vec = [float(e) for e in vec]
-            embedding[word] = vec
-        assert len(embedding) == num, 'Wrong size of embedding.'
-    return embedding
-
-
-def load_glove(filename):
-    embedding = {}
-
-    # Read in the data.
-    with io.open(filename, 'r', encoding='utf-8') as savefile:
-        for i, line in enumerate(tqdm(savefile)):
-            tokens = line.rstrip().split(sep=' ', maxsplit=embedding_size)
-
-            word, *entries = tokens
-
-            embedding[word] = [float(x) for x in entries]
-            assert len(embedding[word]) == embedding_size, 'Wrong embedding dim.'
-
-    return embedding
-
-
-def get_initializer(m=0.0, s=1.0):
-    if args.initializer == 'identity':
-        initializer = tf.identity_initializer(s)
-    elif args.initializer == 'truncated':
-        initializer = tf.truncated_normal_initializer(m, s)
-    elif args.initializer == 'uniform':
-        initializer = tf.random_uniform_initializer(-s, s)
-    elif args.initializer == 'normal':
-        initializer = tf.random_normal_initializer(m, s)
-    elif args.initializer == 'orthogonal':
-        initializer = tf.orthogonal_initializer(s)
-    elif args.initializer == 'glorot' or args.initializer == 'xavier':
-        initializer = tf.glorot_uniform_initializer()
-    elif args.initializer == 'variance':
-        initializer = tf.variance_scaling_initializer(s)
-    else:
-        initializer = None
-    return initializer
 
 
 def feature_parser(record):
@@ -129,11 +80,11 @@ class EmbeddingData(object):
                                                                           'word_temp'), \
                                                            tf.placeholder(tf.int64, [None], 'length_temp')
 
-            self.dataset = tfdata.Dataset.from_tensor_slices(
+            self.dataset = tf_data.Dataset.from_tensor_slices(
                 (self.vec_temp, self.word_temp, self.len_temp)) \
                 .prefetch(num_thread * batch_size * 4) \
                 .shuffle(buffer_size=num_thread * batch_size * 8) \
-                .apply(tfdata.batch_and_drop_remainder(batch_size))
+                .apply(tf_data.batch_and_drop_remainder(batch_size))
             self.iterator = self.dataset.make_initializable_iterator()
             self.input = self.iterator.get_next()
         else:
@@ -148,7 +99,7 @@ class EmbeddingData(object):
                 .map(feature_parser, num_parallel_calls=num_thread) \
                 .prefetch(2000) \
                 .shuffle(buffer_size=1000) \
-                .apply(tfdata.batch_and_drop_remainder(batch_size)) \
+                .apply(tf_data.batch_and_drop_remainder(batch_size)) \
                 .repeat()
             self.iterator = self.dataset.make_initializable_iterator()
             self.vec, self.word, self.len = self.iterator.get_next()
@@ -175,7 +126,7 @@ class MatricesModel(object):
         self.data = data
         self.init_mean, self.init_stddev = tf.placeholder(tf.float32, shape=[], name='init_mean'), \
                                            tf.placeholder(tf.float32, shape=[], name='init_stddev')
-        initializer = get_initializer(self.init_mean, self.init_stddev)
+        initializer = get_initializer(args.initializer, self.init_mean, self.init_stddev)
 
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, embedding_size, embedding_size],
                                            tf.float32, initializer, trainable=True)
@@ -200,7 +151,7 @@ class MatricesModel(object):
 class MyConvModel(object):
     def __init__(self, data, char_dim=64, conv_channel=512):
         self.data = data
-        initializer = get_initializer()
+        initializer = get_initializer(args.initializer)
 
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, char_dim],
                                            tf.float32, initializer, trainable=True)
@@ -225,7 +176,7 @@ class MyModel(object):
     def __init__(self, data, char_dim=64, hidden_dim=256, num_layers=2):
         start_time = time.time()
         self.data = data
-        initializer = get_initializer()
+        initializer = get_initializer(args.initializer)
 
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size, char_dim],
                                            tf.float32, initializer, trainable=True)
@@ -290,7 +241,7 @@ class MyModel(object):
 class EmbeddingModel(object):
     def __init__(self, data, char_dim=100, hidden_dim=256):
         self.data = data
-        initializer = get_initializer()
+        initializer = get_initializer(args.initializer)
 
         embedding_matrix = tf.get_variable(
             name="embedding_matrix", initializer=initializer,
@@ -447,44 +398,7 @@ def create_records():
             pbar.update()
 
 
-def load_embedding_vec():
-    start_time = time.time()
-    if args.target == 'glove':
-        key_file = config.glove_embedding_key_file
-        vec_file = config.glove_embedding_vec_file
-        raw_file = config.glove_file
-        load_fn = load_glove
-    elif args.target == 'w2v':
-        key_file = config.w2v_embedding_key_file
-        vec_file = config.w2v_embedding_vec_file
-        raw_file = config.word2vec_file
-        load_fn = load_w2v
-    elif args.target == 'fasttext':
-        key_file = config.ft_embedding_key_file
-        vec_file = config.ft_embedding_vec_file
-        raw_file = config.fasttext_file
-        load_fn = load_glove
-    else:
-        key_file = None
-        vec_file = None
-        raw_file = None
-        load_fn = None
 
-    if exists(key_file) and exists(vec_file):
-        embedding_keys = du.jload(key_file)
-        embedding_vecs = np.load(vec_file)
-    else:
-        embedding = load_fn(raw_file)
-        embedding_keys = []
-        embedding_vecs = np.zeros((len(embedding), embedding_size), dtype=np.float32)
-        for i, k in enumerate(embedding.keys()):
-            embedding_keys.append(k)
-            embedding_vecs[i] = embedding[k]
-        du.jdump(embedding_keys, key_file)
-        np.save(vec_file, embedding_vecs)
-
-    print('Loading embedding done. %.3f s' % (time.time() - start_time))
-    return embedding_keys, embedding_vecs
 
 
 def filter_stat(embedding_keys, embedding_vecs):
@@ -530,7 +444,7 @@ def process():
     # tokenize_qa = du.jload(config.avail_tokenize_qa_file)
     # subtitle = du.jload(config.subtitle_file)
 
-    embedding_keys, embedding_vecs = load_embedding_vec()
+    embedding_keys, embedding_vecs = du.load_embedding_vec(args.target)
 
     du.pprint(['%s\'s # of embedding: %d' % (args.target, len(embedding_keys)),
                '%s\'s shape of embedding vec: %s' % (args.target, str(embedding_vecs.shape))])
@@ -672,7 +586,7 @@ def inspect():
     #     print(np.array_equal(fw, f))
     #     print(np.array_equal(bw, b))
     #     print(fw, '=' * 87, bw, sep='\n')
-    # embedding_keys, embedding_vecs = load_embedding_vec()
+    # embedding_keys, embedding_vecs = du.load_embedding_vec()
     #
     # du.pprint(['w2v\'s # of embedding: %d' % len(embedding_keys),
     #            'w2v\'s shape of embedding vec: ' + str(embedding_vecs.shape)])
@@ -689,39 +603,6 @@ def inspect():
     # print(max(length))
     # print(vecs.shape)
 
-
-def get_loss(name, data, model):
-    if name == 'mse':
-        loss = tf.losses.mean_squared_error(data.vec, model.output)
-    elif name == 'abs':
-        loss = tf.losses.absolute_difference(data.vec, model.output)
-    elif name == 'l2':
-        loss = tf.losses.compute_weighted_loss(tf.norm(data.vec - model.output, axis=1))
-    elif name == 'cos':
-        loss = tf.losses.cosine_distance(tf.nn.l2_normalize(data.vec, 1),
-                                         tf.nn.l2_normalize(model.output, 1), 1)
-    elif name == 'huber':
-        loss = tf.losses.huber_loss(data.vec, model.output)
-    elif name == 'mpse':
-        loss = tf.losses.mean_pairwise_squared_error(data.vec, model.output)
-    else:
-        loss = 0
-    return loss
-
-
-def get_opt(name, learning_rate):
-    if name == 'momentum':
-        optimizer = tf.train.MomentumOptimizer(learning_rate, 0.9)
-    elif name == 'adam':
-        optimizer = tf.train.AdamOptimizer(learning_rate)
-    elif name == 'sgd':
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-    elif name == 'rms':
-        optimizer = tf.train.RMSPropOptimizer(learning_rate)
-    else:
-        optimizer = None
-
-    return optimizer
 
 
 # TODO(tommy8054): Well... A little bit lazy to implement this... Maybe later?

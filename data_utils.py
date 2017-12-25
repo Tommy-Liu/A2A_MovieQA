@@ -1,17 +1,85 @@
 import os
 import re
 import ujson as json
-from os.path import join
+from os.path import join, exists
 
+import time
+import io
 import numpy as np
 import tensorflow as tf
-
+from tqdm import tqdm, trange
 from config import MovieQAConfig
 
 config = MovieQAConfig()
 FILE_PATTERN = config.TFRECORD_PATTERN_
 NPY_PATTERN_ = '%s.npy'
 
+
+def load_embedding_vec(target, embedding_size=300):
+    start_time = time.time()
+    if target == 'glove':
+        key_file = config.glove_embedding_key_file
+        vec_file = config.glove_embedding_vec_file
+        raw_file = config.glove_file
+        load_fn = load_glove
+    elif target == 'w2v':
+        key_file = config.w2v_embedding_key_file
+        vec_file = config.w2v_embedding_vec_file
+        raw_file = config.word2vec_file
+        load_fn = load_w2v
+    elif target == 'fasttext':
+        key_file = config.ft_embedding_key_file
+        vec_file = config.ft_embedding_vec_file
+        raw_file = config.fasttext_file
+        load_fn = load_glove
+    else:
+        key_file = None
+        vec_file = None
+        raw_file = None
+        load_fn = None
+
+    if exists(key_file) and exists(vec_file):
+        embedding_keys = jload(key_file)
+        embedding_vecs = np.load(vec_file)
+    else:
+        embedding = load_fn(raw_file)
+        embedding_keys = []
+        embedding_vecs = np.zeros((len(embedding), embedding_size), dtype=np.float32)
+        for i, k in enumerate(embedding.keys()):
+            embedding_keys.append(k)
+            embedding_vecs[i] = embedding[k]
+        jdump(embedding_keys, key_file)
+        np.save(vec_file, embedding_vecs)
+
+    print('Loading embedding done. %.3f s' % (time.time() - start_time))
+    return embedding_keys, embedding_vecs
+
+def load_w2v(file):
+    embedding = {}
+
+    with open(file, 'r') as f:
+        num, dim = [int(comp) for comp in f.readline().strip().split()]
+        for _ in trange(num, desc='Load word embedding %dd' % dim):
+            word, *vec = f.readline().rstrip().rsplit(sep=' ', maxsplit=dim)
+            vec = [float(e) for e in vec]
+            embedding[word] = vec
+        assert len(embedding) == num, 'Wrong size of embedding.'
+    return embedding
+
+def load_glove(filename, embedding_size=300):
+    embedding = {}
+
+    # Read in the data.
+    with io.open(filename, 'r', encoding='utf-8') as savefile:
+        for i, line in enumerate(tqdm(savefile)):
+            tokens = line.rstrip().split(sep=' ', maxsplit=embedding_size)
+
+            word, *entries = tokens
+
+            embedding[word] = [float(x) for x in entries]
+            assert len(embedding[word]) == embedding_size, 'Wrong embedding dim.'
+
+    return embedding
 
 class MovieQaDataLoader(object):
     def __init__(self):
