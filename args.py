@@ -15,7 +15,7 @@ def args_parse():
 
     # ##################   Embedding Target   #########################################################################
     parser_p.add_argument('--target', default='glove', help='Learning target of word embedding.')
-    parser_p.add_argument('--sorted', action='store_true', help='Divide data into groups of same length')
+    parser_t.add_argument('--sorted', action='store_true', help='Divide data into groups of same length')
     parser_t.add_argument('--num_shards', default=128, help='Number of tfrecords.', type=int)
     parser_t.add_argument('--num_per_shard', default=10000, help='Number of instances in a shard.', type=int)
     parser.add_argument('--max_length', default=12, help='Maximal word length.', type=int)
@@ -33,7 +33,8 @@ def args_parse():
     parser.add_argument('--decay_rate', default=0.97, help='Decay rate.', type=float)
     parser.add_argument('--optimizer', default='adam', help='Training policy (adam / momentum / sgd / rms).')
     parser.add_argument('--loss', default='mse', help='Fist loss function. (mse / cos / abs / l2 / huber / mpse)')
-    parser.add_argument('--sec_loss', default=None, help='Second loss function. (mse / cos / abs / l2 / huber / mpse)')
+    parser.add_argument('--sec_loss', default='mpse',
+                        help='Second loss function. (mse / cos / abs / l2 / huber / mpse)')
     parser.add_argument('--clip_norm', default=1.0, help='Norm value of gradient clipping.', type=float)
     # #################################################################################################################
 
@@ -55,6 +56,8 @@ def args_parse():
     parser.add_argument('--init_mean', default=0.0, help='Initial value of weight\'s mean.', type=float)
     parser.add_argument('--init_scale', default=0.075, help='Initial value of weight\'s scale.', type=float)
     # ##################################################################################################################
+
+    parser.add_argument('--debug', action='store_true', help='Debug mode.')
     args = parser.parse_args()
 
     return args, parser

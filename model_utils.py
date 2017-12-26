@@ -1,5 +1,6 @@
 import tensorflow as tf
 
+
 def get_initializer(name, m=0.0, s=1.0):
     if name == 'identity':
         initializer = tf.identity_initializer(s)
@@ -19,6 +20,7 @@ def get_initializer(name, m=0.0, s=1.0):
         initializer = None
     return initializer
 
+
 def get_opt(name, learning_rate):
     if name == 'momentum':
         optimizer = tf.train.MomentumOptimizer(learning_rate, 0.9)
@@ -32,6 +34,7 @@ def get_opt(name, learning_rate):
         optimizer = None
 
     return optimizer
+
 
 def get_loss(name, data, model):
     if name == 'mse':

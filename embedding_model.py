@@ -3,16 +3,17 @@ import math
 import numbers
 import os
 import pprint
+import random
 import shutil
 import sys
 import time
+import ujson as json
 from collections import Counter
 from functools import partial
 from glob import glob
 from multiprocessing import Pool
 from os.path import join, exists
 from random import shuffle
-from model_utils import get_initializer, get_opt, get_loss
 
 import numpy as np
 import tensorflow as tf
@@ -25,6 +26,7 @@ import data_utils as du
 from args import args_parse
 from config import MovieQAConfig
 from model import extract_axis_1
+from model_utils import get_initializer, get_opt, get_loss
 
 UNK = 'UNK'
 RECORD_FILE_PATTERN = join('./embedding_dataset', 'embedding_%s%05d-of-%05d.tfrecord')
@@ -398,9 +400,6 @@ def create_records():
             pbar.update()
 
 
-
-
-
 def filter_stat(embedding_keys, embedding_vecs):
     # Filter out non-ascii words
     count, mean, keys, std = 0, 0, {}, 0
@@ -424,7 +423,7 @@ def filter_stat(embedding_keys, embedding_vecs):
                     keys[k.lower().strip()] = i
     std = math.sqrt(std / count)
     vecs = embedding_vecs[list(keys.values())]
-    embedding_keys, embedding_vecs = list(keys.keys()), vecs
+    embedding_keys, embedding_vecs = list(keys.keys()), vecs / np.linalg.norm(vecs, axis=1, keepdims=True)
 
     du.pprint(['Filtered number of embedding: %d' % len(embedding_keys),
                'Filtered shape of embedding vec: ' + str(embedding_vecs.shape),
@@ -451,73 +450,66 @@ def process():
 
     embedding_keys, embedding_vecs = filter_stat(embedding_keys, embedding_vecs)
 
-    embed_char_counter = Counter()
-    for k in tqdm(embedding_keys):
-        embed_char_counter.update(k)
+    if not args.debug:
+        embed_char_counter = Counter()
+        for k in tqdm(embedding_keys):
+            embed_char_counter.update(k)
 
-    # qa_char_counter = Counter()
-    # for k in tokenize_qa.keys():
-    #     for qa in tqdm(tokenize_qa[k], desc='Char counting %s' % k):
-    #         for w in qa['tokenize_question']:
-    #             qa_char_counter.update(w)
-    #         for a in qa['tokenize_answer']:
-    #             for w in a:
-    #                 qa_char_counter.update(w)
-    #         for v in qa['video_clips']:
-    #             for l in subtitle[v]:
-    #                 for w in l:
-    #                     qa_char_counter.update(w)
+        # qa_char_counter = Counter()
+        # for k in tokenize_qa.keys():
+        #     for qa in tqdm(tokenize_qa[k], desc='Char counting %s' % k):
+        #         for w in qa['tokenize_question']:
+        #             qa_char_counter.update(w)
+        #         for a in qa['tokenize_answer']:
+        #             for w in a:
+        #                 qa_char_counter.update(w)
+        #         for v in qa['video_clips']:
+        #             for l in subtitle[v]:
+        #                 for w in l:
+        #                     qa_char_counter.update(w)
 
-    du.jdump(embed_char_counter, config.embed_char_counter_file)
-    # du.jdump(qa_char_counter, config.qa_char_counter_file)
+        du.jdump(embed_char_counter, config.embed_char_counter_file)
+        # du.jdump(qa_char_counter, config.qa_char_counter_file)
 
-    # count_array = np.array(list(embed_char_counter.values()), dtype=np.float32)
-    # m, v, md, f = np.mean(count_array), np.std(count_array), np.median(count_array), np.percentile(count_array, 95)
-    # print(m, v, md, f)
-    #
-    # above_mean = dict(filter(lambda item: item[1] > f, embed_char_counter.items()))
-    # below_mean = dict(filter(lambda item: item[1] < f, embed_char_counter.items()))
-    # below_occur = set(filter(lambda k: k in qa_char_counter, below_mean.keys()))
-    # final_set = below_occur.union(set(above_mean.keys()))
-    # du.jdump(list(final_set) + [UNK], config.char_vocab_file)
-    vocab = list(embed_char_counter.keys()) + [UNK]
-    print('Filtered vocab:', vocab)
-    du.jdump(vocab, config.char_vocab_file)
-    # vocab = du.jload(config.char_vocab_file)
-    encode_embedding_keys = np.ones((len(embedding_keys), args.max_length), dtype=np.int64) * (len(vocab) - 1)
-    length = np.zeros(len(embedding_keys), dtype=np.int64)
-    for i, k in enumerate(tqdm(embedding_keys, desc='Encoding...')):
-        encode_embedding_keys[i, :len(k)] = [
-            vocab.index(ch) if ch in vocab else vocab.index(UNK)
-            for ch in k
-        ]
-        assert all([idx < len(vocab) for idx in encode_embedding_keys[i]]), \
-            "Wrong index!"
-        length[i] = len(k)
-    du.pprint(['Shape of encoded key: %s' % str(encode_embedding_keys.shape),
-               'Shape of encoded key length: %s' % str(length.shape)])
-    start_time = time.time()
-    du.exist_then_remove(config.encode_embedding_key_file)
-    du.exist_then_remove(config.encode_embedding_len_file)
-    du.exist_then_remove(config.encode_embedding_vec_file)
-    np.save(config.encode_embedding_key_file, encode_embedding_keys)
-    np.save(config.encode_embedding_len_file, length)
-    np.save(config.encode_embedding_vec_file, embedding_vecs)
-    print('Saveing processed data with %.3f s' % (time.time() - start_time))
+        # count_array = np.array(list(embed_char_counter.values()), dtype=np.float32)
+        # m, v, md, f = np.mean(count_array), np.std(count_array), np.median(count_array), np.percentile(count_array, 95)
+        # print(m, v, md, f)
+        #
+        # above_mean = dict(filter(lambda item: item[1] > f, embed_char_counter.items()))
+        # below_mean = dict(filter(lambda item: item[1] < f, embed_char_counter.items()))
+        # below_occur = set(filter(lambda k: k in qa_char_counter, below_mean.keys()))
+        # final_set = below_occur.union(set(above_mean.keys()))
+        # du.jdump(list(final_set) + [UNK], config.char_vocab_file)
+        vocab = list(embed_char_counter.keys()) + [UNK]
+        print('Filtered vocab:', vocab)
+        du.jdump(vocab, config.char_vocab_file)
+        # vocab = du.jload(config.char_vocab_file)
+        encode_embedding_keys = np.ones((len(embedding_keys), args.max_length), dtype=np.int64) * (len(vocab) - 1)
+        length = np.zeros(len(embedding_keys), dtype=np.int64)
+        for i, k in enumerate(tqdm(embedding_keys, desc='Encoding...')):
+            encode_embedding_keys[i, :len(k)] = [
+                vocab.index(ch) if ch in vocab else vocab.index(UNK)
+                for ch in k
+            ]
+            assert all([idx < len(vocab) for idx in encode_embedding_keys[i]]), \
+                "Wrong index!"
+            length[i] = len(k)
+        du.pprint(['Shape of encoded key: %s' % str(encode_embedding_keys.shape),
+                   'Shape of encoded key length: %s' % str(length.shape)])
+        start_time = time.time()
+        du.exist_then_remove(config.encode_embedding_key_file)
+        du.exist_then_remove(config.encode_embedding_len_file)
+        du.exist_then_remove(config.encode_embedding_vec_file)
+        np.save(config.encode_embedding_key_file, encode_embedding_keys)
+        np.save(config.encode_embedding_len_file, length)
+        np.save(config.encode_embedding_vec_file, embedding_vecs)
+        print('Saveing processed data with %.3f s' % (time.time() - start_time))
 
 
 def inspect():
-    exp_paths = glob(join(config.log_dir, 'embedding_log', '**', '*.json'), recursive=True)
-    exps = []
-    for p in exp_paths:
-        exps.append({k: du.jload(p)['args'][k] for k in ['learning_rate', 'init_mean', 'init_scale']})
-        exps[-1].update({k: du.jload(p)['val'][k] for k in ['baseline', 'max_length', 'lock']})
-
-    for idx, exp in enumerate(exps):
-        print('%d.' % (idx + 1))
-        pp.pprint(exp)
-    # manager = EmbeddingTrainManager(args, parser)
-    # manager.__init__(manager.args, manager.args_parser)
+    manager = EmbeddingTrainManager(args, parser)
+    manager.inject_param(val={'max_length': random.randint(1, 12), 'baseline': random.random()})
+    print(json.dumps(du.jload(manager.param_file), indent=4))
     # manager.train()
     # data = EmbeddingData(2)
     # model = MatricesModel(data)
@@ -604,7 +596,6 @@ def inspect():
     # print(vecs.shape)
 
 
-
 # TODO(tommy8054): Well... A little bit lazy to implement this... Maybe later?
 class EmbeddingTrainManager(object):
     perturbation = {
@@ -627,7 +618,7 @@ class EmbeddingTrainManager(object):
         self.val_dict = {'baseline': 0, 'max_length': 1, 'lock': True}
         self.args_parser = args_parser
 
-        if len(sys.argv) == 1:
+        if len(sys.argv) == 1 or self.args.mode == 'inspect':
             self.search_param()
         else:
             self.retrieve_param(self.param_file)
@@ -649,17 +640,19 @@ class EmbeddingTrainManager(object):
             with tf.variable_scope('model'):
                 self.model = self.get_model()
             self.loss = get_loss(self.args.loss, self.data, self.model) + \
-                        get_loss(self.args.sec_loss, self.data, self.model)
+                        get_loss(self.args.sec_loss, self.data, self.model) + \
+                        tf.reduce_mean(tf.abs(tf.norm(self.model.output, axis=1) - 1))
 
             self.baseline = get_loss('mse', self.data, self.model)
 
             self.global_step = tf.train.get_or_create_global_step()
+            self.local_step = tf.get_variable('local_step', dtype=tf.int32, initializer=0, trainable=False)
 
             self.lr_placeholder = tf.placeholder(tf.float32, name='lr_placeholder')
             self.step_placeholder = tf.placeholder(tf.int64, name='step_placeholder')
             self.dr_placeholder = tf.placeholder(tf.float32, name='dr_placeholder')
             self.learning_rate = tf.train.exponential_decay(self.lr_placeholder,
-                                                            self.global_step,
+                                                            self.local_step,
                                                             self.args.decay_epoch * self.step_placeholder,
                                                             self.dr_placeholder,
                                                             staircase=True)
@@ -676,7 +669,8 @@ class EmbeddingTrainManager(object):
             else:
                 capped_grads_and_vars = grads_and_vars
 
-            self.train_op = self.optimizer.apply_gradients(capped_grads_and_vars, self.global_step)
+            self.train_op = tf.group(self.optimizer.apply_gradients(capped_grads_and_vars, self.global_step),
+                                     tf.assign(self.local_step, self.local_step + 1))
             self.saver = tf.train.Saver(tf.global_variables(), )
 
             # Summary
@@ -752,8 +746,10 @@ class EmbeddingTrainManager(object):
         exp_paths = glob(join(config.log_dir, 'embedding_log', '**', '*.json'), recursive=True)
         exps = []
         for p in exp_paths:
-            exps.append({k: du.jload(p)['args'][k] for k in self.target})
-            exps[-1].update({k: du.jload(p)['val'][k] for k in self.val_dict.keys()})
+            d = du.jload(p)
+            exp = {k: d['args'][k] for k in self.target}
+            exp.update(d['val'])
+            exps.append(exp)
 
         for idx, exp in enumerate(exps):
             print('%d.' % (idx + 1))
@@ -827,8 +823,8 @@ class EmbeddingTrainManager(object):
                             self.data.file_names_placeholder: self.data.get_records(list(range(1, max_length + 1)))})
                         # Minimize loss of current length until loss unimproved.
                         while abs(delta) > 1E-8:
-                            _, bl, step, summary = sess.run(
-                                [self.train_op, self.baseline, self.global_step, self.train_summaries_op],
+                            _, bl, step, summary, loss = sess.run(
+                                [self.train_op, self.baseline, self.global_step, self.train_summaries_op, self.loss],
                                 feed_dict=self.train_feed_dict)
                             if step % 10 == 0:
                                 sw.add_summary(summary, tf.train.global_step(sess, self.global_step))
@@ -838,8 +834,8 @@ class EmbeddingTrainManager(object):
                             if step % 100 == 0:
                                 self.saver.save(sess, self.checkpoint_name,
                                                 tf.train.global_step(sess, self.global_step))
-                            print('[%d/%d] step: %d delta: %.2E base: %.2E' %
-                                  (max_length, self.args.max_length, step, delta, bl))
+                            print('[%d/%d] step: %d delta: %+.2E base: %+.2E loss: %+.2E' %
+                                  (max_length, self.args.max_length, step, delta, bl, loss))
                             delta = bl - prev_loss
                             prev_loss = bl
                         # Increment the current length if loss is lower than threshold,
@@ -851,7 +847,7 @@ class EmbeddingTrainManager(object):
                             max_length = 1
                             print('Length %d fail. Reset all.' % max_length)
                         else:
-                            sess.run(self.global_step.initializer)
+                            sess.run(self.local_step.initializer)
                             self.inject_param(val={'max_length': max_length, 'base_line': bl})
                             max_length += 1
                             print('Length %d commits.' % max_length)

@@ -1,13 +1,14 @@
+import io
 import os
 import re
+import time
 import ujson as json
 from os.path import join, exists
 
-import time
-import io
 import numpy as np
 import tensorflow as tf
 from tqdm import tqdm, trange
+
 from config import MovieQAConfig
 
 config = MovieQAConfig()
@@ -54,6 +55,7 @@ def load_embedding_vec(target, embedding_size=300):
     print('Loading embedding done. %.3f s' % (time.time() - start_time))
     return embedding_keys, embedding_vecs
 
+
 def load_w2v(file):
     embedding = {}
 
@@ -65,6 +67,7 @@ def load_w2v(file):
             embedding[word] = vec
         assert len(embedding) == num, 'Wrong size of embedding.'
     return embedding
+
 
 def load_glove(filename, embedding_size=300):
     embedding = {}
@@ -80,6 +83,7 @@ def load_glove(filename, embedding_size=300):
             assert len(embedding[word]) == embedding_size, 'Wrong embedding dim.'
 
     return embedding
+
 
 class MovieQaDataLoader(object):
     def __init__(self):
