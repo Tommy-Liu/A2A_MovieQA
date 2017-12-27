@@ -7,7 +7,6 @@ import random
 import shutil
 import sys
 import time
-import ujson as json
 from collections import Counter
 from functools import partial
 from glob import glob
@@ -508,8 +507,9 @@ def process():
 
 def inspect():
     manager = EmbeddingTrainManager(args, parser)
-    manager.inject_param(val={'max_length': random.randint(1, 12), 'baseline': random.random()})
-    print(json.dumps(du.jload(manager.param_file), indent=4))
+    manager.train()
+    # manager.inject_param(val={'max_length': random.randint(1, 12), 'baseline': random.random()})
+    pp.pprint(du.jload(manager.param_file))
     # manager.train()
     # data = EmbeddingData(2)
     # model = MatricesModel(data)
@@ -788,7 +788,12 @@ class EmbeddingTrainManager(object):
             for k in val:
                 if k in self.val_dict:
                     self.val_dict[k] = val[k]
-        du.jdump({'args': self.args_dict, 'val': self.val_dict}, self.param_file)
+        d = {'args': self.args_dict, 'val': self.val_dict}
+        print('1*')
+        pp.pprint(d)
+        print('2*')
+        du.jdump(d, self.param_file)
+        print('3*')
 
     def retrieve_param(self, file_name=None):
         if exists(file_name):
@@ -818,39 +823,51 @@ class EmbeddingTrainManager(object):
                 while max_length < 13:
                     delta, prev_loss, step = 1, 0, 1
                     try:
-                        # Give instances of current length.
-                        sess.run(self.data.iterator.initializer, feed_dict={
-                            self.data.file_names_placeholder: self.data.get_records(list(range(1, max_length + 1)))})
-                        # Minimize loss of current length until loss unimproved.
-                        while abs(delta) > 1E-8:
-                            _, bl, step, summary, loss = sess.run(
-                                [self.train_op, self.baseline, self.global_step, self.train_summaries_op, self.loss],
-                                feed_dict=self.train_feed_dict)
-                            if step % 10 == 0:
-                                sw.add_summary(summary, tf.train.global_step(sess, self.global_step))
-                                print('|-- total_step:{:>30}'.format(self.data.total_step))
-                                print(
-                                    '\n'.join(['|-- {}: {:>30.2E}'.format(k, self.args_dict[k]) for k in self.target]))
-                            if step % 100 == 0:
-                                self.saver.save(sess, self.checkpoint_name,
-                                                tf.train.global_step(sess, self.global_step))
-                            print('[%d/%d] step: %d delta: %+.2E base: %+.2E loss: %+.2E' %
-                                  (max_length, self.args.max_length, step, delta, bl, loss))
-                            delta = bl - prev_loss
-                            prev_loss = bl
-                        # Increment the current length if loss is lower than threshold,
-                        # or reset to 1 to search for other possibility.
-                        pp.pprint(sess.run([self.data.vec, self.model.output]))
-                        print('Length %d loss minimization done.' % max_length)
+                        if not args.debug:
+                            # Give instances of current length.
+                            sess.run(self.data.iterator.initializer, feed_dict={
+                                self.data.file_names_placeholder: self.data.get_records(
+                                    list(range(1, max_length + 1)))})
+                            # Minimize loss of current length until loss unimproved.
+                            while abs(delta) > 1E-8:
+                                _, bl, step, summary, loss = sess.run(
+                                    [self.train_op, self.baseline, self.global_step, self.train_summaries_op,
+                                     self.loss],
+                                    feed_dict=self.train_feed_dict)
+                                if step % 10 == 0:
+                                    sw.add_summary(summary, tf.train.global_step(sess, self.global_step))
+                                    print('|-- {:<15}: {:>30}'.format('total_step', self.data.total_step))
+                                    print('\n'.join(['|-- {:<15}: {:>30.2E}'
+                                                    .format(k, self.args_dict[k]) for k in self.target]))
+                                if step % 100 == 0:
+                                    self.saver.save(sess, self.checkpoint_name,
+                                                    tf.train.global_step(sess, self.global_step))
+                                print('[{:>2}/{:>2}] step: {:>6} delta: {:>+10.2E} base: {:>+10.2E} loss: {:>+10.2E}'
+                                      .format(max_length, self.args.max_length, step, delta, bl, loss))
+                                delta = bl - prev_loss
+                                prev_loss = bl
+                            # Increment the current length if loss is lower than threshold,
+                            # or reset to 1 to search for other possibility.
+                            pp.pprint(sess.run([self.data.vec, self.model.output]))
+                            print('Length %d loss minimization done.' % max_length)
+                        else:
+                            bl = random.random() * 1E-3
+
                         if bl > 1E-1:
                             sess.run(self.init_op, feed_dict=self.init_feed_dict)
                             max_length = 1
                             print('Length %d fail. Reset all.' % max_length)
                         else:
+                            print('1-')
                             sess.run(self.local_step.initializer)
-                            self.inject_param(val={'max_length': max_length, 'base_line': bl})
+                            print('2-')
+                            #  Numpy type object is not JSON serializable. Since that, apply float to bl.
+                            self.inject_param(val={'max_length': max_length, 'baseline': float(bl)})
+                            print('3-')
                             max_length += 1
+                            print('4-')
                             print('Length %d commits.' % max_length)
+                            print('5-')
                     except KeyboardInterrupt:
                         self.saver.save(sess, self.checkpoint_name, tf.train.global_step(sess, self.global_step))
                         break

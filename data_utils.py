@@ -1,8 +1,8 @@
 import io
+import json
 import os
 import re
 import time
-import ujson as json
 from os.path import join, exists
 
 import numpy as np
