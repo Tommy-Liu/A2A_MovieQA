@@ -1,5 +1,5 @@
 from config import MovieQAConfig
-from data_utils import jload
+from utils.data_utils import jload
 config = MovieQAConfig()
 
 avail_video_metadata = jload(config.avail_video_metadata_file)

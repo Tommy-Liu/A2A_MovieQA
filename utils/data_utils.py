@@ -1,7 +1,5 @@
 import io
 import json
-import os
-import re
 import time
 from os.path import join, exists
 
@@ -9,6 +7,7 @@ import numpy as np
 import tensorflow as tf
 from tqdm import tqdm, trange
 
+from . import func_utils as fu
 from config import MovieQAConfig
 
 config = MovieQAConfig()
@@ -85,12 +84,6 @@ def load_glove(filename, embedding_size=300):
     return embedding
 
 
-class MovieQaDataLoader(object):
-    def __init__(self):
-        self.config = MovieQAConfig()
-        self.qa = json.load(open(self.config.qa_file, 'r'))
-
-
 def pad_list_numpy(l, length):
     if isinstance(l[0], list):
         arr = np.zeros((len(l), length), dtype=np.int64)
@@ -114,65 +107,8 @@ def jload(file_name):
     return data
 
 
-def is_in(a, b):
-    """
-    Is a a subset of b ?
-    """
-    return set(a).issubset(set(b))
-
-
 def get_npy_name(feature_dir, video):
     return join(feature_dir, NPY_PATTERN_ % video)
-
-
-def exist_then_remove(f):
-    if os.path.exists(f):
-        os.remove(f)
-
-
-def get_imdb_key(base_name):
-    return base_name.split('.')[0]
-
-
-def clean_token(l):
-    """
-    Clean up Subrip tags.
-    """
-    return re.sub(r'<.+?>', '', l)
-
-
-def exist_make_dirs(d):
-    """
-    If the directory dose not exist, make one.
-    """
-    if not os.path.exists(d):
-        os.makedirs(d)
-
-
-# Wrapped function
-def get_base_name_without_ext(p):
-    """
-    Get the base name without extension
-    :param p: a string of directory or file path.
-    :return: base name
-    """
-    base_name = get_base_name(p)
-    base_name = os.path.splitext(base_name)[0]
-    return base_name
-
-
-# Fuck os.path.basename. I wrote my own version.
-def get_base_name(p):
-    """
-    Get the subdirectory or file name
-    in the last position of the path p.
-    :param p: a string of directory or file path.
-    :return: a string of base name.
-    """
-    pos = -1
-    if p.split('/')[pos] == '':
-        pos = -2
-    return p.split('/')[pos]
 
 
 def iter_type_check(value, dtype):
@@ -281,11 +217,11 @@ def qa_feature_example(example, subt, modality, is_training=False):
     example_subt_length = []
     for name in example['feat']:
         f = np.load(name)
-        s = subt[get_base_name_without_ext(name)]
+        s = subt[fu.get_base_name_without_ext(name)]
 
         assert len(f) == len(s['subtitle']), \
             "%s Video frames and subtitle are not aligned." % \
-            get_base_name_without_ext(name)
+            fu.get_base_name_without_ext(name)
 
         if modality == 'fixed_num':
             num_sample = config.modality_config['fixed_num']
@@ -408,9 +344,3 @@ def get_file_pattern(d, dataset_name, split, modality, num_shards, is_training):
     return join(d, MovieQAConfig.TFRECORD_FILE_PATTERN_ %
                 (('training_' if is_training else ''),
                  dataset_name, split, modality, num_shards))
-
-
-def pprint(s, ch='='):
-    print(ch * (max([len(e) for e in s]) + 5))
-    print('\n'.join(s))
-    print(ch * (max([len(e) for e in s]) + 5))

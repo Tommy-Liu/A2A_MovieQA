@@ -10,9 +10,9 @@ import numpy as np
 from nltk.tokenize import word_tokenize  # , RegexpTokenizer, TweetTokenizer
 from tqdm import tqdm
 
-import data_utils as du
+from utils import data_utils as du
+from utils import func_utils as fu
 from config import MovieQAConfig
-from embedding_model import load_w2v
 
 config = MovieQAConfig()
 video_img = config.video_img_dir
@@ -68,7 +68,7 @@ def build_vocab(counter, embedding=None):
             else:
                 qa_embedding[item[0]] = item[1]
 
-    du.pprint([
+    fu.block_print([
         'Original vocabulary size: %d' % len(counter),
         'Embedding vocabulary size: %d' % len(qa_embedding),
         'Embedding vocabulary coverage: %.2f %%' % (len(qa_embedding) / len(counter) * 100),
@@ -92,8 +92,8 @@ def get_split(qa, video_data):
             "imdb_key": qa_['imdb_key'],
             "correct_index": qa_['correct_index'],
             "mv+sub": qa_['video_clips'] != [],
-            "video_clips": [du.get_base_name_without_ext(vid)
-                            for vid in qa_['video_clips'] if video_data[du.get_base_name_without_ext(vid)]['avail']],
+            "video_clips": [fu.get_base_name_without_ext(vid)
+                            for vid in qa_['video_clips'] if video_data[fu.get_base_name_without_ext(vid)]['avail']],
         })
         total_qa[qid_split(qa_)][-1]['avail'] = (total_qa[qid_split(qa_)][-1]['video_clips'] != [])
     return total_qa
@@ -194,7 +194,7 @@ def main():
     embedding = None
     embed_exist = exists(avail_embed_file) and exists(avail_embed_npy_file)
     if embed_file and not embed_exist:
-        embedding = load_w2v(embed_file)
+        embedding = du.load_w2v(embed_file)
 
     print('Loading json file done!! Take %.4f sec.' % (time.time() - start_time))
 
@@ -221,9 +221,9 @@ def main():
     if embed_file:
         if not embed_exist:
             qa_embedding, vocab, inverse_vocab = build_vocab(vocab_counter, embedding)
-            du.exist_then_remove(avail_embed_file)
+            fu.exist_then_remove(avail_embed_file)
             du.jdump(inverse_vocab, avail_embed_file)
-            du.exist_then_remove(avail_embed_npy_file)
+            fu.exist_then_remove(avail_embed_npy_file)
             np.save(avail_embed_npy_file,
                     np.array([e for e in qa_embedding.values()], dtype=np.float32))
         else:
@@ -256,11 +256,11 @@ def main():
         'inverse_vocab': inverse_vocab,
     }
 
-    du.exist_then_remove(total_qa_file_name)
-    du.exist_then_remove(tokenize_file_name)
-    du.exist_then_remove(encode_file_name)
-    du.exist_then_remove(all_vocab_file_name)
-    du.exist_then_remove(config.encode_subtitle_file)
+    fu.exist_then_remove(total_qa_file_name)
+    fu.exist_then_remove(tokenize_file_name)
+    fu.exist_then_remove(encode_file_name)
+    fu.exist_then_remove(all_vocab_file_name)
+    fu.exist_then_remove(config.encode_subtitle_file)
 
     du.jdump(total_qa, total_qa_file_name)
     du.jdump(tokenize_qa, tokenize_file_name)

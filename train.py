@@ -5,7 +5,8 @@ import time
 import tensorflow as tf
 from tqdm import trange
 
-import data_utils as du
+from utils import data_utils as du
+from utils import func_utils as fu
 from config import MovieQAConfig
 from get_dataset import MovieQAData
 from model import VLLabMemoryModel
@@ -15,7 +16,7 @@ config = MovieQAConfig()
 
 class TrainManager(object):
     def __init__(self, param):
-        du.exist_make_dirs(config.exp_dir)
+        fu.exist_make_dirs(config.exp_dir)
         self.param = param
         self.exp = {}
         self._load_exp()
@@ -34,8 +35,8 @@ class TrainManager(object):
             print("The experiment of this setting finished.")
 
     def _train(self):
-        du.exist_make_dirs(self._checkpoint_dir)
-        du.exist_make_dirs(self._log_dir)
+        fu.exist_make_dirs(self._checkpoint_dir)
+        fu.exist_make_dirs(self._log_dir)
         start_time = time.time()
 
         now_epoch = self.param.now_epoch

@@ -14,7 +14,8 @@ import pysrt
 from nltk.tokenize import word_tokenize  # , RegexpTokenizer, TweetTokenizer
 from tqdm import tqdm
 
-import data_utils as du
+from utils import data_utils as du
+from utils import func_utils as fu
 from config import MovieQAConfig
 
 config = MovieQAConfig()
@@ -76,7 +77,7 @@ def get_videos_clips():
     """
     videos_clips = {}
     for d in tqdm(videos_dirs, desc='Get video clips:'):
-        imdb = du.get_base_name(d)
+        imdb = fu.get_base_name(d)
         videos_clips[imdb] = glob(os.path.join(d, VIDEO_PATTERN_))
     return videos_clips
 
@@ -117,7 +118,7 @@ def map_time_subtitle(imdb_key):
     subtitles = []
     for sub in subs:
         text = re.sub(r'[\n\r]', ' ', sub.text).lower().strip()
-        text = du.clean_token(text).strip()  # .encode('cp1252').decode('cp1252')
+        text = fu.clean_token(text).strip()  # .encode('cp1252').decode('cp1252')
         text = tokenize_func(text)  # ''|'<space>' -> []
         if text:
             subtitles.append(text)
@@ -165,7 +166,7 @@ def legacy_map_time_subtitle(imdb_key):
             # Clean lines?? good or bad?
             # Cuz it might be another clue.
             # Update: Fuck those tokens.
-            lines = tokenize_func(du.clean_token(' '.join(lines)))
+            lines = tokenize_func(fu.clean_token(' '.join(lines)))
             time_to_subtitle.append(((start_time, end_time), lines))
     return time_to_subtitle
 
@@ -227,7 +228,7 @@ def align_subtitle(video_clips,
     frame_to_subtitle, frame_to_subtitle_shot, matidx = map_frame_to_subtitle(key)
 
     for video in video_clips[key]:
-        base_name = du.get_base_name_without_ext(video)
+        base_name = fu.get_base_name_without_ext(video)
         if video_data[base_name]['avail']:
             start_frame, end_frame = get_start_and_end_frame(video)
 
@@ -272,7 +273,7 @@ def check_video(video):
     meta_data = None
     nframes = 0
     try:
-        base_name = du.get_base_name_without_ext(video)
+        base_name = fu.get_base_name_without_ext(video)
         reader = imageio.get_reader(video)
         images = glob(join(video_img, base_name, IMAGE_PATTERN_))
         meta_data = reader.get_meta_data()
@@ -327,11 +328,11 @@ def check_and_extract_videos(videos_clips,
     """
     # print('Start %s !' % key)
     for video in videos_clips[key]:
-        base_name = du.get_base_name_without_ext(video)
+        base_name = fu.get_base_name_without_ext(video)
         flag, img_list, meta_data = check_video(video)
         if flag:
             if len(img_list) > 0:
-                du.exist_make_dirs(join(video_img, base_name))
+                fu.exist_make_dirs(join(video_img, base_name))
                 for i, img in enumerate(img_list):
                     imageio.imwrite(join(video_img, base_name, 'img_%05d.jpg' % (i + 1)), img)
             sbd = get_shot_boundary(base_name, meta_data['real_frames'])
@@ -355,7 +356,7 @@ def check_and_extract_videos(videos_clips,
 
 
 def video_process(manager, shared_videos_clips, keys):
-    du.exist_make_dirs(video_img)
+    fu.exist_make_dirs(video_img)
 
     shared_video_data = manager.dict()
     shared_shot_boundary = manager.dict()
@@ -369,9 +370,9 @@ def video_process(manager, shared_videos_clips, keys):
         for i, _ in enumerate(p.imap_unordered(check_func, keys)):
             pbar.update()
 
-    du.exist_then_remove(config.video_data_file)
+    fu.exist_then_remove(config.video_data_file)
     du.jdump(shared_video_data.copy(), config.video_data_file)
-    du.exist_then_remove(config.shot_boundary_file)
+    fu.exist_then_remove(config.shot_boundary_file)
     du.jdump(shared_shot_boundary.copy(), config.shot_boundary_file)
 
     return shared_video_data
@@ -393,11 +394,11 @@ def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
         for i, _ in enumerate(p.imap_unordered(align_func, keys)):
             pbar.update()
 
-    du.exist_then_remove(config.subtitle_file)
+    fu.exist_then_remove(config.subtitle_file)
     du.jdump(shared_video_subtitle.copy(), config.subtitle_file)
-    du.exist_then_remove(config.frame_time_file)
+    fu.exist_then_remove(config.frame_time_file)
     du.jdump(shared_frame_time.copy(), config.frame_time_file)
-    du.exist_then_remove(config.subtitle_shot_file)
+    fu.exist_then_remove(config.subtitle_shot_file)
     du.jdump(shared_video_subtitle_shot.copy(), config.subtitle_shot_file)
 
 

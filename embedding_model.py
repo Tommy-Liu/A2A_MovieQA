@@ -21,7 +21,8 @@ import tensorflow.contrib.layers as layers
 import tensorflow.contrib.rnn as rnn
 from tqdm import tqdm, trange
 
-import data_utils as du
+from utils import data_utils as du
+from utils import func_utils as fu
 from args import args_parse
 from config import MovieQAConfig
 from model import extract_axis_1
@@ -352,7 +353,7 @@ def create_one_example(v, w, l):
 
 def create_one_record(ex_tuple):
     output_filename, example_list = ex_tuple
-    du.exist_then_remove(output_filename)
+    fu.exist_then_remove(output_filename)
     with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
         for i in range(len(example_list)):
             embedding_vec, embedding_word, embedding_word_length = example_list[i]
@@ -372,7 +373,7 @@ def create_records():
     embedding_word_length = np.load(config.encode_embedding_len_file)
     inputs = []
     print('Loading file done. Spend %.3f sec' % (time.time() - start_time))
-    du.pprint(['embedding_vec\'s shape:' + str(embedding_vec.shape),
+    fu.block_print(['embedding_vec\'s shape:' + str(embedding_vec.shape),
                'embedding_word\'s shape:' + str(embedding_word.shape),
                'embedding_word_length\'s shape:' + str(embedding_word_length.shape)])
     if args.sorted:
@@ -425,7 +426,7 @@ def filter_stat(embedding_keys, embedding_vecs, max_length):
 
     embedding_keys, embedding_vecs = list(keys.keys()), vecs / np.linalg.norm(vecs, axis=1, keepdims=True)
 
-    du.pprint(['Filtered number of embedding: %d' % len(embedding_keys),
+    fu.block_print(['Filtered number of embedding: %d' % len(embedding_keys),
                'Filtered shape of embedding vec: ' + str(embedding_vecs.shape),
                'Length\'s mean of keys: %.3f' % mean,
                'Length\'s std of keys: %.3f' % std,
@@ -433,7 +434,7 @@ def filter_stat(embedding_keys, embedding_vecs, max_length):
                'Std of embedding vecs: %.6f' % np.std(embedding_vecs),
                'Mean length of embedding vecs: %.6f' % np.mean(np.linalg.norm(embedding_vecs, axis=1)),
                'Std length of embedding vecs: %.6f' % np.std(np.linalg.norm(embedding_vecs, axis=1)),
-               ])
+                    ])
     print('Element mean of embedding vec:')
     pp.pprint(np.mean(embedding_vecs, axis=0))
     return embedding_keys, embedding_vecs
@@ -444,7 +445,7 @@ def process():
     # subtitle = du.jload(config.subtitle_file)
     embedding_keys, embedding_vecs = du.load_embedding_vec(args.target)
 
-    du.pprint(['%s\'s # of embedding: %d' % (args.target, len(embedding_keys)),
+    fu.block_print(['%s\'s # of embedding: %d' % (args.target, len(embedding_keys)),
                '%s\'s shape of embedding vec: %s' % (args.target, str(embedding_vecs.shape))])
 
     embedding_keys, embedding_vecs = filter_stat(embedding_keys, embedding_vecs, args.max_length)
@@ -510,12 +511,12 @@ def process():
             assert all([idx < len(vocab) for idx in encode_embedding_keys[i]]), \
                 "Wrong index!"
             length[i] = len(k)
-        du.pprint(['Shape of encoded key: %s' % str(encode_embedding_keys.shape),
+        fu.block_print(['Shape of encoded key: %s' % str(encode_embedding_keys.shape),
                    'Shape of encoded key length: %s' % str(length.shape)])
         start_time = time.time()
-        du.exist_then_remove(config.encode_embedding_key_file)
-        du.exist_then_remove(config.encode_embedding_len_file)
-        du.exist_then_remove(config.encode_embedding_vec_file)
+        fu.exist_then_remove(config.encode_embedding_key_file)
+        fu.exist_then_remove(config.encode_embedding_len_file)
+        fu.exist_then_remove(config.encode_embedding_vec_file)
         np.save(config.encode_embedding_key_file, encode_embedding_keys)
         np.save(config.encode_embedding_len_file, length)
         np.save(config.encode_embedding_vec_file, embedding_vecs)
@@ -642,8 +643,8 @@ class EmbeddingTrainManager(object):
 
         if self.args.reset:
             self.remove()
-        du.exist_make_dirs(self.log_dir)
-        du.exist_make_dirs(self.checkpoint_dir)
+        fu.exist_make_dirs(self.log_dir)
+        fu.exist_make_dirs(self.checkpoint_dir)
         if args.checkpoint_file:
             self.checkpoint_file = args.checkpoint_file
         else:
@@ -942,8 +943,8 @@ def old_main():
             os.system('rm -rf %s' % os.path.join(checkpoint_dir, '*'))
         if os.path.exists(log_dir):
             os.system('rm -rf %s' % os.path.join(log_dir, '*'))
-    du.exist_make_dirs(log_dir)
-    du.exist_make_dirs(checkpoint_dir)
+    fu.exist_make_dirs(log_dir)
+    fu.exist_make_dirs(checkpoint_dir)
 
     loss = get_loss(args.loss, data, model) + get_loss(args.sec_loss, data, model)
 

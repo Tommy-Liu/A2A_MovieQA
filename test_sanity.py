@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 
-import data_utils as du
+from utils import data_utils as du
 from config import MovieQAConfig
 
 config = MovieQAConfig()

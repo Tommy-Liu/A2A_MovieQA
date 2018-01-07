@@ -10,13 +10,14 @@ import tensorflow as tf
 from tensorflow.contrib.data import TFRecordDataset
 from tqdm import trange, tqdm
 
-import data_utils as du
+from utils import data_utils as du
+from utils import func_utils as fu
 
 
 def create_one_tfrecord(pattern, num_shards, ex_tuple):
     shard_id, length, feature_dict = ex_tuple
     output_filename = pattern % (shard_id + 1, num_shards)
-    du.exist_then_remove(output_filename)
+    fu.exist_then_remove(output_filename)
 
     def create_sequence_example(d, idx):
         return tf.train.SequenceExample(
@@ -47,7 +48,7 @@ class TfRecordDataSet(object):
         if exists(self.info_file):
             self.info = du.jload(self.info_file)
         self.dset_name = dset_name
-        du.exist_make_dirs(self.dset_dir)
+        fu.exist_make_dirs(self.dset_dir)
         self.num_shards = num_shards
         self.num_threads = num_threads
         self.num_example = 0

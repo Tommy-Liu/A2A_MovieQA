@@ -5,7 +5,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.data as data
 
-import data_utils as du
+from utils import data_utils as du
 from config import MovieQAConfig
 
 config = MovieQAConfig()
