@@ -2,15 +2,12 @@ import argparse
 
 
 def args_parse():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(add_help=False)
     # ##################   Program Mode   #############################################################################
     subparsers = parser.add_subparsers(dest='mode')
-    parser_p = subparsers.add_parser('process')
-    parser_i = subparsers.add_parser('inspect')
-    parser_t = subparsers.add_parser('tfrecord')
-    # parser.add_argument('--process', action='store_true', help='Process the data which creating tfrecords needs.')
-    # parser.add_argument('--inspect', action='store_true', help='Inspect the data stat.')
-    # parser.add_argument('--tfrecord', action='store_true', help='Create tfrecords.')
+    parser_p = subparsers.add_parser('process', help='Process the data which creating tfrecords needs.')
+    parser_i = subparsers.add_parser('inspect', help='Inspect the data stat.')
+    parser_t = subparsers.add_parser('tfrecord', help='Create tfrecords.')
     # #################################################################################################################
 
     # ##################   Embedding Target   #########################################################################
@@ -58,6 +55,7 @@ def args_parse():
     # ##################################################################################################################
 
     parser.add_argument('--debug', action='store_true', help='Debug mode.')
+
     args = parser.parse_args()
 
     return args, parser

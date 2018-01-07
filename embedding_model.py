@@ -161,7 +161,7 @@ class MyConvModel(object):
         conv_output = []
         for i in range(6):
             conv_output.append(layers.conv2d(self.char_embedding, conv_channel,
-                                             [i + 1], padding='VALID', activation_fn=None))
+                                             [i + 1], padding='SAME', activation_fn=None))
             print(conv_output[i].shape)
 
         for i in range(6):
@@ -399,7 +399,7 @@ def create_records():
             pbar.update()
 
 
-def filter_stat(embedding_keys, embedding_vecs):
+def filter_stat(embedding_keys, embedding_vecs, max_length):
     # Filter out non-ascii words
     count, mean, keys, std = 0, 0, {}, 0
     for i, k in enumerate(tqdm(embedding_keys, desc='Filtering...')):
@@ -414,7 +414,7 @@ def filter_stat(embedding_keys, embedding_vecs):
             mean += d1 / count
             d2 = (len(kk) - mean)
             std += d1 * d2
-            if len(kk) <= args.max_length:
+            if len(kk) <= max_length:
                 if keys.get(kk, None):
                     if k.strip().islower():
                         keys[k.strip()] = i
@@ -422,6 +422,7 @@ def filter_stat(embedding_keys, embedding_vecs):
                     keys[k.lower().strip()] = i
     std = math.sqrt(std / count)
     vecs = embedding_vecs[list(keys.values())]
+
     embedding_keys, embedding_vecs = list(keys.keys()), vecs / np.linalg.norm(vecs, axis=1, keepdims=True)
 
     du.pprint(['Filtered number of embedding: %d' % len(embedding_keys),
@@ -441,19 +442,35 @@ def filter_stat(embedding_keys, embedding_vecs):
 def process():
     # tokenize_qa = du.jload(config.avail_tokenize_qa_file)
     # subtitle = du.jload(config.subtitle_file)
-
     embedding_keys, embedding_vecs = du.load_embedding_vec(args.target)
 
     du.pprint(['%s\'s # of embedding: %d' % (args.target, len(embedding_keys)),
                '%s\'s shape of embedding vec: %s' % (args.target, str(embedding_vecs.shape))])
 
-    embedding_keys, embedding_vecs = filter_stat(embedding_keys, embedding_vecs)
+    embedding_keys, embedding_vecs = filter_stat(embedding_keys, embedding_vecs, args.max_length)
 
+    frequency = Counter()
+    probability = {}
+    embed_char_counter = Counter()
+    for k in tqdm(embedding_keys):
+        frequency.update([k[:(i + 1)] for i in range(len(k))])
+        embed_char_counter.update(k)
+
+    # Calculate the distribution of length 1
+    target = [k for k in frequency.keys() if len(k) == 1]
+    total = np.sum([frequency[t] for t in target])
+    probability.update({t: frequency[t] / total for t in target})
+
+    # Calculate length > 1
+    for l in range(2, args.max_length + 1):
+        target = [k for k in frequency.keys() if len(k) == l]
+        total = np.sum([frequency[t] for t in target])
+
+        probability.update({t: frequency[t] / total for t in target})
+
+    # traverse(root)
+    # print(root)
     if not args.debug:
-        embed_char_counter = Counter()
-        for k in tqdm(embedding_keys):
-            embed_char_counter.update(k)
-
         # qa_char_counter = Counter()
         # for k in tokenize_qa.keys():
         #     for qa in tqdm(tokenize_qa[k], desc='Char counting %s' % k):
