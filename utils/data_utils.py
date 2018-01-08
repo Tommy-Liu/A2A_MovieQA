@@ -119,12 +119,8 @@ def recur_iter_type_check(value, dtype):
     return all(iter_type_check(e, dtype) for e in value)
 
 
-def to_feature(value):
-    """
-    Wrapper of tensorflow feature
-    :param value:
-    :return:
-    """
+def to_feature(value, feature_list=False):
+    """Wrapper of tensorflow feature"""
     if isinstance(value, np.ndarray):
         # value is ndarray
         if np.issubdtype(value.dtype, np.integer):
@@ -136,7 +132,7 @@ def to_feature(value):
                 # 1-d array
                 return int64_feature(value)
             else:
-                raise ValueError('Too many dimensions.')
+                raise ValueError('Too many dimensions. At most 2.')
         elif np.issubdtype(value.dtype, np.floating):
             # value is float
             if value.ndim == 2:
@@ -146,28 +142,28 @@ def to_feature(value):
                 # 1-d array
                 return float_feature(value)
             else:
-                raise ValueError('Too many dimensions.')
+                raise ValueError('Too many dimensions. At most 2.')
     elif isinstance(value, (tuple, list)):
         # value is list or tuple
         if iter_type_check(value, int):
-            # int
+            # int list or tuple
             return int64_feature(value)
         elif iter_type_check(value, float):
-            # float
+            # float list or tuple
             return float_feature(value)
         elif iter_type_check(value, list):
             # value is list of lists
             if recur_iter_type_check(value, int):
-                # int
+                # int list of lists
                 return int64_feature_list(value)
             elif recur_iter_type_check(value, float):
-                # float
+                # float list of lists
                 return float_feature_list(value)
             else:
-                # string or byte
+                # string or byte list of lists
                 return bytes_feature_list(value)
         else:
-            # string or byte
+            # string or byte list
             return bytes_feature(value)
 
     else:
@@ -180,8 +176,11 @@ def to_feature(value):
             return float_feature([value])
         else:
             # string or byte
-            return bytes_feature([str(value)])
+            return bytes_feature([value])
 
+def valid_iterable(value):
+    """Return true if value is one of (tuple, list, ndarray)"""
+    return isinstance(value, (tuple, list, np.ndarray))
 
 def int64_feature(value):
     """Wrapper for inserting an int64 Feature into a SequenceExample proto."""
@@ -191,6 +190,11 @@ def int64_feature(value):
 def bytes_feature(value):
     """Wrapper for inserting a bytes Feature into a SequenceExample proto."""
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=value))
+
+
+def float_feature(value):
+    """Wrapper for inserting a float Feature into a SequenceExample proto."""
+    return tf.train.Feature(float_list=tf.train.FloatList(value=value))
 
 
 def int64_feature_list(values):
@@ -203,11 +207,8 @@ def bytes_feature_list(values):
     return tf.train.FeatureList(feature=[bytes_feature(v) for v in values])
 
 
-def float_feature(value):
-    return tf.train.Feature(float_list=tf.train.FloatList(value=value))
-
-
 def float_feature_list(values):
+    """Wrapper for inserting a float FeatureList into a SequenceExample proto."""
     return tf.train.FeatureList(feature=[float_feature(v) for v in values])
 
 

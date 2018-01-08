@@ -374,8 +374,8 @@ def create_records():
     inputs = []
     print('Loading file done. Spend %.3f sec' % (time.time() - start_time))
     fu.block_print(['embedding_vec\'s shape:' + str(embedding_vec.shape),
-               'embedding_word\'s shape:' + str(embedding_word.shape),
-               'embedding_word_length\'s shape:' + str(embedding_word_length.shape)])
+                    'embedding_word\'s shape:' + str(embedding_word.shape),
+                    'embedding_word_length\'s shape:' + str(embedding_word_length.shape)])
     if args.sorted:
         for i in trange(args.max_length):
             vec = embedding_vec[embedding_word_length == (i + 1)]
@@ -427,13 +427,13 @@ def filter_stat(embedding_keys, embedding_vecs, max_length):
     embedding_keys, embedding_vecs = list(keys.keys()), vecs / np.linalg.norm(vecs, axis=1, keepdims=True)
 
     fu.block_print(['Filtered number of embedding: %d' % len(embedding_keys),
-               'Filtered shape of embedding vec: ' + str(embedding_vecs.shape),
-               'Length\'s mean of keys: %.3f' % mean,
-               'Length\'s std of keys: %.3f' % std,
-               'Mean of embedding vecs: %.6f' % np.mean(np.mean(embedding_vecs, 1)),
-               'Std of embedding vecs: %.6f' % np.std(embedding_vecs),
-               'Mean length of embedding vecs: %.6f' % np.mean(np.linalg.norm(embedding_vecs, axis=1)),
-               'Std length of embedding vecs: %.6f' % np.std(np.linalg.norm(embedding_vecs, axis=1)),
+                    'Filtered shape of embedding vec: ' + str(embedding_vecs.shape),
+                    'Length\'s mean of keys: %.3f' % mean,
+                    'Length\'s std of keys: %.3f' % std,
+                    'Mean of embedding vecs: %.6f' % np.mean(np.mean(embedding_vecs, 1)),
+                    'Std of embedding vecs: %.6f' % np.std(embedding_vecs),
+                    'Mean length of embedding vecs: %.6f' % np.mean(np.linalg.norm(embedding_vecs, axis=1)),
+                    'Std length of embedding vecs: %.6f' % np.std(np.linalg.norm(embedding_vecs, axis=1)),
                     ])
     print('Element mean of embedding vec:')
     pp.pprint(np.mean(embedding_vecs, axis=0))
@@ -446,7 +446,7 @@ def process():
     embedding_keys, embedding_vecs = du.load_embedding_vec(args.target)
 
     fu.block_print(['%s\'s # of embedding: %d' % (args.target, len(embedding_keys)),
-               '%s\'s shape of embedding vec: %s' % (args.target, str(embedding_vecs.shape))])
+                    '%s\'s shape of embedding vec: %s' % (args.target, str(embedding_vecs.shape))])
 
     embedding_keys, embedding_vecs = filter_stat(embedding_keys, embedding_vecs, args.max_length)
 
@@ -512,7 +512,7 @@ def process():
                 "Wrong index!"
             length[i] = len(k)
         fu.block_print(['Shape of encoded key: %s' % str(encode_embedding_keys.shape),
-                   'Shape of encoded key length: %s' % str(length.shape)])
+                        'Shape of encoded key length: %s' % str(length.shape)])
         start_time = time.time()
         fu.exist_then_remove(config.encode_embedding_key_file)
         fu.exist_then_remove(config.encode_embedding_len_file)
