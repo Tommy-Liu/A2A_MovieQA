@@ -1,4 +1,34 @@
 import argparse
+from os.path import join
+
+
+class CommonParameter(object):
+    # Path
+    data_dir = 'data'
+
+    # Word embedding, Vocabulary file
+    fasttext_file = join(data_dir, 'crawl-300d-2M.vec')
+    word2vec_file = join(data_dir, 'GoogleNews-vectors-negative300.txt')
+    glove_file = join(data_dir, 'glove.840B.300d.txt')
+
+    # Char embedding
+    embed_char_counter_file = join(data_dir, 'embed_char_counter.json')
+    char_vocab_file = join(data_dir, 'char_vocab.json')
+    encode_embedding_key_file = join(data_dir, 'encode_embedding.npy')
+    encode_embedding_len_file = join(data_dir, 'encode_embedding_len.npy')
+    encode_embedding_vec_file = join(data_dir, 'encode_embedding_vec.npy')
+
+    # Total embedding keys and values
+    w2v_embedding_key_file = join(data_dir, 'w2v_embedding.json')
+    w2v_embedding_vec_file = join(data_dir, 'w2v_embedding.npy')
+    ft_embedding_key_file = join(data_dir, 'ft_embedding.json')
+    ft_embedding_vec_file = join(data_dir, 'ft_embedding.npy')
+    glove_embedding_key_file = join(data_dir, 'glove_embedding.json')
+    glove_embedding_vec_file = join(data_dir, 'glove_embedding.npy')
+    # Parameters
+    max_length = 12
+    embedding_size = 300
+    target = 'glove'
 
 
 def args_parse():
@@ -11,11 +41,9 @@ def args_parse():
     # #################################################################################################################
 
     # ##################   Embedding Target   #########################################################################
-    parser_p.add_argument('--target', default='glove', help='Learning target of word embedding.')
     parser_t.add_argument('--sorted', action='store_true', help='Divide data into groups of same length')
     parser_t.add_argument('--num_shards', default=128, help='Number of tfrecords.', type=int)
     parser_t.add_argument('--num_per_shard', default=10000, help='Number of instances in a shard.', type=int)
-    parser.add_argument('--max_length', default=12, help='Maximal word length.', type=int)
     # #################################################################################################################
 
     # ##################   Training Setting   #########################################################################
@@ -62,5 +90,7 @@ def args_parse():
 
 
 if __name__ == '__main__':
-    a, p = args_parse()
-    print(a)
+    # a, p = args_parse()
+    # print(a)
+    a = CommonParameter
+    print(CommonParameter.fasttext_file)

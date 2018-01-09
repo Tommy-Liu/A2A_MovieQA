@@ -1,87 +1,17 @@
-import io
 import json
-import time
-from os.path import join, exists
+from functools import reduce
+from operator import or_
+from os.path import join
 
 import numpy as np
 import tensorflow as tf
-from tqdm import tqdm, trange
 
-from . import func_utils as fu
 from config import MovieQAConfig
+from . import func_utils as fu
 
 config = MovieQAConfig()
 FILE_PATTERN = config.TFRECORD_PATTERN_
 NPY_PATTERN_ = '%s.npy'
-
-
-def load_embedding_vec(target, embedding_size=300):
-    start_time = time.time()
-    if target == 'glove':
-        key_file = config.glove_embedding_key_file
-        vec_file = config.glove_embedding_vec_file
-        raw_file = config.glove_file
-        load_fn = load_glove
-    elif target == 'w2v':
-        key_file = config.w2v_embedding_key_file
-        vec_file = config.w2v_embedding_vec_file
-        raw_file = config.word2vec_file
-        load_fn = load_w2v
-    elif target == 'fasttext':
-        key_file = config.ft_embedding_key_file
-        vec_file = config.ft_embedding_vec_file
-        raw_file = config.fasttext_file
-        load_fn = load_glove
-    else:
-        key_file = None
-        vec_file = None
-        raw_file = None
-        load_fn = None
-
-    if exists(key_file) and exists(vec_file):
-        embedding_keys = jload(key_file)
-        embedding_vecs = np.load(vec_file)
-    else:
-        embedding = load_fn(raw_file)
-        embedding_keys = []
-        embedding_vecs = np.zeros((len(embedding), embedding_size), dtype=np.float32)
-        for i, k in enumerate(embedding.keys()):
-            embedding_keys.append(k)
-            embedding_vecs[i] = embedding[k]
-        jdump(embedding_keys, key_file)
-        np.save(vec_file, embedding_vecs)
-
-    print('Loading embedding done. %.3f s' % (time.time() - start_time))
-    return embedding_keys, embedding_vecs
-
-
-def load_w2v(file):
-    embedding = {}
-
-    with open(file, 'r') as f:
-        num, dim = [int(comp) for comp in f.readline().strip().split()]
-        for _ in trange(num, desc='Load word embedding %dd' % dim):
-            word, *vec = f.readline().rstrip().rsplit(sep=' ', maxsplit=dim)
-            vec = [float(e) for e in vec]
-            embedding[word] = vec
-        assert len(embedding) == num, 'Wrong size of embedding.'
-    return embedding
-
-
-def load_glove(filename, embedding_size=300):
-    embedding = {}
-
-    # Read in the data.
-    with io.open(filename, 'r', encoding='utf-8') as savefile:
-        for i, line in enumerate(tqdm(savefile)):
-            tokens = line.rstrip().split(sep=' ', maxsplit=embedding_size)
-
-            word, *entries = tokens
-
-            embedding[word] = [float(x) for x in entries]
-            assert len(embedding[word]) == embedding_size, 'Wrong embedding dim.'
-
-    return embedding
 
 
 def pad_list_numpy(l, length):
@@ -96,12 +26,12 @@ def pad_list_numpy(l, length):
     return arr
 
 
-def jdump(obj, file_name, ensure_ascii=False, indent=4):
+def json_dump(obj, file_name, ensure_ascii=False, indent=4):
     with open(file_name, 'w') as f:
         json.dump(obj, f, ensure_ascii=ensure_ascii, indent=indent)
 
 
-def jload(file_name):
+def json_load(file_name):
     with open(file_name, 'r') as f:
         data = json.load(f)
     return data
@@ -111,89 +41,98 @@ def get_npy_name(feature_dir, video):
     return join(feature_dir, NPY_PATTERN_ % video)
 
 
+def probe_type(value):
+    return (vec_type_check(value) and reduce(or_, [probe_type(e) for e in value])) or \
+           set([type(e) for e in value])
+
+
+def type_check(value, dtype=(tuple, list, np.ndarray)):
+    """Return true if value is one of default"""
+    return isinstance(value, dtype)
+
+
 def iter_type_check(value, dtype):
-    return all(isinstance(e, dtype) for e in value)
+    return (vec_type_check(value) and all(iter_type_check(e, dtype) for e in value)) or \
+           vec_type_check(value, dtype)
 
 
-def recur_iter_type_check(value, dtype):
-    return all(iter_type_check(e, dtype) for e in value)
+def vec_type_check(value, dtype=(tuple, list, np.ndarray)):
+    return all(type_check(e, dtype) for e in value)
+
+
+def matrix2d_type_check(value, dtype=(tuple, list, np.ndarray)):
+    return all(vec_type_check(e, dtype) for e in value)
 
 
 def to_feature(value, feature_list=False):
     """Wrapper of tensorflow feature"""
-    if isinstance(value, np.ndarray):
-        # value is ndarray
-        if np.issubdtype(value.dtype, np.integer):
-            # value is int
-            if value.ndim == 2:
-                # 2-d array
-                return int64_feature_list(value)
-            elif value.ndim == 1:
-                # 1-d array
-                return int64_feature(value)
-            else:
-                raise ValueError('Too many dimensions. At most 2.')
-        elif np.issubdtype(value.dtype, np.floating):
-            # value is float
-            if value.ndim == 2:
-                # 2-d array
-                return float_feature_list(value)
-            elif value.ndim == 1:
-                # 1-d array
-                return float_feature(value)
-            else:
-                raise ValueError('Too many dimensions. At most 2.')
-    elif isinstance(value, (tuple, list)):
-        # value is list or tuple
-        if iter_type_check(value, int):
-            # int list or tuple
-            return int64_feature(value)
-        elif iter_type_check(value, float):
-            # float list or tuple
-            return float_feature(value)
-        elif iter_type_check(value, list):
-            # value is list of lists
-            if recur_iter_type_check(value, int):
-                # int list of lists
-                return int64_feature_list(value)
-            elif recur_iter_type_check(value, float):
-                # float list of lists
-                return float_feature_list(value)
-            else:
-                # string or byte list of lists
-                return bytes_feature_list(value)
-        else:
-            # string or byte list
-            return bytes_feature(value)
 
+    def list_depth(l):
+        return isinstance(l, list) and max(map(list_depth, l), default=0) + 1
+
+    def zero_depth(_):
+        return 0
+
+    def num_dim(l):
+        return l.ndim
+
+    integer = int
+    if type_check(value, np.ndarray):
+        # numpy array
+        numeric_check = np.issubsctype
+        get_dim = num_dim
+        integer = np.integer
+    elif type_check(value, (tuple, list)):
+        # list / tuple
+        numeric_check = iter_type_check
+        get_dim = list_depth
     else:
-        # value is scalar
-        if isinstance(value, (int, np.integer)):
-            # int
-            return int64_feature([value])
-        elif isinstance(value, (float, np.floating)):
-            # float
-            return float_feature([value])
-        else:
-            # string or byte
-            return bytes_feature([value])
+        # scalar
+        numeric_check = isinstance
+        get_dim = zero_depth
+        integer = (int, np.integer)
 
-def valid_iterable(value):
-    """Return true if value is one of (tuple, list, ndarray)"""
-    return isinstance(value, (tuple, list, np.ndarray))
+    if numeric_check(value, integer):
+        if get_dim(value) < 2:
+            return int64_feature(value)
+        elif get_dim(value) == 2:
+            return int64_feature_list(value)
+        else:
+            raise ValueError('Too many dimensions (%d). At most 2.' % get_dim(value))
+    elif numeric_check(value, float):
+        if get_dim(value) < 2:
+            return float_feature(value)
+        elif get_dim(value) == 2:
+            return float_feature_list(value)
+        else:
+            raise ValueError('Too many dimensions (%d). At most 2.' % get_dim(value))
+    else:
+        if get_dim(value) < 2:
+            return bytes_feature(value)
+        elif get_dim(value) == 2:
+            return bytes_feature_list(value)
+        else:
+            raise ValueError('Too many dimensions (%d). At most 2.' % get_dim(value))
+
 
 def int64_feature(value):
     """Wrapper for inserting an int64 Feature into a SequenceExample proto."""
+    if not type_check(value):
+        value = [value]
     return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
 
 
 def bytes_feature(value):
     """Wrapper for inserting a bytes Feature into a SequenceExample proto."""
+    if not type_check(value):
+        value = [value]
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=value))
 
 
 def float_feature(value):
     """Wrapper for inserting a float Feature into a SequenceExample proto."""
+    if not type_check(value):
+        value = [value]
     return tf.train.Feature(float_list=tf.train.FloatList(value=value))
 
 

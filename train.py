@@ -5,11 +5,11 @@ import time
 import tensorflow as tf
 from tqdm import trange
 
-from utils import data_utils as du
-from utils import func_utils as fu
 from config import MovieQAConfig
 from get_dataset import MovieQAData
 from model import VLLabMemoryModel
+from utils import data_utils as du
+from utils import func_utils as fu
 
 config = MovieQAConfig()
 
@@ -296,7 +296,7 @@ class TrainManager(object):
 
     def _update_exp(self, item):
         self.exp.update(item)
-        du.jdump(self.exp, config.exp_file)
+        du.json_dump(self.exp, config.exp_file)
 
 
 def main(_):

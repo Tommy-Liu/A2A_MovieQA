@@ -14,9 +14,9 @@ import pysrt
 from nltk.tokenize import word_tokenize  # , RegexpTokenizer, TweetTokenizer
 from tqdm import tqdm
 
+from config import MovieQAConfig
 from utils import data_utils as du
 from utils import func_utils as fu
-from config import MovieQAConfig
 
 config = MovieQAConfig()
 data_dir = config.video_clips_dir
@@ -371,9 +371,9 @@ def video_process(manager, shared_videos_clips, keys):
             pbar.update()
 
     fu.exist_then_remove(config.video_data_file)
-    du.jdump(shared_video_data.copy(), config.video_data_file)
+    du.json_dump(shared_video_data.copy(), config.video_data_file)
     fu.exist_then_remove(config.shot_boundary_file)
-    du.jdump(shared_shot_boundary.copy(), config.shot_boundary_file)
+    du.json_dump(shared_shot_boundary.copy(), config.shot_boundary_file)
 
     return shared_video_data
 
@@ -395,11 +395,11 @@ def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
             pbar.update()
 
     fu.exist_then_remove(config.subtitle_file)
-    du.jdump(shared_video_subtitle.copy(), config.subtitle_file)
+    du.json_dump(shared_video_subtitle.copy(), config.subtitle_file)
     fu.exist_then_remove(config.frame_time_file)
-    du.jdump(shared_frame_time.copy(), config.frame_time_file)
+    du.json_dump(shared_frame_time.copy(), config.frame_time_file)
     fu.exist_then_remove(config.subtitle_shot_file)
-    du.jdump(shared_video_subtitle_shot.copy(), config.subtitle_shot_file)
+    du.json_dump(shared_video_subtitle_shot.copy(), config.subtitle_shot_file)
 
 
 def main():
@@ -410,7 +410,7 @@ def main():
         if not args.no_video:
             shared_video_data = video_process(manager, shared_videos_clips, keys)
         else:
-            shared_video_data = du.jload(config.video_data_file)
+            shared_video_data = du.json_load(config.video_data_file)
 
         if not args.no_subt:
             subtitle_process(manager, shared_videos_clips, shared_video_data, keys)

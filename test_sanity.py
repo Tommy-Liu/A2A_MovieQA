@@ -4,8 +4,8 @@ import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 
-from utils import data_utils as du
 from config import MovieQAConfig
+from utils import data_utils as du
 
 config = MovieQAConfig()
 
@@ -40,7 +40,7 @@ def check_tfrecord():
 
 
 def test_npy():
-    video_data = du.jload(config.video_data_file)
+    video_data = du.json_load(config.video_data_file)
 
     for key in tqdm(video_data.keys(),
                     desc="Check sanity of features"):

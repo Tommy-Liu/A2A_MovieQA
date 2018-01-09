@@ -10,9 +10,9 @@ import numpy as np
 from nltk.tokenize import word_tokenize  # , RegexpTokenizer, TweetTokenizer
 from tqdm import tqdm
 
+from config import MovieQAConfig
 from utils import data_utils as du
 from utils import func_utils as fu
-from config import MovieQAConfig
 
 config = MovieQAConfig()
 video_img = config.video_img_dir
@@ -168,10 +168,10 @@ def encode_sentences(qa_list, vocab):
 
 def main():
     start_time = time.time()
-    video_data = du.jload(config.video_data_file)
-    video_subtitle = du.jload(config.subtitle_file)
-    shot_boundary = du.jload(config.shot_boundary_file)
-    subtitle_shot = du.jload(config.subtitle_shot_file)
+    video_data = du.json_load(config.video_data_file)
+    video_subtitle = du.json_load(config.subtitle_file)
+    shot_boundary = du.json_load(config.shot_boundary_file)
+    subtitle_shot = du.json_load(config.subtitle_shot_file)
 
     qa = json.load(open(config.qa_file, 'r'))
 
@@ -222,12 +222,12 @@ def main():
         if not embed_exist:
             qa_embedding, vocab, inverse_vocab = build_vocab(vocab_counter, embedding)
             fu.exist_then_remove(avail_embed_file)
-            du.jdump(inverse_vocab, avail_embed_file)
+            du.json_dump(inverse_vocab, avail_embed_file)
             fu.exist_then_remove(avail_embed_npy_file)
             np.save(avail_embed_npy_file,
                     np.array([e for e in qa_embedding.values()], dtype=np.float32))
         else:
-            inverse_vocab = du.jload(avail_embed_file)
+            inverse_vocab = du.json_load(avail_embed_file)
             vocab = {k: i for i, k in enumerate(inverse_vocab)}
     else:
         _, vocab, inverse_vocab = build_vocab(vocab_counter)
@@ -262,11 +262,11 @@ def main():
     fu.exist_then_remove(all_vocab_file_name)
     fu.exist_then_remove(config.encode_subtitle_file)
 
-    du.jdump(total_qa, total_qa_file_name)
-    du.jdump(tokenize_qa, tokenize_file_name)
-    du.jdump(encode_qa, encode_file_name)
-    du.jdump(vocab_all, all_vocab_file_name)
-    du.jdump(encode_sub, config.encode_subtitle_file)
+    du.json_dump(total_qa, total_qa_file_name)
+    du.json_dump(tokenize_qa, tokenize_file_name)
+    du.json_dump(encode_qa, encode_file_name)
+    du.json_dump(vocab_all, all_vocab_file_name)
+    du.json_dump(encode_sub, config.encode_subtitle_file)
 
 
 if __name__ == '__main__':

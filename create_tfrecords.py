@@ -8,9 +8,9 @@ from os.path import join
 import tensorflow as tf
 from tqdm import tqdm
 
+from config import MovieQAConfig
 from utils import data_utils as du
 from utils import func_utils as fu
-from config import MovieQAConfig
 
 config = MovieQAConfig()
 
@@ -189,8 +189,8 @@ def main(_):
         print('Test tfrecords.')
         test()
     else:
-        encode_qa = du.jload(config.avail_encode_qa_file)
-        encode_subtitle = du.jload(config.encode_subtitle_file)
+        encode_qa = du.json_load(config.avail_encode_qa_file)
+        encode_subtitle = du.json_load(config.encode_subtitle_file)
         print('Json file loading done !!')
         fu.exist_make_dirs(config.dataset_dir)
         create_tfrecord(encode_qa['encode_qa_%s' % FLAGS.split],

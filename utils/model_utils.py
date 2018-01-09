@@ -1,6 +1,14 @@
 import tensorflow as tf
 
 
+def extract_axis_1(data, ind):
+    batch_range = tf.cast(tf.range(tf.shape(data)[0]), dtype=tf.int64)
+    indices = tf.stack([batch_range, ind], axis=1)
+    res = tf.gather_nd(data, indices)
+
+    return res
+
+
 def get_initializer(name, m=0.0, s=1.0):
     if name == 'identity':
         initializer = tf.identity_initializer(s)

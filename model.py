@@ -5,6 +5,7 @@ import tensorflow as tf
 import tensorflow.contrib.layers as layers
 
 from config import MovieQAConfig
+from embed.model import extract_axis_1
 from get_dataset import MovieQAData
 
 time_steps = 20
@@ -15,15 +16,6 @@ config = MovieQAConfig()
 
 def npy_read_func(file_name):
     return np.load(file_name.decode('utf-8'))
-
-
-def extract_axis_1(data, ind):
-    batch_range = tf.cast(tf.range(tf.shape(data)[0]), dtype=tf.int64)
-    indices = tf.stack([batch_range, ind], axis=1)
-    res = tf.gather_nd(data, indices)
-
-    return res
-
 
 class VLLabMemoryModel(object):
     def __init__(self, data, num_layers=1, is_training=True):

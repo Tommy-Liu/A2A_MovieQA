@@ -10,11 +10,11 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 from tqdm import tqdm
 
-from utils import data_utils as du
-from utils import func_utils as fu
 from config import MovieQAConfig
 from inception_preprocessing import preprocess_image
 from inception_resnet_v2 import inception_resnet_v2_arg_scope, inception_resnet_v2
+from utils import data_utils as du
+from utils import func_utils as fu
 
 config = MovieQAConfig()
 
@@ -46,7 +46,7 @@ def models(images):
 
 def get_images_path():
     file_names, capacity, npy_names = [], [], []
-    video_data = du.jload(config.video_data_file)
+    video_data = du.json_load(config.video_data_file)
     for key in tqdm(video_data.keys()):
         if video_data[key]['avail']:
             npy_names.append(du.get_npy_name(config.feature_dir, key))

@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import hashlib
 import json
 import os
@@ -56,12 +52,12 @@ class MovieQAConfig(Config):
     NUMEXAMPLE_PATTERN_ = 'num_' + DATASET_PATTERN_ + '_examples'
     _group_name = None
 
-    def __init__(self):
+    def __init__(self, level='.'):
         super(MovieQAConfig, self).__init__()
         # Directory of data
         self.directory = Config()
         with self._create_group('directory'):
-            self.movieqa_benchmark_dir = '../MovieQA_benchmark'
+            self.movieqa_benchmark_dir = join(level, '../MovieQA_benchmark')
             # Directory of original data
             self.video_clips_dir = join(self.movieqa_benchmark_dir, 'story/video_clips')
             self.matidx_dir = join(self.movieqa_benchmark_dir, 'story/matidx')
@@ -69,7 +65,7 @@ class MovieQAConfig(Config):
             self.shot_boundary_dir = join(self.movieqa_benchmark_dir, 'story/shot_boundaries')
 
             # Directory of processed data
-            self.data_dir = './data'
+            self.data_dir = join(level, 'data')
             # Directory of all images of video clips
             self.video_img_dir = join(self.data_dir, 'video_img')
             # Directory of all features of video clips
