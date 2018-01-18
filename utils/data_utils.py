@@ -1,7 +1,8 @@
 import json
+from collections import OrderedDict
 from functools import reduce
 from operator import or_
-from os.path import join
+from os.path import join, exists
 
 import numpy as np
 import tensorflow as tf
@@ -26,6 +27,15 @@ def pad_list_numpy(l, length):
     return arr
 
 
+def exist_json_load(file_name, default=None):
+    if default is None:
+        default = {}
+    if exists(file_name):
+        return json_load(file_name)
+    else:
+        return default
+
+
 def json_dump(obj, file_name, ensure_ascii=False, indent=4):
     with open(file_name, 'w') as f:
         json.dump(obj, f, ensure_ascii=ensure_ascii, indent=indent)
@@ -33,7 +43,7 @@ def json_dump(obj, file_name, ensure_ascii=False, indent=4):
 
 def json_load(file_name):
     with open(file_name, 'r') as f:
-        data = json.load(f)
+        data = json.load(f, object_pairs_hook=OrderedDict)
     return data
 
 
@@ -76,30 +86,33 @@ def to_feature(value, feature_list=False):
     def num_dim(l):
         return l.ndim
 
-    integer = int
     if type_check(value, np.ndarray):
         # numpy array
         numeric_check = np.issubsctype
         get_dim = num_dim
-        integer = np.integer
+        type_integer = np.integer
+        type_float = np.floating
     elif type_check(value, (tuple, list)):
         # list / tuple
         numeric_check = iter_type_check
         get_dim = list_depth
+        type_integer = int
+        type_float = float
     else:
         # scalar
         numeric_check = isinstance
         get_dim = zero_depth
-        integer = (int, np.integer)
+        type_integer = (int, np.integer)
+        type_float = (float, np.floating)
 
-    if numeric_check(value, integer):
+    if numeric_check(value, type_integer):
         if get_dim(value) < 2:
             return int64_feature(value)
         elif get_dim(value) == 2:
             return int64_feature_list(value)
         else:
             raise ValueError('Too many dimensions (%d). At most 2.' % get_dim(value))
-    elif numeric_check(value, float):
+    elif numeric_check(value, type_float):
         if get_dim(value) < 2:
             return float_feature(value)
         elif get_dim(value) == 2:

@@ -7,7 +7,6 @@ import random
 import shutil
 import sys
 import time
-from collections import Counter
 from glob import glob
 from multiprocessing import Pool
 from os.path import join, exists
@@ -119,7 +118,6 @@ class EmbeddingData(object):
         return [n for n in self.file_names for l in length if 'length_%d_' % l in n]
 
 
-
 def create_one_example(v, w, l):
     feature = {
         "vec": du.to_feature(v),
@@ -179,129 +177,6 @@ def create_records():
     with Pool(8) as pool, tqdm(total=len(inputs), desc='Tfrecord') as pbar:
         for _ in pool.imap_unordered(create_one_record, inputs):
             pbar.update()
-
-
-def filter_stat(embedding_keys, embedding_vecs, max_length):
-    # Filter out non-ascii words
-    count, mean, keys, std = 0, 0, {}, 0
-    for i, k in enumerate(tqdm(embedding_keys, desc='Filtering...')):
-        try:
-            k.encode('ascii')
-        except UnicodeEncodeError:
-            pass
-        else:
-            count += 1
-            kk = k.lower().strip()
-            d1 = (len(kk) - mean)
-            mean += d1 / count
-            d2 = (len(kk) - mean)
-            std += d1 * d2
-            if len(kk) <= max_length:
-                if keys.get(kk, None):
-                    if k.strip().islower():
-                        keys[k.strip()] = i
-                else:
-                    keys[k.lower().strip()] = i
-    std = math.sqrt(std / count)
-    vecs = embedding_vecs[list(keys.values())]
-
-    embedding_keys, embedding_vecs = list(keys.keys()), vecs / np.linalg.norm(vecs, axis=1, keepdims=True)
-
-    fu.block_print(['Filtered number of embedding: %d' % len(embedding_keys),
-                    'Filtered shape of embedding vec: ' + str(embedding_vecs.shape),
-                    'Length\'s mean of keys: %.3f' % mean,
-                    'Length\'s std of keys: %.3f' % std,
-                    'Mean of embedding vecs: %.6f' % np.mean(np.mean(embedding_vecs, 1)),
-                    'Std of embedding vecs: %.6f' % np.std(embedding_vecs),
-                    'Mean length of embedding vecs: %.6f' % np.mean(np.linalg.norm(embedding_vecs, axis=1)),
-                    'Std length of embedding vecs: %.6f' % np.std(np.linalg.norm(embedding_vecs, axis=1)),
-                    ])
-    print('Element mean of embedding vec:')
-    pp.pprint(np.mean(embedding_vecs, axis=0))
-    return embedding_keys, embedding_vecs
-
-
-def process():
-    # tokenize_qa = du.json_load(config.avail_tokenize_qa_file)
-    # subtitle = du.json_load(config.subtitle_file)
-    embedding_keys, embedding_vecs = du.load_embedding_vec(args.target)
-
-    fu.block_print(['%s\'s # of embedding: %d' % (args.target, len(embedding_keys)),
-                    '%s\'s shape of embedding vec: %s' % (args.target, str(embedding_vecs.shape))])
-
-    embedding_keys, embedding_vecs = filter_stat(embedding_keys, embedding_vecs, args.max_length)
-
-    frequency = Counter()
-    probability = {}
-    embed_char_counter = Counter()
-    for k in tqdm(embedding_keys):
-        frequency.update([k[:(i + 1)] for i in range(len(k))])
-        embed_char_counter.update(k)
-
-    # Calculate the distribution of length 1
-    target = [k for k in frequency.keys() if len(k) == 1]
-    total = np.sum([frequency[t] for t in target])
-    probability.update({t: frequency[t] / total for t in target})
-
-    # Calculate length > 1
-    for l in range(2, args.max_length + 1):
-        target = [k for k in frequency.keys() if len(k) == l]
-        total = np.sum([frequency[t] for t in target])
-
-        probability.update({t: frequency[t] / total for t in target})
-
-    # traverse(root)
-    # print(root)
-    if not args.debug:
-        # qa_char_counter = Counter()
-        # for k in tokenize_qa.keys():
-        #     for qa in tqdm(tokenize_qa[k], desc='Char counting %s' % k):
-        #         for w in qa['tokenize_question']:
-        #             qa_char_counter.update(w)
-        #         for a in qa['tokenize_answer']:
-        #             for w in a:
-        #                 qa_char_counter.update(w)
-        #         for v in qa['video_clips']:
-        #             for l in subtitle[v]:
-        #                 for w in l:
-        #                     qa_char_counter.update(w)
-
-        du.json_dump(embed_char_counter, config.embed_char_counter_file)
-        # du.json_dump(qa_char_counter, config.qa_char_counter_file)
-
-        # count_array = np.array(list(embed_char_counter.values()), dtype=np.float32)
-        # m, v, md, f = np.mean(count_array), np.std(count_array), np.median(count_array), np.percentile(count_array, 95)
-        # print(m, v, md, f)
-        #
-        # above_mean = dict(filter(lambda item: item[1] > f, embed_char_counter.items()))
-        # below_mean = dict(filter(lambda item: item[1] < f, embed_char_counter.items()))
-        # below_occur = set(filter(lambda k: k in qa_char_counter, below_mean.keys()))
-        # final_set = below_occur.union(set(above_mean.keys()))
-        # du.json_dump(list(final_set) + [UNK], config.char_vocab_file)
-        vocab = list(embed_char_counter.keys()) + [UNK]
-        print('Filtered vocab:', vocab)
-        du.json_dump(vocab, config.char_vocab_file)
-        # vocab = du.json_load(config.char_vocab_file)
-        encode_embedding_keys = np.ones((len(embedding_keys), args.max_length), dtype=np.int64) * (len(vocab) - 1)
-        length = np.zeros(len(embedding_keys), dtype=np.int64)
-        for i, k in enumerate(tqdm(embedding_keys, desc='Encoding...')):
-            encode_embedding_keys[i, :len(k)] = [
-                vocab.index(ch) if ch in vocab else vocab.index(UNK)
-                for ch in k
-            ]
-            assert all([idx < len(vocab) for idx in encode_embedding_keys[i]]), \
-                "Wrong index!"
-            length[i] = len(k)
-        fu.block_print(['Shape of encoded key: %s' % str(encode_embedding_keys.shape),
-                        'Shape of encoded key length: %s' % str(length.shape)])
-        start_time = time.time()
-        fu.exist_then_remove(config.encode_embedding_key_file)
-        fu.exist_then_remove(config.encode_embedding_len_file)
-        fu.exist_then_remove(config.encode_embedding_vec_file)
-        np.save(config.encode_embedding_key_file, encode_embedding_keys)
-        np.save(config.encode_embedding_len_file, length)
-        np.save(config.encode_embedding_vec_file, embedding_vecs)
-        print('Saveing processed data with %.3f s' % (time.time() - start_time))
 
 
 def inspect():
