@@ -132,7 +132,7 @@ def create_one_example(v, w, l):
 
 def create_one_record(ex_tuple):
     output_filename, example_list = ex_tuple
-    fu.exist_then_remove(output_filename)
+    fu.safe_remove(output_filename)
     with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
         for i in range(len(example_list)):
             embedding_vec, embedding_word, embedding_word_length = example_list[i]
@@ -299,8 +299,8 @@ class EmbeddingTrainManager(object):
 
         if self.args.reset:
             self.remove()
-        fu.exist_make_dirs(self.log_dir)
-        fu.exist_make_dirs(self.checkpoint_dir)
+        fu.make_dirs(self.log_dir)
+        fu.make_dirs(self.checkpoint_dir)
         if args.checkpoint_file:
             self.checkpoint_file = args.checkpoint_file
         else:
@@ -599,8 +599,8 @@ def old_main():
             os.system('rm -rf %s' % os.path.join(checkpoint_dir, '*'))
         if os.path.exists(log_dir):
             os.system('rm -rf %s' % os.path.join(log_dir, '*'))
-    fu.exist_make_dirs(log_dir)
-    fu.exist_make_dirs(checkpoint_dir)
+    fu.make_dirs(log_dir)
+    fu.make_dirs(checkpoint_dir)
 
     loss = get_loss(args.loss, data, model) + get_loss(args.sec_loss, data, model)
 

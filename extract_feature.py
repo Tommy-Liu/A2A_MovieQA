@@ -80,7 +80,7 @@ def writer_worker(e, features_list, capacity, npy_names):
                 assert final_features.shape[0] == capacity[video_idx], \
                     "%s Both frames are not same!" % npy_names[video_idx]
                 for i in range(len(final_features)):
-                    assert fu.get_base_name_without_ext(npy_names[video_idx]) == \
+                    assert fu.basename_wo_ext(npy_names[video_idx]) == \
                            final_filename[i].split('/')[-2], \
                         "Wrong images! %s\n%s" % (npy_names[video_idx], final_filename[i])
                 print(npy_names[video_idx], final_features.shape, capacity[video_idx], len(local_feature))
@@ -115,7 +115,7 @@ def input_pipeline(filename_placeholder):
 
 
 def main(_):
-    fu.exist_make_dirs(config.feature_dir)
+    fu.make_dirs(config.feature_dir)
     filenames, capacity, npy_names = get_images_path()
     num_step = int(ceil(len(filenames) / batch_size))
     filename_placeholder = tf.placeholder(tf.string, shape=[None])
@@ -150,7 +150,7 @@ def main(_):
 
 
 def test_time():
-    fu.exist_make_dirs(config.feature_dir)
+    fu.make_dirs(config.feature_dir)
     filenames, capacity, npy_names = get_images_path()
     images = input_pipeline(filenames)
     print('Pipeline setup done !!')

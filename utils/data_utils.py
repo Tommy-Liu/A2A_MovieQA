@@ -170,11 +170,11 @@ def qa_feature_example(example, subt, modality, is_training=False):
     example_subt_length = []
     for name in example['feat']:
         f = np.load(name)
-        s = subt[fu.get_base_name_without_ext(name)]
+        s = subt[fu.basename_wo_ext(name)]
 
         assert len(f) == len(s['subtitle']), \
             "%s Video frames and subtitle are not aligned." % \
-            fu.get_base_name_without_ext(name)
+            fu.basename_wo_ext(name)
 
         if modality == 'fixed_num':
             num_sample = config.modality_config['fixed_num']

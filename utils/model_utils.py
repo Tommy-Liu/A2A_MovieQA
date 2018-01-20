@@ -10,9 +10,7 @@ def extract_axis_1(data, ind):
 
 
 def get_initializer(name, m=0.0, s=1.0):
-    if name == 'identity':
-        initializer = tf.identity_initializer(s)
-    elif name == 'truncated':
+    if name == 'truncated':
         initializer = tf.truncated_normal_initializer(m, s)
     elif name == 'uniform':
         initializer = tf.random_uniform_initializer(-s, s)

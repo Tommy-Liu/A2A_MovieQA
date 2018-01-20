@@ -1,19 +1,36 @@
 import os
 import re
+import shutil
+
+
+def bb(v):
+    if isinstance(v, int):
+        return '%d' % v
+    elif isinstance(v, float):
+        return '%.2E' % v
+    elif isinstance(v, str):
+        return v
+    else:
+        return repr(v)
 
 
 def block_print(s, ch='='):
+    if not isinstance(s, list):
+        s = [s]
     print(ch * (max([len(e) for e in s]) + 5))
     print('\n'.join(s))
     print(ch * (max([len(e) for e in s]) + 5))
 
 
-def exist_then_remove(f):
+def safe_remove(f):
     if os.path.exists(f):
-        os.remove(f)
+        if os.path.isdir(f):
+            shutil.rmtree(f)
+        else:
+            os.remove(f)
 
 
-def get_imdb_key(base_name):
+def imdb_key(base_name):
     return base_name.split('.')[0]
 
 
@@ -22,22 +39,22 @@ def clean_token(l):
     return re.sub(r'<.+?>', '', l)
 
 
-def exist_make_dirs(d):
+def make_dirs(d):
     """If the directory dose not exist, make one."""
     if not os.path.exists(d):
         os.makedirs(d)
 
 
 # Wrapped function
-def get_base_name_without_ext(p):
+def basename_wo_ext(p):
     """Get the base name of path p without extension"""
-    base_name = get_base_name(p)
+    base_name = basename(p)
     base_name = os.path.splitext(base_name)[0]
     return base_name
 
 
 # Fuck os.path.basename. I wrote my own version.
-def get_base_name(p):
+def basename(p):
     """Get the subdirectory or file name in the last position of the path p."""
     pos = -1
     if p.split('/')[pos] == '':

@@ -16,7 +16,7 @@ from utils import func_utils as fu
 
 
 def create_one_tfrecord(pack):
-    fu.exist_then_remove(pack.record_name)
+    fu.safe_remove(pack.record_name)
     with tf.python_io.TFRecordWriter(pack.record_name) as tfrecord_writer:
         for example in pack:
             tfrecord_writer.write(example.SerializeToString())
@@ -153,7 +153,7 @@ class TfRecordDataSet(object):
         self.num_threads = num_threads
         # ./dataset/$name
         self.target_dir = join(self.root_dir, name)
-        fu.exist_make_dirs(self.target_dir)
+        fu.make_dirs(self.target_dir)
         self.tfrecord_pattern = join(self.target_dir, name + '_%05d-of-%05d.tfrecord')
         self.file_names = glob(join(self.target_dir, self.TFRECORD_PATTERN_))
         self.info_file = join(self.target_dir, 'dataset_info.json')

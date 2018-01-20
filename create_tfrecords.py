@@ -26,7 +26,7 @@ config = MovieQAConfig()
 def create_one_tfrecord(split, modality, num_per_shard, example_list, subt, is_training, shard_id):
     args = [config.dataset_dir, config.dataset_name, split, modality, shard_id + 1, config.num_shards, is_training]
     output_filename = du.get_dataset_name(*args)
-    fu.exist_then_remove(output_filename)
+    fu.safe_remove(output_filename)
     # print('Start writing %s.' % output_filename)
     with tf.python_io.TFRecordWriter(output_filename) as tfrecord_writer:
         start_ndx = shard_id * num_per_shard
@@ -192,7 +192,7 @@ def main(_):
         encode_qa = du.json_load(config.avail_encode_qa_file)
         encode_subtitle = du.json_load(config.encode_subtitle_file)
         print('Json file loading done !!')
-        fu.exist_make_dirs(config.dataset_dir)
+        fu.make_dirs(config.dataset_dir)
         create_tfrecord(encode_qa['encode_qa_%s' % FLAGS.split],
                         encode_subtitle,
                         split=FLAGS.split,

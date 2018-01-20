@@ -4,7 +4,24 @@ import tensorflow as tf
 import tensorflow.contrib.layers as layers
 import tensorflow.contrib.rnn as rnn
 
-from ..utils.model_utils import get_initializer, extract_axis_1
+from utils.model_utils import get_initializer, extract_axis_1
+
+
+class NGramModel(object):
+    def __init__(self, data, oracle):
+        self.data = data
+        self.initializer = get_initializer(oracle.args['initializer'],
+                                           oracle.args['initial_mean'],
+                                           oracle.args['initial_scale'])
+        embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size - 1, 300],
+                                           tf.float32, self.initializer, trainable=True)
+        zero_vec = tf.get_variable("zero_vec", [1, 300], tf.float32, tf.constant_initializer(0),
+                                   trainable=False)
+        gram_matrix = tf.concat([embedding_matrix, zero_vec], axis=0)
+
+        self.gram_embedding = tf.nn.embedding_lookup(gram_matrix, self.data.word)
+
+        self.output = tf.reduce_sum(self.gram_embedding, axis=1)
 
 
 class BasicModel(object):

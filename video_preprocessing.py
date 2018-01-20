@@ -77,7 +77,7 @@ def get_videos_clips():
     """
     videos_clips = {}
     for d in tqdm(videos_dirs, desc='Get video clips:'):
-        imdb = fu.get_base_name(d)
+        imdb = fu.basename(d)
         videos_clips[imdb] = glob(os.path.join(d, VIDEO_PATTERN_))
     return videos_clips
 
@@ -228,7 +228,7 @@ def align_subtitle(video_clips,
     frame_to_subtitle, frame_to_subtitle_shot, matidx = map_frame_to_subtitle(key)
 
     for video in video_clips[key]:
-        base_name = fu.get_base_name_without_ext(video)
+        base_name = fu.basename_wo_ext(video)
         if video_data[base_name]['avail']:
             start_frame, end_frame = get_start_and_end_frame(video)
 
@@ -273,7 +273,7 @@ def check_video(video):
     meta_data = None
     nframes = 0
     try:
-        base_name = fu.get_base_name_without_ext(video)
+        base_name = fu.basename_wo_ext(video)
         reader = imageio.get_reader(video)
         images = glob(join(video_img, base_name, IMAGE_PATTERN_))
         meta_data = reader.get_meta_data()
@@ -286,7 +286,7 @@ def check_video(video):
         flag = True
         assert meta_data['real_frames'], "FUCK FUCK FUCK!!!!"
     except OSError:
-        # print(get_base_name(video), 'failed.')
+        # print(basename(video), 'failed.')
         meta_data = None
         flag = False
     except RuntimeError:
@@ -294,7 +294,7 @@ def check_video(video):
             meta_data['real_frames'] = len(img_list)
             flag = True
         else:
-            # print(get_base_name(video), 'failed.')
+            # print(basename(video), 'failed.')
             flag = False
     finally:
         return flag, img_list, meta_data
@@ -328,11 +328,11 @@ def check_and_extract_videos(videos_clips,
     """
     # print('Start %s !' % key)
     for video in videos_clips[key]:
-        base_name = fu.get_base_name_without_ext(video)
+        base_name = fu.basename_wo_ext(video)
         flag, img_list, meta_data = check_video(video)
         if flag:
             if len(img_list) > 0:
-                fu.exist_make_dirs(join(video_img, base_name))
+                fu.make_dirs(join(video_img, base_name))
                 for i, img in enumerate(img_list):
                     imageio.imwrite(join(video_img, base_name, 'img_%05d.jpg' % (i + 1)), img)
             sbd = get_shot_boundary(base_name, meta_data['real_frames'])
@@ -356,7 +356,7 @@ def check_and_extract_videos(videos_clips,
 
 
 def video_process(manager, shared_videos_clips, keys):
-    fu.exist_make_dirs(video_img)
+    fu.make_dirs(video_img)
 
     shared_video_data = manager.dict()
     shared_shot_boundary = manager.dict()
@@ -370,9 +370,9 @@ def video_process(manager, shared_videos_clips, keys):
         for i, _ in enumerate(p.imap_unordered(check_func, keys)):
             pbar.update()
 
-    fu.exist_then_remove(config.video_data_file)
+    fu.safe_remove(config.video_data_file)
     du.json_dump(shared_video_data.copy(), config.video_data_file)
-    fu.exist_then_remove(config.shot_boundary_file)
+    fu.safe_remove(config.shot_boundary_file)
     du.json_dump(shared_shot_boundary.copy(), config.shot_boundary_file)
 
     return shared_video_data
@@ -394,11 +394,11 @@ def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
         for i, _ in enumerate(p.imap_unordered(align_func, keys)):
             pbar.update()
 
-    fu.exist_then_remove(config.subtitle_file)
+    fu.safe_remove(config.subtitle_file)
     du.json_dump(shared_video_subtitle.copy(), config.subtitle_file)
-    fu.exist_then_remove(config.frame_time_file)
+    fu.safe_remove(config.frame_time_file)
     du.json_dump(shared_frame_time.copy(), config.frame_time_file)
-    fu.exist_then_remove(config.subtitle_shot_file)
+    fu.safe_remove(config.subtitle_shot_file)
     du.json_dump(shared_video_subtitle_shot.copy(), config.subtitle_shot_file)
 
 

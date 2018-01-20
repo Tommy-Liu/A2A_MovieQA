@@ -184,8 +184,8 @@ def process():
         assert len(encoded_embedding_keys) == len(embedding_vector), \
             'First dimensions of encoded keys and vectors are not matched.'
         start_time = time.time()
-        fu.exist_then_remove(cp.encode_embedding_key_file)
-        fu.exist_then_remove(cp.encode_embedding_vec_file)
+        fu.safe_remove(cp.encode_embedding_key_file)
+        fu.safe_remove(cp.encode_embedding_vec_file)
         np.save(cp.encode_embedding_key_file, encoded_embedding_keys)
         np.save(cp.encode_embedding_vec_file, embedding_vector)
         print('Saveing processed data with %.3f s' % (time.time() - start_time))

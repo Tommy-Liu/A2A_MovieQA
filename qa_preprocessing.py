@@ -92,8 +92,8 @@ def get_split(qa, video_data):
             "imdb_key": qa_['imdb_key'],
             "correct_index": qa_['correct_index'],
             "mv+sub": qa_['video_clips'] != [],
-            "video_clips": [fu.get_base_name_without_ext(vid)
-                            for vid in qa_['video_clips'] if video_data[fu.get_base_name_without_ext(vid)]['avail']],
+            "video_clips": [fu.basename_wo_ext(vid)
+                            for vid in qa_['video_clips'] if video_data[fu.basename_wo_ext(vid)]['avail']],
         })
         total_qa[qid_split(qa_)][-1]['avail'] = (total_qa[qid_split(qa_)][-1]['video_clips'] != [])
     return total_qa
@@ -221,9 +221,9 @@ def main():
     if embed_file:
         if not embed_exist:
             qa_embedding, vocab, inverse_vocab = build_vocab(vocab_counter, embedding)
-            fu.exist_then_remove(avail_embed_file)
+            fu.safe_remove(avail_embed_file)
             du.json_dump(inverse_vocab, avail_embed_file)
-            fu.exist_then_remove(avail_embed_npy_file)
+            fu.safe_remove(avail_embed_npy_file)
             np.save(avail_embed_npy_file,
                     np.array([e for e in qa_embedding.values()], dtype=np.float32))
         else:
@@ -256,11 +256,11 @@ def main():
         'inverse_vocab': inverse_vocab,
     }
 
-    fu.exist_then_remove(total_qa_file_name)
-    fu.exist_then_remove(tokenize_file_name)
-    fu.exist_then_remove(encode_file_name)
-    fu.exist_then_remove(all_vocab_file_name)
-    fu.exist_then_remove(config.encode_subtitle_file)
+    fu.safe_remove(total_qa_file_name)
+    fu.safe_remove(tokenize_file_name)
+    fu.safe_remove(encode_file_name)
+    fu.safe_remove(all_vocab_file_name)
+    fu.safe_remove(config.encode_subtitle_file)
 
     du.json_dump(total_qa, total_qa_file_name)
     du.json_dump(tokenize_qa, tokenize_file_name)

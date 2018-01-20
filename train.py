@@ -16,7 +16,7 @@ config = MovieQAConfig()
 
 class TrainManager(object):
     def __init__(self, param):
-        fu.exist_make_dirs(config.exp_dir)
+        fu.make_dirs(config.exp_dir)
         self.param = param
         self.exp = {}
         self._load_exp()
@@ -35,8 +35,8 @@ class TrainManager(object):
             print("The experiment of this setting finished.")
 
     def _train(self):
-        fu.exist_make_dirs(self._checkpoint_dir)
-        fu.exist_make_dirs(self._log_dir)
+        fu.make_dirs(self._checkpoint_dir)
+        fu.make_dirs(self._log_dir)
         start_time = time.time()
 
         now_epoch = self.param.now_epoch
