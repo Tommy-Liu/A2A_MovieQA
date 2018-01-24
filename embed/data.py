@@ -4,7 +4,7 @@ import time
 from argparse import ArgumentParser
 from collections import Counter
 from os.path import exists
-from pprint import PrettyPrinter
+from pprint import pprint
 
 import numpy as np
 from tqdm import tqdm, trange
@@ -13,14 +13,13 @@ from embed.args import CommonParameter
 from utils import data_utils as du
 from utils import func_utils as fu
 
-pp = PrettyPrinter(indent=2, compact=True)
-
 cp = CommonParameter()
 UNK = 'UNK'
 
 
 def load_embedding_vec(target, embedding_size=cp.embedding_size):
     start_time = time.time()
+    # File and function setup for embedding
     if target == 'glove':
         key_file = cp.glove_embedding_key_file
         vec_file = cp.glove_embedding_vec_file
@@ -42,16 +41,13 @@ def load_embedding_vec(target, embedding_size=cp.embedding_size):
         raw_file = None
         load_fn = None
 
+    # Check if there already exists pre-loaded file
     if exists(key_file) and exists(vec_file):
         embedding_keys = du.json_load(key_file)
         embedding_vecs = np.load(vec_file)
     else:
-        embedding = load_fn(raw_file)
-        embedding_keys = []
-        embedding_vecs = np.zeros((len(embedding), embedding_size), dtype=np.float32)
-        for idx, k in enumerate(tqdm(embedding.keys(), desc='Load embedding')):
-            embedding_keys.append(k)
-            embedding_vecs[idx] = embedding[k]
+        # If not, load it from text file
+        embedding_keys, embedding_vecs = load_fn(raw_file)
         du.json_dump(embedding_keys, key_file)
         np.save(vec_file, embedding_vecs)
 
@@ -59,37 +55,43 @@ def load_embedding_vec(target, embedding_size=cp.embedding_size):
     return embedding_keys, embedding_vecs
 
 
-def load_w2v(file):
-    embedding = {}
+def load_w2v(filename):
+    embedding_key, embedding_vec = [], []
 
-    with open(file, 'r') as f:
+    with open(filename, 'r') as f:
+        # First line is size of vocabulary and dimension of embedding
         num, dim = [int(comp) for comp in f.readline().strip().split()]
+        # Split each line of the rest to word and embedding vector
         for _ in trange(num, desc='Load word embedding %dd' % dim):
             word, *vec = f.readline().rstrip().rsplit(sep=' ', maxsplit=dim)
-            vec = [float(e) for e in vec]
-            embedding[word] = vec
-        assert len(embedding) == num, 'Wrong size of embedding.'
-    return embedding
+            embedding_key.append(word)
+            embedding_vec.append([float(e) for e in vec])
+        assert len(embedding_vec[-1]) == num, 'Wrong size of embedding.'
+        # Wrap it to a numpy array
+        embedding_vec = np.array(embedding_vec, dtype=np.float32)
+    return embedding_key, embedding_vec
 
 
 def load_glove(filename, embedding_size=cp.embedding_size):
-    embedding = {}
+    embedding_key, embedding_vec = [], []
 
     # Read in the data.
     with io.open(filename, 'r', encoding='utf-8') as savefile:
+        # Split each line of the rest to word and embedding vector
         for line in tqdm(savefile):
             tokens = line.rstrip().split(sep=' ', maxsplit=embedding_size)
 
             word, *entries = tokens
+            embedding_key.append(word)
+            embedding_vec.append([float(x) for x in entries])
+            assert len(embedding_vec[-1]) == embedding_size, 'Wrong embedding dim.'
+        # Wrap it to a numpy array
+        embedding_vec = np.array(embedding_vec, dtype=np.float32)
+    return embedding_key, embedding_vec
 
-            embedding[word] = [float(x) for x in entries]
-            assert len(embedding[word]) == embedding_size, 'Wrong embedding dim.'
 
-    return embedding
-
-
-def filter_stat(embedding_keys, embedding_vector,
-                max_length=0, print_stat=True, normalize=True):
+def filter_stat(embedding_keys, embedding_vector, max_length=0, print_stat=True,
+                normalize=True):
     # Filter out non-ascii words and words with '<' and '>'.
     count, mean, keys, std = 0, 0, {}, 0
     for idx, k in enumerate(tqdm(embedding_keys, desc='Filtering')):
@@ -104,6 +106,7 @@ def filter_stat(embedding_keys, embedding_vector,
             mean += d1 / count
             d2 = len(kk) - mean
             std += d1 * d2
+            # Threshold for maximum length, if max_length set
             length_flag = len(kk) <= max_length or not max_length
             lt_gt_flag = not {'<', '>'} & set(k)
             lower_none_flag = keys.get(kk, None) and k.strip().islower() or not keys.get(kk, None)
@@ -111,12 +114,17 @@ def filter_stat(embedding_keys, embedding_vector,
                 keys[kk] = idx
 
     std = math.sqrt(std / count)
-    vector = embedding_vector[list(keys.values())]
+    vector = np.zeros((len(keys), 300), dtype=np.float32)
+    embedding_keys = []
+    for idx, k in enumerate(keys):
+        embedding_keys.append(k)
+        vector[idx] = embedding_vector[keys[k]]
 
     # Normalize each vector to unit vector
     if normalize:
-        embedding_keys, embedding_vector = list(keys.keys()), \
-                                           vector / np.linalg.norm(vector, axis=1, keepdims=True)
+        embedding_vector = vector / np.linalg.norm(vector, axis=1, keepdims=True)
+    else:
+        embedding_vector = vector
 
     if print_stat:
         fu.block_print(['Filtered number of embedding: %d' % len(embedding_keys),
@@ -129,13 +137,13 @@ def filter_stat(embedding_keys, embedding_vector,
                         'Std length of embedding vecs: %.6f' % np.std(np.linalg.norm(embedding_vector, axis=1)),
                         ])
         print('Element mean of embedding vec:')
-        pp.pprint(np.mean(embedding_vector, axis=0))
+        pprint(np.mean(embedding_vector, axis=0))
     assert len(embedding_keys) == len(embedding_vector), \
         'First dimensions of keys and vectors are not matched.'
     return embedding_keys, embedding_vector
 
 
-def process():
+def process(args):
     embedding_keys, embedding_vector = load_embedding_vec(cp.target)
 
     fu.block_print(['%s\'s # of embedding: %d' % (cp.target, len(embedding_keys)),
@@ -191,8 +199,12 @@ def process():
         print('Saveing processed data with %.3f s' % (time.time() - start_time))
 
 
-if __name__ == '__main__':
+def main():
     parser = ArgumentParser()
     parser.add_argument('--debug', action='store_true', help='debug')
     args = parser.parse_args()
-    process()
+    process(args)
+
+
+if __name__ == '__main__':
+    main()

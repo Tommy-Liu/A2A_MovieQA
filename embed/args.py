@@ -36,35 +36,48 @@ class CommonParameter(object):
 
 # The code here should not be modified due to the consistency of the code and training setting.
 def args_parse():
+    hyper_parameters = {
+        # ##################   Training Setting   ######################################################
+        'learning_rate': {'default': 1E-2, 'help': 'Initial learning rate.', 'type': float},
+        'batch_size': {'default': 128, 'help': 'Batch size of training.', 'type': int},
+        'epoch': {'default': 200, 'help': 'Training epochs', 'type': int},
+        'decay_epoch': {'default': 2, 'help': 'Span of epochs at decay.', 'type': int},
+        'decay_rate': {'default': 0.97, 'help': 'Decay rate.', 'type': float},
+        'optimizer': {'default': 'sgd', 'help': 'Training policy (adam / momentum / sgd / rms).',
+                      'type': str},
+        'clip_norm': {'default': 1.0, 'help': 'Norm value of gradient clipping.', 'type': float},
+        # ##############################################################################################
+        # ##################   Initializer args   ######################################################
+        'initial_scale': {'default': 0.01, 'help': 'Initial value of weight\'s scale.', 'type': float},
+        'initializer': {'default': 'glorot',
+                        'help': 'Initializer of weight.\n(truncated / random / orthogonal / glorot)',
+                        'type': str}
+        # ###############################################################################################
+    }
+
+    function_args = {
+        'continue': {'action': 'store_true', 'help': 'Continue the experiment.'},
+        'auto': {'action': 'store_true', 'help': 'Automatically choose a set of hyper-parameters.'}}
+
+    odds = {
+        'checkpoint_file': {'default': None, 'help': 'Checkpoint file'},
+        'debug': {'action': 'store_true', 'help': 'Debug mode.'}}
+
     parser = argparse.ArgumentParser()
-    # ##################   Training Setting   #########################################################################
-    parser.add_argument('--continue', action='store_true', help='Continue the experiment.')
-    parser.add_argument('--checkpoint_file', default=None, help='Checkpoint file')
-    parser.add_argument('--learning_rate', default=1E-5, help='Initial learning rate.', type=float)
-    parser.add_argument('--batch_size', default=32, help='Batch size of training.', type=int)
-    parser.add_argument('--epoch', default=200, help='Training epochs', type=int)
-    parser.add_argument('--decay_epoch', default=2, help='Span of epochs at decay.', type=int)
-    parser.add_argument('--decay_rate', default=0.87, help='Decay rate.', type=float)
-    parser.add_argument('--optimizer', default='sgd', help='Training policy (adam / momentum / sgd / rms).')
-    parser.add_argument('--clip_norm', default=1.0, help='Norm value of gradient clipping.', type=float)
-    # #################################################################################################################
-
-    # ##################   Initializer args   ##########################################################################
-    parser.add_argument('--initial_mean', default=0.0, help='Initial value of weight\'s mean.', type=float)
-    parser.add_argument('--initial_scale', default=0.0075, help='Initial value of weight\'s scale.', type=float)
-    parser.add_argument('--initializer', default='glorot',
-                        help='Initializer of weight.\n(truncated / random / orthogonal / glorot)')
-    # ##################################################################################################################
-
-    parser.add_argument('--debug', action='store_true', help='Debug mode.')
+    for k in hyper_parameters:
+        parser.add_argument('--' + k, **hyper_parameters[k])
+    func_group = parser.add_mutually_exclusive_group()
+    for k in function_args:
+        func_group.add_argument('--' + k, **function_args[k])
+    for k in odds:
+        parser.add_argument('--' + k, **odds[k])
 
     args = parser.parse_args()
-
-    return vars(args), parser
+    args = vars(args)
+    hp = {k: args[k] for k in hyper_parameters}
+    rest = {k: args[k] for k in list(function_args.keys()) + list(odds.keys())}
+    return hp, rest, parser
 
 
 if __name__ == '__main__':
-    # a, p = args_parse()
-    # print(a)
-    a = CommonParameter()
-    print(a.fasttext_file)
+    args_parse()

@@ -148,12 +148,18 @@ class TfRecordDataSet(object):
 
     # The dir of datset is at ./dataset/$name
     def __init__(self, target=None, name='default', num_shards=128, num_threads=8):
-        """Target is a dictionary containing data (which can only be numpy array)."""
+        """Target is a dictionary containing data (which can only be numpy array).
+        Caution! Input target should be an OrderedDict, because you should know the
+        order of keys for later data output"""
         self.num_shards = num_shards
         self.num_threads = num_threads
-        # ./dataset/$name
-        self.target_dir = join(self.root_dir, name)
+        self.target = target
+
+        # Directory setup
+        self.target_dir = join(self.root_dir, name)  # ./dataset/$name
         fu.make_dirs(self.target_dir)
+
+        # File name setup
         self.tfrecord_pattern = join(self.target_dir, name + '_%05d-of-%05d.tfrecord')
         self.file_names = glob(join(self.target_dir, self.TFRECORD_PATTERN_))
         self.info_file = join(self.target_dir, 'dataset_info.json')
@@ -170,7 +176,7 @@ class TfRecordDataSet(object):
         # If given target, create tfrecords.
         if target and not self.verify_tfrecord():
             print('Creating tfrecords....')
-            self.create_tfrecord(target)
+            self.create_tfrecord()
         elif not self.info or not self.file_names:
             raise ValueError('Target dictionary is none, and there is no available dataset')
 
@@ -187,16 +193,15 @@ class TfRecordDataSet(object):
         self.dataset = tf.contrib.data.TFRecordDataset(self.file_names_placeholder)
 
     @staticmethod
-    def parse_single_example(features, record):
+    def parse_single_example(features, order, record):
         parsed = tf.parse_single_example(record, features)
-        return tuple(parsed[k] for k in features.keys())
+        return tuple(parsed[k] for k in order)
 
     @staticmethod
-    def parse_single_sequence_example(context_features, sequence_features, record):
+    def parse_single_sequence_example(context_features, sequence_features, order, record):
         context_parsed, sequence_parsed = tf.parse_single_sequence_example(
             record, context_features, sequence_features)
-        return tuple(context_parsed[k] for k in context_features.keys()) + \
-               tuple(sequence_parsed[k] for k in sequence_features.keys())
+        return tuple(context_parsed.get(k, None) or sequence_parsed.get(k, None) for k in order)
 
     def verify_tfrecord(self):
         if self.info.get('num_shards', None):
@@ -228,12 +233,14 @@ class TfRecordDataSet(object):
                 raise ValueError('Wrong dimension (%d) of target value. Can\'t be processed later.' % dim)
         pprint(self.context_features, indent=4)
         if self.sequence_features:
-            self.parse_fn = partial(self.parse_single_sequence_example, self.context_features, self.sequence_features)
+            self.parse_fn = partial(self.parse_single_sequence_example,
+                                    self.context_features, self.sequence_features, list(self.target.keys()))
         else:
-            self.parse_fn = partial(self.parse_single_example, self.context_features)
+            self.parse_fn = partial(self.parse_single_example,
+                                    self.context_features, list(self.target.keys()))
 
-    def create_tfrecord(self, target):
-        target = {k: np.load(v) for k, v in target.items()}
+    def create_tfrecord(self):
+        target = {k: np.load(v) for k, v in self.target.items()}
         self.num_example, *check_tail = list(set(len(v) for v in target.values()))
         assert len(check_tail) == 0, 'Different length of targets. %s' % check_tail
         self.info['number_example'] = self.num_example
@@ -246,11 +253,11 @@ class TfRecordDataSet(object):
             # Iterate over targets
             t = target[k]
             # Save tensor information
-            self.info['data'][k] = {}
-            self.info['data'][k]['dim'] = t.ndim
-            self.info['data'][k]['shape'] = t.shape
-            self.info['data'][k]['dtype'] = str(t.dtype)
-            # if isinstance(t, np.ndarray):
+            self.info['data'][k] = {
+                'dim': t.ndim,
+                'shape': t.shape,
+                'dtype': str(t.dtype)
+            }
             # t is numpy array
             dim = t.ndim
             # decide whether t is a sequence or not (dim == 3 )

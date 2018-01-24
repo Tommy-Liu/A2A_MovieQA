@@ -11,8 +11,7 @@ class NGramModel(object):
     def __init__(self, data, oracle):
         self.data = data
         self.initializer = get_initializer(oracle.args['initializer'],
-                                           oracle.args['initial_mean'],
-                                           oracle.args['initial_scale'])
+                                           s=oracle.args['initial_scale'])
         embedding_matrix = tf.get_variable("embedding_matrix", [self.data.vocab_size - 1, 300],
                                            tf.float32, self.initializer, trainable=True)
         zero_vec = tf.get_variable("zero_vec", [1, 300], tf.float32, tf.constant_initializer(0),

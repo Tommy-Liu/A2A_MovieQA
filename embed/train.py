@@ -24,9 +24,10 @@ class EmbeddingData(object):
     def __init__(self, name, batch_size=128, num_threads=16):
         start_time = time.time()
         self.name = name
-        self.records = TfRecordDataSet({'word': cp.encode_embedding_key_file,
-                                        'vec': cp.encode_embedding_vec_file},
-                                       name=self.name)
+        self.records = TfRecordDataSet(OrderedDict([
+            ('word', cp.encode_embedding_key_file),
+            ('vec', cp.encode_embedding_vec_file)]
+        ), name=self.name)
 
         self.batch_size = batch_size
         # Use floor instead of ceil because we drop last batch.
@@ -94,8 +95,9 @@ class HyperParameter(object):
 
 
 class HyperParameterSelector(object):
-    def __init__(self, args, parser, name):
-        self.args = args
+    def __init__(self, hp, rest, parser, name):
+        self.args = hp
+        self.rest = rest
         self.parser = parser
         self.name = name
         self.target = OrderedDict(
@@ -122,8 +124,8 @@ class HyperParameterSelector(object):
 
     @property
     def checkpoint_file(self):
-        if self.args['checkpoint_file']:
-            return self.args['checkpoint_file']
+        if self.rest['checkpoint_file']:
+            return self.rest['checkpoint_file']
         else:
             return tf.train.latest_checkpoint(self.checkpoint_dir)
 
@@ -134,10 +136,19 @@ class HyperParameterSelector(object):
     @property
     def exp_name(self):
         exp = []
-        for idx, k in enumerate(self.target.keys()):
-            if self.target[k].index(self.args[k]) != 0 or not idx:
+        for idx, k in enumerate(self.args.keys()):
+            if k not in ['loss', 'lock'] and \
+                    not self._safe_equal(self.args[k], self.parser.get_default(k)) or \
+                    k == 'learning_rate':
                 exp.append('_'.join([k, fu.bb(self.args[k])]))
         return '&'.join(exp)
+
+    @staticmethod
+    def _safe_equal(a, b):
+        if type(a) == type(b) and isinstance(a, float):
+            return abs(a - b) < 10 ** (-8)
+        else:
+            return a == b
 
     def save(self):
         du.json_dump(self.args, self.param_file)
@@ -156,48 +167,69 @@ class HyperParameterSelector(object):
         fu.make_dirs(self.log_dir)
         fu.make_dirs(self.checkpoint_dir)
 
-    def _select(self):
-        exp_paths = glob(join(cp.log_dir, '**', '*.json'), recursive=True)
+    def _auto(self, experiments):
+        for idx, d in enumerate(experiments):
+            experiments[idx] = {k: d[k] for k in list(self.target.keys()) + ['lock', 'loss']}
 
-        exps = []
-        for idx, p in enumerate(exp_paths):
+        # tuple(0,0,...,0)
+        grid = set(tuple(self.target[k].index(exp[k]) for k in self.target)
+                   for exp in experiments)
+        base = set(list(product(range(-1, 2), repeat=len(self.target))))
+        chosen = list(iter(base.difference(grid)))[0]
+        # change args' value
+        for idx, k in enumerate(self.target.keys()):
+            self.args[k] = self.target[k](chosen[idx])
+        pprint(self.args)
+
+    def _continue(self, experiments):
+        for idx, d in enumerate(experiments):
             print('%d.' % (idx + 1))
-            d = du.json_load(p)
-            exp = {k: d[k] for k in list(self.target.keys()) + ['lock', 'loss']}
-            exps.append(exp)
-            pprint(exp)
+            for k in self.args:
+                if not self._safe_equal(d[k], self.args[k]) or k in ['lock', 'loss']:
+                    print(k, d[k])
 
-        if self.args['continue']:
-            choice = int(input('Choose one (0 or nothing=random perturbation):') or 0)
-            while choice and exps[choice - 1]['lock']:
-                choice = int(input('Your choice is locked. Please try the other one:') or 0)
-        else:
-            choice = 0
+        while True:
+            choice = input('Please, choose one:')
+            if choice.isdecimal():
+                choice = int(choice)
+            else:
+                print('Input is not decimal.')
+                continue
+            if 0 > choice > len(experiments):
+                print('Index is out of range.')
+                continue
+            if experiments[choice - 1]['lock']:
+                print('The experiment is ongoing.')
+                continue
+            break
 
-        if choice:
-            pprint(exps[choice - 1])
-            for k in self.target:
-                self.args[k] = exps[choice - 1][k]
-            if bool(input('Reset? (any input=True)')):
-                fu.safe_remove(self.log_dir)
-                fu.safe_remove(self.checkpoint_dir)
-        else:
-            grid = set(tuple(self.target[k].index(exp[k]) for k in self.target)
-                       for exp in exps)
-            base = set(list(product(range(-1, 2), repeat=len(self.target))))
-            chosen = list(iter(base.difference(grid)))[0]
-            for idx, k in enumerate(self.target.keys()):
-                self.args[k] = self.target[k](chosen[idx])
-                print(k + ':', self.args[k])
+        pprint(experiments[choice - 1])
+        for k in experiments[choice - 1]:
+            self.args[k] = experiments[choice - 1][k]
+
+        if input('Reset? (yes -> True, else False)') == 'yes':
+            fu.safe_remove(self.log_dir)
+            fu.safe_remove(self.checkpoint_dir)
+
+    def _select(self):
+        if self.rest['auto'] or self.rest['continue']:
+            exp_paths = glob(join(cp.log_dir, '**', '*.json'), recursive=True)
+            experiments = []
+            for p in exp_paths:
+                experiments.append(du.json_load(p))
+            if self.rest['auto']:
+                self._auto(experiments)
+            elif self.rest['continue']:
+                self._continue(experiments)
         self.setup()
 
 
 class EmbeddingTrainingManager(object):
     name = 'embedding'
 
-    def __init__(self, args, parser):
+    def __init__(self, hp, rest, parser):
         start_time = time.time()
-        self.oracle = HyperParameterSelector(args, parser, self.name)
+        self.oracle = HyperParameterSelector(hp, rest, parser, self.name)
         with self.oracle.synchronization():
             self.data = EmbeddingData(self.name, self.oracle.args['batch_size'])
             self.model = NGramModel(self.data, self.oracle)
@@ -212,26 +244,17 @@ class EmbeddingTrainingManager(object):
             # gradients, variables = list(zip(*grads_and_vars))
             self.train_op = self.optimizer.apply_gradients(grads_and_vars, self.global_step)
             self.saver = tf.train.Saver(tf.global_variables())
-            # Summary
-            # histogram = []
-            # for idx, var in enumerate(variables):
-            #     histogram.append(tf.summary.histogram('gradient/' + var.name, gradients[idx]))
-            #     histogram.append(tf.summary.histogram(var.name, var))
-            #
-            # self.histogram_summary = tf.summary.merge(histogram)
-
             self.summaries_op = tf.summary.merge(
                 [tf.summary.scalar('loss', self.loss),
                  tf.summary.scalar('learning_rate', self.learning_rate)])
             self.init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
             fu.block_print('Pipeline setup done with %.2fs' % (time.time() - start_time))
-            self._train()
 
     def save(self, sess):
         self.saver.save(sess, self.oracle.checkpoint_name,
                         tf.train.global_step(sess, self.global_step))
 
-    def _train(self):
+    def train(self):
         start_time = time.time()
         config = tf.ConfigProto(allow_soft_placement=True, )
         config.gpu_options.allow_growth = True
@@ -279,8 +302,19 @@ class EmbeddingTrainingManager(object):
 
 
 def main():
-    args, parser = args_parse()
-    manager = EmbeddingTrainingManager(args, parser)
+    hp, rest, parser = args_parse()
+    manager = EmbeddingTrainingManager(hp, rest, parser)
+    with manager.oracle.synchronization():
+        manager.train()
+
+
+def test_data():
+    data = EmbeddingData(EmbeddingTrainingManager.name, 8)
+    with tf.Session() as sess:
+        tf.global_variables_initializer().run()
+        sess.run(data.initializer, feed_dict={data.records.file_names_placeholder: data.records.file_names})
+
+        print(sess.run([data.vec, data.word]))
 
 
 if __name__ == '__main__':

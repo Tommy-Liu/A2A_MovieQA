@@ -4,9 +4,7 @@ import shutil
 
 
 def bb(v):
-    if isinstance(v, int):
-        return '%d' % v
-    elif isinstance(v, float):
+    if isinstance(v, float):
         return '%.2E' % v
     elif isinstance(v, str):
         return v
