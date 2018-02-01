@@ -10,14 +10,14 @@ from pprint import pprint
 
 import tensorflow as tf
 
-from embed.args import CommonParameter, args_parse
+from data.tfrecord import TfRecordDataSet
+from embed.args import EmbeddingPath, args_parse
 from embed.model import NGramModel
-from tfrecord_everything import TfRecordDataSet
 from utils import data_utils as du
 from utils import func_utils as fu
 from utils.model_utils import get_loss, get_opt
 
-cp = CommonParameter()
+cp = EmbeddingPath()
 
 
 class EmbeddingData(object):
@@ -290,6 +290,7 @@ class EmbeddingTrainingManager(object):
                                          for k in self.oracle.target]))
                         print('{:<20}: {:>20d}'.format('batch_size', self.data.batch_size))
                         print('{:<20}: {:>20d}'.format('total_step', self.data.total_step))
+                        self.oracle.args['loss'] = loss
                     if step % 100 == 0:
                         print('epoch: {:02d} elapsed: {:>5.2f}s step: {:>6} loss: {:>10.5f}'
                               .format(step // self.data.total_step + 1,

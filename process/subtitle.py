@@ -6,11 +6,9 @@ import re
 from datetime import timedelta
 from functools import total_ordering, wraps
 from glob import glob
-from os.path import basename, splitext
+from unicodedata import normalize
 
-# from unicodedata import normalize
-
-# from cchardet import detect
+import utils.func_utils as fu
 
 RGX_TIMESTAMP_MAGNITUDE_DELIM = r'[,.:]'
 RGX_TIMESTAMP = RGX_TIMESTAMP_MAGNITUDE_DELIM.join([r'\d+'] * 4)
@@ -29,7 +27,7 @@ SRT_REGEX = re.compile(
         proprietary=RGX_PROPRIETARY,
         content=RGX_CONTENT,
         eof=RGX_POSSIBLE_CRLF
-    ).encode(),
+    ),  # String form
     re.DOTALL,
 )
 
@@ -48,7 +46,7 @@ def timedelta_to_srt_timestamp(timedelta_timestamp):
 
 
 def srt_timestamp_to_timedelta(ts):
-    hrs, mins, secs, msecs = map(int, re.split(r'[:,]'.encode(), ts))
+    hrs, mins, secs, msecs = map(int, re.split(r'[:,]', ts))
     return timedelta(hours=hrs, minutes=mins, seconds=secs, milliseconds=msecs)
 
 
@@ -86,7 +84,7 @@ class Line(object):
 
     def __lt__(self, other):
         return self.start < other.start or (
-            self.start == other.start and self.end < other.end
+                self.start == other.start and self.end < other.end
         )
 
     def __repr__(self):
@@ -108,30 +106,53 @@ class Line(object):
         )
 
 
+# pos(False): start, pos(True): end
+def binary_search(a, v, pos):
+    upper = len(a) - 1
+    lower = 0
+    pivot = (upper + lower) // 2
+
+    while lower < upper:
+        if a[pivot] < v:
+            lower = pivot + 1
+        elif a[pivot] > v:
+            upper = pivot - 1
+        else:
+            return pivot
+        pivot = (upper + lower) // 2
+
+    if pos and a[pivot] > v:
+        return pivot - 1
+    elif not pos and a[pivot] < v:
+        return pivot + 1
+    else:
+        return pivot
+
+
 class Subtitle(object):
     def __init__(self, srt_file):
         self.lines = []
-        self.key = splitext(basename(srt_file))[0]
-        with open(srt_file, 'rb') as f:
+        self.start = []
+        self.end = []
+        # self.times
+        self.key = fu.basename_wo_ext(srt_file)
+        with open(srt_file, 'r', encoding='iso-8859-1') as f:
             for match in SRT_REGEX.finditer(f.read()):
-                # print(match.groups())
-                code = detect(match.group(0))['encoding']
-                raw_index, raw_start, raw_end, proprietary, content = [
-                    normalize('NFKD', comp.decode(encoding=code)).encode('utf_8', 'ignore').decode('utf_8', 'ignore')
-                    for comp in match.groups()
-                ]
-                print(raw_index, raw_start, raw_end, proprietary,  # content)
-                      re.sub('<.+?>', '', content.replace('\r\n', '\n'), flags=re.DOTALL), )
-                # re.sub(r'<.+?>'.encode(), ''.encode(), content.replace(b'\r\n', b'\n'), flags=re.DOTALL), )
-                # self.lines.append(Line(
-                #     index=int(raw_index), start=srt_timestamp_to_timedelta(raw_start),
-                #     end=srt_timestamp_to_timedelta(raw_end), content=content.replace('\r\n', '\n')
-                # ))
+                raw_index, raw_start, raw_end, proprietary, content = match.groups()
+
+                content = content.strip()
+                content = re.sub(r'\r\n|\n', ' ', content)
+                content = re.sub(r'<.+?>', '', content, flags=re.DOTALL)
+                content = normalize("NFKD", content)
+
+                self.start.append(srt_timestamp_to_timedelta(raw_start))
+                self.end.append(srt_timestamp_to_timedelta(raw_end))
+                self.lines.append(content)
 
 
 def main():
-    # subt_list = glob('/home/tommy8054/MovieQA_benchmark/story/subtt/*.srt')
-    # for srt_file in subt_list:
+    subt_list = glob('/mnt/data/tommy8054/MovieQA_benchmark/story/subtt/*.srt')
+
     #     lines = []
     #     with open(srt_file, 'rb') as f:
     #         for match in SRT_REGEX.finditer(f.read()):

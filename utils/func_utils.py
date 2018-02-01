@@ -63,3 +63,7 @@ def basename(p):
 def is_in(a, b):
     """Is a a subset of b ?"""
     return set(a).issubset(set(b))
+
+
+def intersect(a, b):
+    return not set(a).isdisjoint(set(b))

@@ -10,7 +10,7 @@ import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 
-from embed.args import CommonParameter
+from embed.args import EmbeddingPath
 from utils import data_utils as du
 from utils import func_utils as fu
 
@@ -293,7 +293,7 @@ class TfRecordDataSet(object):
 
 
 if __name__ == '__main__':
-    cp = CommonParameter()
+    cp = EmbeddingPath()
     d = {'vec': cp.encode_embedding_vec_file,
          'word': cp.encode_embedding_key_file}
     data = TfRecordDataSet(name='embedding')

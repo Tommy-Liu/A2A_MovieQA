@@ -3,6 +3,7 @@ import codecs
 import os
 import re
 import sys
+import warnings
 from functools import partial
 from glob import glob
 from multiprocessing import Pool, Manager
@@ -14,24 +15,28 @@ import pysrt
 from nltk.tokenize import word_tokenize  # , RegexpTokenizer, TweetTokenizer
 from tqdm import tqdm
 
-from config import MovieQAConfig
+from config import MovieQAConfig, MovieQAPath
 from utils import data_utils as du
 from utils import func_utils as fu
 
+warnings.filterwarnings('ignore')
+
 config = MovieQAConfig()
+mp = MovieQAPath()
 data_dir = config.video_clips_dir
 matidx_dir = config.matidx_dir
 subt_dir = config.subt_dir
-video_img = config.video_img_dir
+video_img_dir = config.video_img_dir
 
 DIR_PATTERN_ = 'tt*'
 VIDEO_PATTERN_ = '*.mp4'
 IMAGE_PATTERN_ = '*.jpg'
 ALIGN_SUBTITLE_PATTERN_ = '\r>> Align subtitles  %d/%d IMDB: %s'
-allow_discard_offset = 3
-videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.isdir(d)]
+allowed_discard_number = 3
+min_frame_number = 5
 
 tokenize_func = word_tokenize
+
 
 # tokenizer = RegexpTokenizer("[\w']+")
 # tokenizer = TweetTokenizer()
@@ -41,11 +46,9 @@ tokenize_func = word_tokenize
 
 
 def get_start_and_end_time(l):
-    """
-    Get the start time and end time of a line.
+    """Get the start time and end time of a line.
     :param l: a string of the time interval
-    :return: start time and end time (second [ float ])
-    """
+    :return: start time and end time (second [ float ])"""
     comp = re.split(r' --> |:|,', l)
     offset = 0
     start_time = int(comp[offset + 0]) * 3600 + \
@@ -61,20 +64,18 @@ def get_start_and_end_time(l):
 
 
 def get_start_and_end_frame(p):
-    """
-    Get start and end frame.
+    """Get start and end frame.
     :param p: file path or name.
-    :return: 2 integers of start and end frame #.
-    """
+    :return: 2 integers of start and end frame #."""
     comp = re.split(r'[.-]', p)
     return int(comp[-5]), int(comp[-3])
 
 
 def get_videos_clips():
-    """
-    Get all video clips path.
-    :return: a dictionary with key:imdb, value:video clips path
-    """
+    """Get all video clips path.
+    :return: a dictionary with key:imdb, value:video clips path"""
+
+    videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.isdir(d)]
     videos_clips = {}
     for d in tqdm(videos_dirs, desc='Get video clips:'):
         imdb = fu.basename(d)
@@ -83,11 +84,9 @@ def get_videos_clips():
 
 
 def get_matidx(p):
-    """
-    Get the mapping of frame and time from the file.
+    """Get the mapping of frame and time from the file.
     :param p: base name
-    :return: a dictionary with key:frame #, value:time(second [ float ])
-    """
+    :return: a dictionary with key:frame #, value:time(second [ float ])"""
     matidx = []
     with open(join(matidx_dir, p + '.matidx'), 'r') as f:
         for l in f:
@@ -219,12 +218,7 @@ def map_frame_to_subtitle(imdb_key):
     return frame_to_subtitle, frame_to_subtitle_shot, matidx
 
 
-def align_subtitle(video_clips,
-                   video_subtitle,
-                   video_data,
-                   video_subtitle_shot,
-                   frame_time,
-                   key):
+def align_subtitle(video_clips, video_subtitle, video_data, video_subtitle_shot, frame_time, key):
     frame_to_subtitle, frame_to_subtitle_shot, matidx = map_frame_to_subtitle(key)
 
     for video in video_clips[key]:
@@ -266,114 +260,47 @@ def align_subtitle(video_clips,
             video_subtitle_shot[base_name] = []
 
 
-def check_video(video):
-    # initialize
-    img_list = []
-    flag = False
-    meta_data = None
-    nframes = 0
-    try:
-        base_name = fu.basename_wo_ext(video)
-        reader = imageio.get_reader(video)
-        images = glob(join(video_img, base_name, IMAGE_PATTERN_))
-        meta_data = reader.get_meta_data()
-        nframes = meta_data['nframes']
-        meta_data['real_frames'] = len(images)
-        if nframes - meta_data['real_frames'] >= allow_discard_offset:
-            for img in reader:
-                img_list.append(img)
-            meta_data['real_frames'] = len(img_list)
-        flag = True
-        assert meta_data['real_frames'], "FUCK FUCK FUCK!!!!"
-    except OSError:
-        # print(basename(video), 'failed.')
-        meta_data = None
-        flag = False
-    except RuntimeError:
-        if nframes - len(img_list) < allow_discard_offset:
-            meta_data['real_frames'] = len(img_list)
-            flag = True
-        else:
-            # print(basename(video), 'failed.')
-            flag = False
-    finally:
-        return flag, img_list, meta_data
-
-
-def get_shot_boundary(base_name, num_frames):
-    with codecs.open(join(config.shot_boundary_dir, base_name + '.sbd'), 'r',
-                     encoding='utf-8', errors='ignore') as f:
-        sbd = []
-        for line in f:
-            comp = re.sub(r'[\n\r]', '', line).split(' ')
-            # print(comp)
-            sbd.append((int(comp[0]), int(comp[1])))
-    shot_boundary = []
-    i = 0
-    for frame_idx in range(num_frames):
-        if sbd[i][1] - sbd[0][0] < frame_idx and i < len(sbd) - 1:
-            i += 1
-        shot_boundary.append(i)
-    assert shot_boundary, "Strange... Shot boundary fucked up."
-    return shot_boundary
-
-
-def check_and_extract_videos(videos_clips,
-                             video_data,
-                             shot_boundary,
-                             key):
-    """
-
-    :return:
-    """
+def check_and_extract_videos(videos_clips, video_data, key):
     # print('Start %s !' % key)
     for video in videos_clips[key]:
         base_name = fu.basename_wo_ext(video)
-        flag, img_list, meta_data = check_video(video)
-        if flag:
-            if len(img_list) > 0:
-                fu.make_dirs(join(video_img, base_name))
+        img_dir = join(mp.image_dir, base_name)
+        try:
+            reader = imageio.get_reader(video)
+        except OSError:
+            continue
+        meta_data = reader.get_meta_data()
+        img_list = []
+        try:
+            for img in reader:
+                img_list.append(img)
+        except RuntimeError:
+            pass
+        # Check if already extracted or not
+        extracted = glob(join(img_dir, '*.jpg'))
+        if len(img_list) > min_frame_number and \
+                len(img_list) - meta_data['nframes'] < allowed_discard_number:
+            if len(extracted) != len(img_list):
+                fu.make_dirs(img_dir)
                 for i, img in enumerate(img_list):
-                    imageio.imwrite(join(video_img, base_name, 'img_%05d.jpg' % (i + 1)), img)
-            sbd = get_shot_boundary(base_name, meta_data['real_frames'])
-            # print(shot_boundary)
-            assert len(sbd) == meta_data['real_frames']
-            video_data[base_name] = {
-                'avail': True,
-                'num_frames': meta_data['real_frames'],
-                'image_size': meta_data['size'],
-                'fps': meta_data['fps'],
-                'duration': meta_data['duration'],
-            }
-            shot_boundary[base_name] = sbd
-        else:
-            if os.path.exists(join(video_img, base_name)):
-                os.system('rm -rf %s' % join(video_img, base_name))
-            video_data[base_name] = {
-                'avail': False,
-            }
-            shot_boundary[base_name] = []
+                    imageio.imwrite(join(img_dir, '%s_%05d.jpg' % (base_name, i + 1)), img)
+            meta_data['real_frames'] = len(img_list)
+            video_data[base_name] = meta_data.copy()
 
 
 def video_process(manager, shared_videos_clips, keys):
-    fu.make_dirs(video_img)
+    fu.make_dirs(video_img_dir)
 
     shared_video_data = manager.dict()
-    shared_shot_boundary = manager.dict()
 
-    check_func = partial(check_and_extract_videos,
-                         shared_videos_clips,
-                         shared_video_data,
-                         shared_shot_boundary)
+    check_func = partial(check_and_extract_videos, shared_videos_clips, shared_video_data, )
 
     with Pool(8) as p, tqdm(total=len(keys), desc="Check and extract videos") as pbar:
         for i, _ in enumerate(p.imap_unordered(check_func, keys)):
             pbar.update()
 
-    fu.safe_remove(config.video_data_file)
-    du.json_dump(shared_video_data.copy(), config.video_data_file)
-    fu.safe_remove(config.shot_boundary_file)
-    du.json_dump(shared_shot_boundary.copy(), config.shot_boundary_file)
+    fu.safe_remove(mp.video_data_file)
+    du.json_dump(shared_video_data.copy(), mp.video_data_file)
 
     return shared_video_data
 
@@ -383,12 +310,8 @@ def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
     shared_video_subtitle_shot = manager.dict()
     shared_frame_time = manager.dict()
 
-    align_func = partial(align_subtitle,
-                         shared_videos_clips,
-                         shared_video_subtitle,
-                         shared_video_data,
-                         shared_video_subtitle_shot,
-                         shared_frame_time)
+    align_func = partial(align_subtitle, shared_videos_clips, shared_video_subtitle,
+                         shared_video_data, shared_video_subtitle_shot, shared_frame_time)
 
     with Pool(8) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
         for i, _ in enumerate(p.imap_unordered(align_func, keys)):
@@ -403,6 +326,10 @@ def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--no_video', action='store_true', help='Run without video pre-processing.')
+    parser.add_argument('--no_subt', action='store_true', help='Run without subtitle pre-processing.')
+    args = parser.parse_args()
     with Manager() as manager:
         videos_clips = get_videos_clips()
         shared_videos_clips = manager.dict(videos_clips)
@@ -417,8 +344,4 @@ def main():
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--no_video', action='store_true', help='Run without video pre-processing.')
-    parser.add_argument('--no_subt', action='store_true', help='Run without subtitle pre-processing.')
-    args = parser.parse_args()
     main()

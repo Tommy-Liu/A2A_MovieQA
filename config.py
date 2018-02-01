@@ -6,6 +6,78 @@ from glob import glob
 from os.path import join
 
 
+class MovieQAParameter(object):
+    def __init__(self):
+        self.dropout_prob = dict(default=0.7, help='Probability of keeping value in dropout layer.', type=float)
+        self.optimizer = dict(default="Adam", help='Optimization policy.', )
+
+        # Learning rate for the initial phase of training.
+        self.learning_rate = dict(default=0.0001, help='Initial learning rate.', type=float)
+        self.decay_factor = dict(default=0.87, help='Decay factor of learning rate.', type=float)
+        self.decay_epoch = dict(default=1.0, help='Number of epochs decay occurs.', type=float)
+        self.batch_size = dict(default=2, help='Batch size. (no idea? Google it, idiot!)', type=int)
+        self.clip_norm = dict(default=1.0, help='Norm value of gradient clipping.', type=float)
+        self.initial_scale = dict(default=0.01, help='Initial value of weight\'s scale.', type=float)
+        self.initializer = \
+            dict(default='glorot', help='Initializer of weight.\n(truncated / random / orthogonal / glorot)')
+
+
+class MovieQAPath(object):
+    def __init__(self):
+        self.benchmark_dir = '/mnt/data/tommy8054/MovieQA_benchmark'
+        # Directory of original data
+        self.story_dir = join(self.benchmark_dir, 'story')
+        self.video_clips_dir = join(self.story_dir, 'video_clips')
+        self.frame_time_dir = join(self.story_dir, 'matidx')
+        self.subtitle_dir = join(self.story_dir, 'subtt')
+        self.shot_boundary_dir = join(self.story_dir, 'shot_boundaries')
+
+        # Directory of processed data
+        self.data_dir = join(self.benchmark_dir, 'data')
+        # Directory of all images of video clips
+        self.image_dir = join(self.data_dir, 'images')
+        # Directory of all features of video clips
+        self.feature_dir = join(self.data_dir, 'features')
+        # Directory of tfrecords
+        self.dataset_dir = join(self.data_dir, 'dataset')
+
+        # Experiment directory
+        self.checkpoint_dir = './checkpoint'
+        self.log_dir = './log'
+        self.exp_dir = './exp'
+
+        # Video data
+        self.video_data_file = join(self.data_dir, 'video_data.json')
+        # Images' file names
+        self.images_name_file = join(self.data_dir, 'images_name.json')
+        # Shot boundary
+        self.shot_boundary_file = join(self.data_dir, 'shot_boundary.json')
+        # Subtitle data TODO
+        self.subtitle_file = join(self.data_dir, 'subtitle.json')
+        # Time to frame TODO
+        self.frame_time_file = join(self.data_dir, 'frame_time.json')
+        # Subtitle shot boundary
+        self.subtitle_shot_file = join(self.data_dir, 'video_subtitle_shot.json')
+
+        # Encoded subtitle
+        self.encode_subtitle_file = join(self.data_dir, 'encode_subtitle.json')
+        # Encoded QA
+        self.encode_qa_file = join(self.data_dir, 'encode_qa.json')
+        # Vocabulary file
+        self.vocab_file = join(self.data_dir, 'vocab.json')
+        # Embedding file
+        self.embedding_file = join(self.data_dir, 'embedding.npy')
+
+        # Original qa TODO
+        self.qa_file = join(self.data_dir, 'qa.json')
+        # Original movie infomation
+        self.movies_file = join(self.data_dir, 'movies.json')
+        # Original qa split
+        self.splits_file = join(self.data_dir, 'splits.json')
+        # Npy file pattern
+        self.npy_files = glob(os.path.join(self.feature_dir, '*.npy'))
+
+
 class ExtendedObject(object):
     _group_name = None
 
@@ -57,7 +129,7 @@ class MovieQAConfig(Config):
         # Directory of data
         self.directory = Config()
         with self._create_group('directory'):
-            self.movieqa_benchmark_dir = join(level, '../MovieQA_benchmark')
+            self.movieqa_benchmark_dir = '/mnt/data/tommy8054/MovieQA_benchmark'
             # Directory of original data
             self.video_clips_dir = join(self.movieqa_benchmark_dir, 'story/video_clips')
             self.matidx_dir = join(self.movieqa_benchmark_dir, 'story/matidx')

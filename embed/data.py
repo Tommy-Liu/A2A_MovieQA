@@ -9,11 +9,11 @@ from pprint import pprint
 import numpy as np
 from tqdm import tqdm, trange
 
-from embed.args import CommonParameter
+from embed.args import EmbeddingPath
 from utils import data_utils as du
 from utils import func_utils as fu
 
-cp = CommonParameter()
+cp = EmbeddingPath()
 UNK = 'UNK'
 
 
