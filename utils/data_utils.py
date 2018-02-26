@@ -28,8 +28,6 @@ def pad_list_numpy(l, length):
 
 
 def exist_json_load(file_name, default=None):
-    if default is None:
-        default = {}
     if exists(file_name):
         return json_load(file_name)
     else:
@@ -72,6 +70,24 @@ def vec_type_check(value, dtype=(tuple, list, np.ndarray)):
 
 def matrix2d_type_check(value, dtype=(tuple, list, np.ndarray)):
     return all(vec_type_check(e, dtype) for e in value)
+
+
+def feature_list(value, dtype):
+    if dtype == 'int':
+        return int64_feature_list(value)
+    elif dtype == 'float':
+        return float_feature_list(value)
+    else:
+        return bytes_feature_list(value)
+
+
+def feature(value, dtype):
+    if dtype == 'int':
+        return int64_feature(value)
+    elif dtype == 'float':
+        return float_feature(value)
+    else:
+        return bytes_feature(value)
 
 
 def to_feature(value, feature_list=False):

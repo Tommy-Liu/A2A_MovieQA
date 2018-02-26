@@ -1,12 +1,13 @@
 import argparse
-import time
+from functools import partial
 from math import ceil
-from multiprocessing import Manager, Event, Process
-from os.path import join
+from multiprocessing import Pool, Queue, Process
+from os.path import join, exists
 
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
+from numpy.lib.format import read_array_header_1_0, read_magic
 from tqdm import tqdm
 
 from config import MovieQAPath
@@ -38,15 +39,45 @@ def models(images):
     return end_points['Conv2d_7b_1x1']
 
 
+def load_shape(name):
+    with open(name, 'rb') as f:
+        major, minor = read_magic(f)
+        shape, fortran, dtype = read_array_header_1_0(f)
+    if len(shape) != 4:
+        raise TypeError('Errr! Single image... %s' % name)
+    return shape
+
+
+def collect(video_data, k):
+    imgs = [join(mp.image_dir, k, '%s_%05d.jpg' % (k, i + 1))
+            for i in range(0, video_data[k]['real_frames'], 10)]
+    npy_name = join(mp.feature_dir, k + '.npy')
+    if not exists(npy_name) or load_shape(npy_name)[0] != len(imgs):
+        return npy_name, len(imgs), imgs
+    else:
+        return None
+
+
 def get_images_path():
     file_names, capacity, npy_names = [], [], []
-    video_data = du.json_load(mp.video_data_file)
-    for key in tqdm(video_data.keys(), desc='Collect images'):
-        npy_names.append(join(mp.feature_dir, key + '.npy'))
-        imgs = [join(mp.image_dir, key, '%s_%05d.jpg' % (key, i + 1))
-                for i in range(video_data[key]['real_frames'])]
-        capacity.append(len(imgs))
-        file_names.extend(imgs)
+    video_data = dict(item for v in du.json_load(mp.video_data_file).values() for item in v.items())
+
+    func = partial(collect, video_data)
+    with Pool(16) as p, tqdm(total=len(video_data), desc='Collect images') as pbar:
+        for ins in p.imap_unordered(func, list(video_data.keys())):
+            if ins:
+                npy_names.append(ins[0])
+                capacity.append(ins[1])
+                file_names.extend(ins[2])
+            pbar.update()
+    # for key in tqdm(video_data.keys(), desc='Collect images'):
+    #     imgs = [join(mp.image_dir, key, '%s_%05d.jpg' % (key, i + 1))
+    #             for i in range(0, video_data[key]['real_frames'], 10)]
+    #     npy_name = join(mp.feature_dir, key + '.npy')
+    #     if not exists(npy_name) or len(np.load(npy_name)) != len(imgs):
+    #         npy_names.append(join(mp.feature_dir, key + '.npy'))
+    #         capacity.append(len(imgs))
+    #         file_names.extend(imgs)
     return file_names, capacity, npy_names
 
 
@@ -57,39 +88,38 @@ def count_num(features_list):
     return num
 
 
-def writer_worker(e, features_list, capacity, npy_names):
+def writer_worker(queue, capacity, npy_names):
     video_idx = 0
     local_feature = np.zeros((0, 8, 8, 1536), dtype=np.float32)
     local_filename = []
     with tqdm(total=len(npy_names)) as pbar:
         while True:
-            if len(features_list) > 0:
-                f, n = features_list.pop(0)
+            item = queue.get()
+            if item:
+                f, n = item
                 local_feature = np.concatenate([local_feature, f])
                 local_filename.extend(n)
-                if local_feature.shape[0] >= capacity[video_idx]:
-                    final_features = local_feature[:capacity[video_idx]]
+                while len(capacity) > video_idx and \
+                        local_feature.shape[0] >= capacity[video_idx]:
+
+                    final_features = local_feature[range(capacity[video_idx])]
                     final_filename = local_filename[:capacity[video_idx]]
+
                     assert final_features.shape[0] == capacity[video_idx], \
                         "%s Both frames are not same!" % npy_names[video_idx]
                     for i in range(len(final_features)):
                         assert fu.basename_wo_ext(npy_names[video_idx]) == final_filename[i].split('/')[-2], \
                             "Wrong images! %s\n%s" % (npy_names[video_idx], final_filename[i])
-                    pbar.set_description(' '.join([fu.basename_wo_ext(npy_names[video_idx]),
-                                                   str(final_features.shape),
-                                                   str(capacity[video_idx]),
-                                                   str(len(local_feature))]))
+
                     np.save(npy_names[video_idx], final_features)
-                    local_feature = local_feature[capacity[video_idx]:]
+                    pbar.set_description(' '.join([fu.basename_wo_ext(npy_names[video_idx])[:20],
+                                                   str(len(final_features))]))
+                    local_feature = local_feature[range(capacity[video_idx], len(local_feature))]
                     local_filename = local_filename[capacity[video_idx]:]
                     video_idx += 1
                     pbar.update()
             else:
-                time.sleep(3)
-            if len(features_list) == 0 and video_idx == len(capacity):
-                e.set()
-            else:
-                e.clear()  # ['map', 'list', 'info', 'subtitle', 'unavailable']
+                break
 
 
 def parse_func(filename):
@@ -101,10 +131,11 @@ def parse_func(filename):
 
 def input_pipeline(filename_placeholder, batch_size=32, num_worker=4):
     dataset = tf.data.Dataset.from_tensor_slices(filename_placeholder)
-    dataset = dataset.map(parse_func, num_parallel_calls=num_worker)
-    dataset = dataset.prefetch(10000)
     dataset = dataset.repeat(1)
+    dataset = dataset.map(parse_func, num_parallel_calls=8)
+    dataset = dataset.prefetch(10000)
     dataset = dataset.batch(batch_size)
+    dataset = dataset.prefetch(100)
     iterator = dataset.make_initializable_iterator()
     images, names = iterator.get_next()
     return images, names, iterator
@@ -125,36 +156,32 @@ def extract(batch_size, num_worker):
 
     print('Start extract !!')
 
-    with tf.Session() as sess, Manager() as manager:
-        e = Event()
-        features_list = manager.list()
-        p = Process(target=writer_worker, args=(e, features_list, capacity, npy_names))
+    with tf.Session() as sess:
+        queue = Queue()
+        p = Process(target=writer_worker, args=(queue, capacity, npy_names))
         p.start()
-        sess.run(iterator.initializer, feed_dict={filename_placeholder: filenames})
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
         saver.restore(sess, './inception_resnet_v2_2016_08_30.ckpt')
+        sess.run(iterator.initializer, feed_dict={filename_placeholder: filenames})
         try:
             for _ in range(num_step):
                 f, n = sess.run([feature_tensor, names])
-                # print(n)
-                features_list.append((f, [i.decode() for i in n]))
-            e.wait()
-            time.sleep(3)
-            p.terminate()
+                queue.put((f, [i.decode() for i in n]))
+            queue.put(None)
         except KeyboardInterrupt:
             print()
             p.terminate()
         finally:
-            time.sleep(1)
             p.join()
+            queue.close()
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_gpu', default=1)
     parser.add_argument('--batch_size', default=64)
-    parser.add_argument('--num_worker', default=8)
+    parser.add_argument('--num_worker', default=16)
     args = parser.parse_args()
     batch_size = args.batch_size * args.num_gpu
     num_worker = args.num_worker * args.num_gpu

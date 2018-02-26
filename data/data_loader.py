@@ -1,6 +1,5 @@
 import re
 import time
-from copy import deepcopy
 from datetime import timedelta
 from glob import glob
 from os.path import exists, join
@@ -21,6 +20,7 @@ RGX_PROPRIETARY = r'[^\r\n]*'
 RGX_CONTENT = r'.*?'
 RGX_POSSIBLE_CRLF = r'\r?\n'
 RGX_FLOAT = r'[+-]?(\d+([.]\d*)?|[.]\d+)'
+RGX_IMDB = r'tt\d+'
 
 SRT_REGEX = re.compile(
     r'({idx})\s*{eof}({ts}) --> ({ts}) ?({proprietary}){eof}({content})'
@@ -49,25 +49,34 @@ SHOT_BOUNDARY_REGEX = re.compile(
     ),
     re.DOTALL)
 
+VIDEO_NAME_REGEX = re.compile(
+    r'({imdb})[.]sf-({idx})[.]ef-({idx})[.]video'.format(
+        imdb=RGX_IMDB,
+        idx=RGX_INDEX
+    ),
+    re.DOTALL
+)
+
+
+def duration(basename):
+    match = VIDEO_NAME_REGEX.match(basename).groups()
+    return int(match[1]), int(match[2])
+
 
 class FrameTime(object):
-    def __init__(self, inc=None, exc=None):
-        if inc:
-            self.inc = inc
+    def __init__(self):
+        if exists(mp.frame_time_file):
+            self._frame_time = du.json_load(mp.frame_time_file)
         else:
-            self.inc = {'imdb_key': set()}
-        if exc:
-            self.exc = exc
-        else:
-            self.exc = {'imdb_key': set()}
+            self._frame_time = self.process()
+        self._inc = {'imdb_key': set(list(self._frame_time.keys()))}
 
     @staticmethod
     def process():
         frame_time = {}
         frame_time_paths = glob(join(mp.frame_time_dir, '*.matidx'))
         for p in tqdm(frame_time_paths, desc='Process frame time'):
-            t = FrameTime.get_frame_time(p)
-            frame_time[fu.basename_wo_ext(p)] = t
+            frame_time[fu.basename_wo_ext(p)] = FrameTime.get_frame_time(p)
         du.json_dump(frame_time, mp.frame_time_file, indent=0)
         return frame_time
 
@@ -79,42 +88,32 @@ class FrameTime(object):
                 times.append(float(match.group(2)))  # group 0 is the entire match
         return times
 
+    def reset(self):
+        self._inc['imdb_key'] = set(list(self._frame_time.keys()))
+        return self
+
     def include(self, imdb_key=None):
         if imdb_key:
-            self.inc['imdb_key'].update(imdb_key)
-        return deepcopy(self)
+            self._inc['imdb_key'].intersection_update(imdb_key)
+        return self
 
     def exclude(self, imdb_key=None):
         if imdb_key:
-            self.exc['imdb_key'].update(imdb_key)
-        return deepcopy(self)
+            self._inc['imdb_key'].difference_update(imdb_key)
+        return self
 
-    def _include(self, frame_time):
-        if self.inc['imdb_key']:
-            return {k: frame_time[k] for k in frame_time if k in self.inc['imdb_key']}
-        else:
-            return frame_time
-
-    def _exclude(self, frame_time):
-        if self.exc['imdb_key']:
-            return {k: frame_time[k] for k in frame_time if k not in self.exc['imdb_key']}
-        else:
-            return frame_time
-
-    def get(self, frame_time):
-        return self._exclude(self._include(frame_time))
+    def get(self):
+        return {k: self._frame_time[k] for k in self._frame_time
+                if k in self._inc['imdb_key']}
 
 
 class Subtitle(object):
-    def __init__(self, inc=None, exc=None):
-        if inc:
-            self.inc = inc
+    def __init__(self):
+        if exists(mp.subtitle_file):
+            self._subtitle = du.json_load(mp.subtitle_file)
         else:
-            self.inc = {'imdb_key': set()}
-        if inc:
-            self.exc = exc
-        else:
-            self.exc = {'imdb_key': set()}
+            self._subtitle = self.process()
+        self._inc = {'imdb_key': set(list(self._subtitle.keys()))}
 
     @staticmethod
     def process():
@@ -145,92 +144,96 @@ class Subtitle(object):
         hrs, mins, secs, msecs = map(int, re.split(r'[:,]', timestamp))
         return timedelta(hours=hrs, minutes=mins, seconds=secs, milliseconds=msecs).total_seconds()
 
+    def reset(self):
+        self._inc['imdb_key'] = set(list(self._subtitle.keys()))
+        return self
+
     def include(self, imdb_key=None):
         if imdb_key:
-            self.inc['imdb_key'].update(imdb_key)
-        return deepcopy(self)
+            self._inc['imdb_key'].intersection_update(imdb_key)
+        return self
 
     def exclude(self, imdb_key=None):
         if imdb_key:
-            self.exc['imdb_key'].update(imdb_key)
-        return deepcopy(self)
-
-    def _include(self, subtitle):
-        if self.inc['imdb_key']:
-            return {k: subtitle[k] for k in subtitle if k in self.inc['imdb_key']}
+            self._inc['imdb_key'].difference_update(imdb_key)
         return self
 
-    def _exclude(self, subtitle):
-        if self.exc['imdb_key']:
-            return {k: subtitle[k] for k in subtitle if k not in self.exc['imdb_key']}
-
-    def get(self, subtitle):
-        return self._exclude(self._include(subtitle))
+    def get(self):
+        return {k: self._subtitle[k] for k in self._subtitle
+                if k in self._inc['imdb_key']}
 
 
 class QA(object):
-    def __init__(self, inc=None, exc=None):
-        if inc:
-            self.inc = inc
-        else:
-            self.inc = {'split': set(), 'imdb_key': set(), 'video_clips': set()}
-        if exc:
-            self.exc = exc
-        else:
-            self.exc = {'split': set(), 'imdb_key': set(), 'video_clips': set()}
+    def __init__(self):
+        self._qa = du.json_load(mp.qa_file)
+        self._split = du.json_load(mp.splits_file)
+        self.video_data = du.json_load(mp.video_data_file)
+        self._inc = {'split': set(list(self._split.keys())),
+                     'imdb_key': set([k for v in self._split.values() for k in v]),
+                     'video_clips': {False}}
+
+    def reset(self):
+        self._inc['split'] = set(list(self._split.keys()))
+        self._inc['imdb_key'] = set([k for v in self._split.values() for k in v])
+        self._inc['video_clips'] = {False}
+        return self
 
     def include(self, split=None, imdb_key=None, video_clips=None):
         if split:
-            self.inc['split'].update(split)
+            self._inc['split'].intersection_update(split)
         if imdb_key:
-            self.inc['imdb_key'].update(imdb_key)
+            self._inc['imdb_key'].intersection_update(imdb_key)
         if video_clips is True:
-            self.inc['video_clips'].update([video_clips])
+            self._inc['video_clips'] = {video_clips}
         elif video_clips:
-            self.inc['video_clips'].update(video_clips)
-        return deepcopy(self)
+            if self._inc['video_clips'] == {True} or \
+                    self._inc['video_clips'] == {False}:
+                self._inc['video_clips'] = set(video_clips)
+            else:
+                self._inc['video_clips'].update(video_clips)
+
+        return self
 
     def exclude(self, split=None, imdb_key=None, video_clips=None):
         if split:
-            self.exc['split'].update(split)
+            self._inc['split'].difference_update(split)
         if imdb_key:
-            self.exc['imdb_key'].update(imdb_key)
+            self._inc['imdb_key'].difference_update(imdb_key)
         if video_clips is True:
-            self.exc['video_clips'].update([video_clips])
+            self._inc['video_clips'] = set()
         elif video_clips:
-            self.exc['video_clips'].update(video_clips)
-        return deepcopy(self)
+            if self._inc['video_clips'] == {True} or \
+                    self._inc['video_clips'] == {False}:
+                self._inc['video_clips'] = set(
+                    [k for v in self.video_data.keys() for k in v]).difference_update(video_clips)
+            else:
+                self._inc['video_clips'].difference_update(video_clips)
 
-    def _include(self, qa):
-        if self.inc['split']:
-            qa = [ins for ins in qa if any(s in ins['qid'] for s in self.inc['split'])]
-        if self.inc['imdb_key']:
-            qa = [ins for ins in qa if ins['imdb_key'] in self.inc['imdb_key']]
-        if self.inc['video_clips'] == {True}:
+        return self
+
+    def get(self):
+        qa = self._qa.copy()
+        qa = [ins for ins in qa
+              if any(s in ins['qid'] for s in self._inc['split']) and
+              ins['imdb_key'] in self._inc['imdb_key']]
+        if self._inc['video_clips'] == {True}:
             qa = [ins for ins in qa if ins['video_clips']]
-        elif self.inc['video_clips']:
-            qa = [ins for ins in qa if fu.intersect(ins['video_clips'], self.inc['video_clips'])]
+        elif self._inc['video_clips'] != {False}:
+            if self._inc['video_clips']:
+                qa = [ins for ins in qa if fu.intersect(ins['video_clips'], self._inc['video_clips'])]
+            else:
+                qa = [ins for ins in qa if not ins['video_clips']]
         return qa
-
-    def _exclude(self, qa):
-        if self.exc['split']:
-            qa = [ins for ins in qa if not any(s in ins['qid'] for s in self.exc['split'])]
-        if self.exc['imdb_key']:
-            qa = [ins for ins in qa if ins['imdb_key'] not in self.exc['imdb_key']]
-        if self.exc['video_clips'] == {True}:
-            qa = [ins for ins in qa if not ins['video_clips']]
-        elif self.exc['video_clips']:
-            qa = [ins for ins in qa if not fu.intersect(ins['video_clips'], self.exc['video_clips'])]
-        return qa
-
-    def get(self, qa):
-        return self._exclude(self._include(qa))
 
 
 class ShotBoundary(object):
     def __init__(self):
-        self.inc = {'imdb_key': set(), 'videos': set()}
-        self.exc = {'imdb_key': set(), 'videos': set()}
+        if exists(mp.shot_boundary_file):
+            self._sb = du.json_load(mp.shot_boundary_file)
+        else:
+            self._sb = self.process()
+        self._inc = {'imdb_key': set([k.split('.')[0] for k in self._sb]),
+                     'videos': set([k for k in self._sb])}
 
     @staticmethod
     def process():
@@ -247,62 +250,37 @@ class ShotBoundary(object):
         du.json_dump(shot_boundary, mp.shot_boundary_file)
         return shot_boundary
 
+    def reset(self):
+        self._inc['imdb_key'] = set([k.split('.')[0] for k in self._sb])
+        self._inc['videos'] = set([k for k in self._sb])
+        return self
+
     def include(self, imdb_key=None, videos=None):
         if imdb_key:
-            self.inc['imdb_key'].update(imdb_key)
+            self._inc['imdb_key'].intersection_update(imdb_key)
         if videos:
-            self.inc['videos'].update(videos)
-        return deepcopy(self)
+            self._inc['videos'].intersection_update(videos)
+        return self
 
     def exclude(self, imdb_key=None, videos=None):
         if imdb_key:
-            self.exc['imdb_key'].update(imdb_key)
+            self._inc['imdb_key'].difference_update(imdb_key)
         if videos:
-            self.exc['videos'].update(videos)
-        return deepcopy(self)
+            self._inc['videos'].difference_update(videos)
+        return self
 
-    def _include(self, shot_boundary):
-        if self.inc['imdb_key']:
-            shot_boundary = {k: shot_boundary[k] for k in shot_boundary
-                             if any(imdb in k for imdb in self.inc['imdb_key'])}
-        if self.inc['videos']:
-            shot_boundary = {k: shot_boundary[k] for k in shot_boundary if k in self.inc['videos']}
-        return shot_boundary
-
-    def _exclude(self, shot_boundary):
-        if self.exc['imdb_key']:
-            shot_boundary = {k: shot_boundary[k] for k in shot_boundary
-                             if not any(imdb in k for imdb in self.exc['imdb_key'])}
-        if self.exc['videos']:
-            shot_boundary = {k: shot_boundary[k] for k in shot_boundary if k not in self.exc['videos']}
-        return shot_boundary
-
-    def get(self, shot_boundary):
-        return self._exclude(self._include(shot_boundary))
+    def get(self):
+        sb = self._sb.copy()
+        if self._inc['imdb_key']:
+            sb = {k: sb[k] for k in sb if any(imdb in k for imdb in self._inc['imdb_key'])}
+        if self._inc['videos']:
+            sb = {k: sb[k] for k in sb if k in self._inc['videos']}
+        return sb
 
 
 class DataLoader(object):
     def __init__(self):
         pass
-
-    def __getitem__(self, item):
-        if item == 'frame_time':
-            if exists(mp.frame_time_file):
-                return du.json_load(mp.frame_time_file)
-            else:
-                return FrameTime.process()
-        elif item == 'subtitle':
-            if exists(mp.subtitle_file):
-                return du.json_load(mp.subtitle_file)
-            else:
-                return Subtitle.process()
-        elif item == 'qa':
-            return du.json_load(mp.qa_file)
-        elif item == 'shot_boundary':
-            if exists(mp.shot_boundary_file):
-                return du.json_load(mp.shot_boundary_file)
-            else:
-                return ShotBoundary.process()
 
 
 def main():
@@ -318,20 +296,23 @@ def main():
     # print(len(sub.get()))
     # print(len(sub.get(exclude=['tt1371111'])))
     # print(len(sub.get(include=['tt1371111'])))
-    # start_time = time.time()
-    # qa = QA()
-    # print('%.3f s' % (time.time() - start_time))
-    # print(len(qa.get()))
-    # print(len(qa.get(imdb_key=['tt1371111'])))
-    # print(len(qa.get_exclude(imdb_key=['tt1371111'])))
-    # print(len(qa.get(video_clips=True)))
-    # print(len(qa.get_exclude(qa.get(video_clips=True), imdb_key=['tt1371111'])))
     start_time = time.time()
-    sb = ShotBoundary()
+    qa = QA()
+    print(len(qa.get()))
+    print(len(qa.include(imdb_key=['tt1371111']).get()))
+    print(len(qa.reset().exclude(imdb_key=['tt1371111']).get()))
+    print(len(qa.reset().include(video_clips=True).get()))
+    print(len(qa.exclude(imdb_key=['tt1371111']).get()))
     print('%.3f s' % (time.time() - start_time))
-    print(len(sb.get()))
-    print(len(sb.get(imdb_key=['tt1371111'])))
-    print(len(sb.get_exclude(imdb_key=['tt1371111'])))
+    # start_time = time.time()
+    # sb = ShotBoundary()
+    # print('%.3f s' % (time.time() - start_time))
+    # print(len(sb.get()))
+    # print(len(sb.get(imdb_key=['tt1371111'])))
+    # print(len(sb.get_exclude(imdb_key=['tt1371111'])))
+    # s = 'tt2310332.sf-187938.ef-188077.video'
+    # match = VIDEO_NAME_REGEX.match(s).groups()
+    # print(match)
 
 
 if __name__ == '__main__':

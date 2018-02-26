@@ -1,347 +1,114 @@
 import argparse
-import codecs
-import os
-import re
-import sys
-import warnings
 from functools import partial
 from glob import glob
 from multiprocessing import Pool, Manager
 from os.path import join
 
 import imageio
-import pysrt
-# from nltk.tokenize.moses import MosesTokenizer
-from nltk.tokenize import word_tokenize  # , RegexpTokenizer, TweetTokenizer
+import numpy as np
 from tqdm import tqdm
 
-from config import MovieQAConfig, MovieQAPath
-from utils import data_utils as du
+import utils.data_utils as du
+from config import MovieQAPath
+from data.data_loader import QA, duration
 from utils import func_utils as fu
 
-warnings.filterwarnings('ignore')
-
-config = MovieQAConfig()
-mp = MovieQAPath()
-data_dir = config.video_clips_dir
-matidx_dir = config.matidx_dir
-subt_dir = config.subt_dir
-video_img_dir = config.video_img_dir
-
-DIR_PATTERN_ = 'tt*'
-VIDEO_PATTERN_ = '*.mp4'
-IMAGE_PATTERN_ = '*.jpg'
-ALIGN_SUBTITLE_PATTERN_ = '\r>> Align subtitles  %d/%d IMDB: %s'
-allowed_discard_number = 3
-min_frame_number = 5
-
-tokenize_func = word_tokenize
+_mp = MovieQAPath()
 
 
-# tokenizer = RegexpTokenizer("[\w']+")
-# tokenizer = TweetTokenizer()
-# tokenizer = MosesTokenizer()
-# tokenize_func = tokenizer.tokenize
-# tokenize_func = partial(tokenizer.tokenize, escape=False)
-
-
-def get_start_and_end_time(l):
-    """Get the start time and end time of a line.
-    :param l: a string of the time interval
-    :return: start time and end time (second [ float ])"""
-    comp = re.split(r' --> |:|,', l)
-    offset = 0
-    start_time = int(comp[offset + 0]) * 3600 + \
-                 int(comp[offset + 1]) * 60 + \
-                 int(comp[offset + 2]) + \
-                 int(comp[offset + 3]) / 1000
-    offset = 4
-    end_time = int(comp[offset + 0]) * 3600 + \
-               int(comp[offset + 1]) * 60 + \
-               int(comp[offset + 2]) + \
-               int(comp[offset + 3]) / 1000
-    return start_time, end_time
-
-
-def get_start_and_end_frame(p):
-    """Get start and end frame.
-    :param p: file path or name.
-    :return: 2 integers of start and end frame #."""
-    comp = re.split(r'[.-]', p)
-    return int(comp[-5]), int(comp[-3])
-
-
-def get_videos_clips():
-    """Get all video clips path.
-    :return: a dictionary with key:imdb, value:video clips path"""
-
-    videos_dirs = [d for d in glob(os.path.join(data_dir, DIR_PATTERN_)) if os.path.isdir(d)]
-    videos_clips = {}
-    for d in tqdm(videos_dirs, desc='Get video clips:'):
-        imdb = fu.basename(d)
-        videos_clips[imdb] = glob(os.path.join(d, VIDEO_PATTERN_))
-    return videos_clips
-
-
-def get_matidx(p):
-    """Get the mapping of frame and time from the file.
-    :param p: base name
-    :return: a dictionary with key:frame #, value:time(second [ float ])"""
-    matidx = []
-    with open(join(matidx_dir, p + '.matidx'), 'r') as f:
-        for l in f:
-            comp = l.replace('\n', '').split(' ')
-            time = float(comp[1])
-            matidx.append(time)
-    return matidx
-
-
-def get_line(line_list, i):
-    """
-    Get next element and add one to index.
-    :param line_list: a list of lines.
-    :param i: index
-    :return: a string of next line, one-added index
-    """
-    return line_list[i], i + 1
-
-
-def flush_print(s):
-    sys.stdout.write(s)
-    sys.stdout.flush()
-
-
-def map_time_subtitle(imdb_key):
-    subs = pysrt.open(join(subt_dir, imdb_key + '.srt'), encoding='iso-8859-1')
-    times = []
-    subtitles = []
-    for sub in subs:
-        text = re.sub(r'[\n\r]', ' ', sub.text).lower().strip()
-        text = fu.clean_token(text).strip()  # .encode('cp1252').decode('cp1252')
-        text = tokenize_func(text)  # ''|'<space>' -> []
-        if text:
-            subtitles.append(text)
-            start_time = sub.start.ordinal / 1000
-            end_time = sub.end.ordinal / 1000
-            times.append((start_time, end_time))
-    return times, subtitles
-
-
-def legacy_map_time_subtitle(imdb_key):
-    """
-    Map each line of subtitle to the interval of start time and end time.
-    :param imdb_key: imdb name
-    :return: a list containing tuples: (time tuple: (start time, end time), list of line: [words])
-    """
-    line_list = []
-    # Read all subtitles from file.
-    with codecs.open(join(subt_dir, imdb_key + '.srt'), 'r',
-                     encoding='utf-8', errors='ignore') as f:
-        for line in f:
-            line_list.append(re.sub(r'[\n\r]', '', line))
-        # Some of subtitles don't have the last new line.
-        # So, we add one.
-        if line_list[-1] != '':
-            line_list.append('')
-
-    # i for subtitle line number.
-    # j for frame number.
-    i = 0
-    time_to_subtitle = []
-    while i < len(line_list):
-        line, i = get_line(line_list, i)
-        lines = []
-        # The first line of each line is a digit.
-        if line.isdigit():
-            line, i = get_line(line_list, i)
-            # The second line of each line is time interval.
-            start_time, end_time = get_start_and_end_time(line)
-            line, i = get_line(line_list, i)
-            # Then, the true subtitle lines.
-            # When encounter '', stop collect lines.
-            while line != '':
-                lines.append(line)
-                line, i = get_line(line_list, i)
-            # Clean lines?? good or bad?
-            # Cuz it might be another clue.
-            # Update: Fuck those tokens.
-            lines = tokenize_func(fu.clean_token(' '.join(lines)))
-            time_to_subtitle.append(((start_time, end_time), lines))
-    return time_to_subtitle
-
-
-def map_frame_to_subtitle(imdb_key):
-    # Time interval to subtitle
-    subtitle_time_interval, subtitles = map_time_subtitle(imdb_key)
-    # Frames map to times
-    matidx = get_matidx(imdb_key)
-
-    frame_to_subtitle = [[] for _ in range(len(matidx))]
-    frame_to_subtitle_shot = [0 for _ in range(len(matidx))]
-
-    interval = matidx[-1] / len(matidx)
-    ftss_idx = 1
-
-    for t_idx, time in enumerate(subtitle_time_interval):
-        start_time, end_time = time
-        start_time = min(max(start_time, matidx[0]), matidx[-1])
-        end_time = max(min(end_time, matidx[-1]), matidx[0])
-        start_frame = min(max(int(start_time / interval), 0), len(matidx) - 1)
-        end_frame = max(min(int(end_time / interval), len(matidx) - 1), 0)
-        # shift index of
-        while matidx[start_frame] < start_time:
-            start_frame += 1
-        while start_frame > 0 and matidx[start_frame - 1] >= start_time:
-            start_frame -= 1
-        while matidx[end_frame] > end_time:
-            end_frame -= 1
-        while end_frame < len(matidx) - 1 and matidx[end_frame + 1] <= end_time:
-            end_frame += 1
-
-        overlap_idx = []
-
-        for i in range(start_frame, end_frame + 1):
-            frame_to_subtitle[i] += subtitles[t_idx]
-            if frame_to_subtitle_shot[i] == 0:
-                frame_to_subtitle_shot[i] = ftss_idx
-            else:
-                if not frame_to_subtitle_shot[i] in overlap_idx:
-                    overlap_idx.append(frame_to_subtitle_shot[i])
-                    frame_to_subtitle_shot[i] = ftss_idx + overlap_idx.index(frame_to_subtitle_shot[i]) + 1
-
-        ftss_idx += len(overlap_idx) + 1
-
-    assert len(frame_to_subtitle) == len(frame_to_subtitle_shot) == len(matidx), \
-        "Numbers of frames are different %d, %d, %d" % (
-            len(frame_to_subtitle), len(frame_to_subtitle_shot), len(matidx))
-
-    return frame_to_subtitle, frame_to_subtitle_shot, matidx
-
-
-def align_subtitle(video_clips, video_subtitle, video_data, video_subtitle_shot, frame_time, key):
-    frame_to_subtitle, frame_to_subtitle_shot, matidx = map_frame_to_subtitle(key)
+def check_and_extract_videos(extract, video_clips, video_data, key):
+    temp_video_data, delta, img_list = {}, 5, []
+    nil_img = np.zeros((299, 299, 3), dtype=np.uint8)
 
     for video in video_clips[key]:
+        del img_list[:]
+
         base_name = fu.basename_wo_ext(video)
-        if video_data[base_name]['avail']:
-            start_frame, end_frame = get_start_and_end_frame(video)
-
-            frame_time[base_name] = [
-                matidx[
-                    min(start_frame + i,
-                        len(frame_to_subtitle) - 1)]
-                for i in range(video_data[base_name]['num_frames'])
-            ]
-
-            video_subtitle[base_name] = [
-                frame_to_subtitle[
-                    min(start_frame + i,
-                        len(frame_to_subtitle) - 1)]
-                for i in range(video_data[base_name]['num_frames'])
-            ]
-
-            video_subtitle_shot[base_name] = [
-                frame_to_subtitle_shot[
-                    min(start_frame + i,
-                        len(frame_to_subtitle) - 1)]
-                for i in range(video_data[base_name]['num_frames'])
-            ]
-
-            assert len(video_subtitle[base_name]) == \
-                   len(video_subtitle_shot[base_name]) == \
-                   video_data[base_name]['num_frames'], \
-                "Not align! %d %d %d" % (len(video_subtitle[base_name]),
-                                         len(video_subtitle_shot[base_name]),
-                                         video_data[base_name]['num_frames'],
-                                         )
-        else:
-            video_subtitle[base_name] = []
-            frame_time[base_name] = []
-            video_subtitle_shot[base_name] = []
-
-
-def check_and_extract_videos(videos_clips, video_data, key):
-    # print('Start %s !' % key)
-    for video in videos_clips[key]:
-        base_name = fu.basename_wo_ext(video)
-        img_dir = join(mp.image_dir, base_name)
-        try:
-            reader = imageio.get_reader(video)
-        except OSError:
-            continue
-        meta_data = reader.get_meta_data()
-        img_list = []
-        try:
-            for img in reader:
-                img_list.append(img)
-        except RuntimeError:
-            pass
-        # Check if already extracted or not
+        img_dir = join(_mp.image_dir, base_name)
         extracted = glob(join(img_dir, '*.jpg'))
-        if len(img_list) > min_frame_number and \
-                len(img_list) - meta_data['nframes'] < allowed_discard_number:
-            if len(extracted) != len(img_list):
+
+        try:
+            reader = imageio.get_reader(video, ffmpeg_params=['-analyzeduration', '10M'])
+        except OSError:
+            start, end = duration(base_name)
+            num_frame = end - start
+            meta_data = {'nframes': num_frame}
+
+            if meta_data['nframes'] > len(extracted) + delta:
+                img_list = [nil_img] * num_frame
+        else:
+            meta_data = reader.get_meta_data()
+
+            if meta_data['nframes'] > len(extracted) + delta:
+                try:
+                    for img in reader:
+                        img_list.append(img)
+                except RuntimeError:
+                    pass
+
+        meta_data['real_frames'] = len(extracted)
+        # Check if already extracted or not
+        if img_list:
+            if len(extracted) != len(img_list) and extract:
                 fu.make_dirs(img_dir)
                 for i, img in enumerate(img_list):
                     imageio.imwrite(join(img_dir, '%s_%05d.jpg' % (base_name, i + 1)), img)
             meta_data['real_frames'] = len(img_list)
-            video_data[base_name] = meta_data.copy()
+
+        temp_video_data[base_name] = meta_data
+
+    video_data[key] = temp_video_data
 
 
-def video_process(manager, shared_videos_clips, keys):
-    fu.make_dirs(video_img_dir)
+def get_videos_clips():
+    qa_data = QA().include(video_clips=True).get()
+    videos_clips = {}
+    for qa in qa_data:
+        videos = qa['video_clips']
+        for video in videos:
+            imdb = video.split('.')[0]
+            videos_clips.setdefault(imdb, []).append(join(_mp.video_clips_dir, imdb, video))
+    return videos_clips
 
-    shared_video_data = manager.dict()
 
-    check_func = partial(check_and_extract_videos, shared_videos_clips, shared_video_data, )
+def video_process(extract):
+    fu.make_dirs(_mp.image_dir)
+    manager = Manager()
 
-    with Pool(8) as p, tqdm(total=len(keys), desc="Check and extract videos") as pbar:
-        for i, _ in enumerate(p.imap_unordered(check_func, keys)):
+    video_clips = manager.dict(get_videos_clips())
+    video_data = manager.dict()
+    keys = list(video_clips.keys())
+
+    with Pool(16) as p, tqdm(total=len(keys), desc="Check and extract videos") as pbar:
+        check_func = partial(check_and_extract_videos, extract, video_clips, video_data)
+
+        for _ in p.imap_unordered(check_func, keys):
             pbar.update()
 
-    fu.safe_remove(mp.video_data_file)
-    du.json_dump(shared_video_data.copy(), mp.video_data_file)
-
-    return shared_video_data
+    du.json_dump(video_data.copy(), _mp.video_data_file)
 
 
-def subtitle_process(manager, shared_videos_clips, shared_video_data, keys):
-    shared_video_subtitle = manager.dict()
-    shared_video_subtitle_shot = manager.dict()
-    shared_frame_time = manager.dict()
+def check():
+    video_data = du.json_load(_mp.video_data_file)
 
-    align_func = partial(align_subtitle, shared_videos_clips, shared_video_subtitle,
-                         shared_video_data, shared_video_subtitle_shot, shared_frame_time)
-
-    with Pool(8) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
-        for i, _ in enumerate(p.imap_unordered(align_func, keys)):
-            pbar.update()
-
-    fu.safe_remove(config.subtitle_file)
-    du.json_dump(shared_video_subtitle.copy(), config.subtitle_file)
-    fu.safe_remove(config.frame_time_file)
-    du.json_dump(shared_frame_time.copy(), config.frame_time_file)
-    fu.safe_remove(config.subtitle_shot_file)
-    du.json_dump(shared_video_subtitle_shot.copy(), config.subtitle_shot_file)
+    for volume in video_data.values():
+        for v in volume:
+            img_dir = join(_mp.image_dir, v)
+            true_length = len(glob(join(img_dir, '*.jpg')))
+            if volume[v]['real_frames'] != len(glob(join(img_dir, '*.jpg'))):
+                print(v, true_length, volume[v]['real_frames'])
 
 
-def main():
+def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--no_video', action='store_true', help='Run without video pre-processing.')
-    parser.add_argument('--no_subt', action='store_true', help='Run without subtitle pre-processing.')
-    args = parser.parse_args()
-    with Manager() as manager:
-        videos_clips = get_videos_clips()
-        shared_videos_clips = manager.dict(videos_clips)
-        keys = list(iter(videos_clips.keys()))
-        if not args.no_video:
-            shared_video_data = video_process(manager, shared_videos_clips, keys)
-        else:
-            shared_video_data = du.json_load(config.video_data_file)
-
-        if not args.no_subt:
-            subtitle_process(manager, shared_videos_clips, shared_video_data, keys)
+    parser.add_argument('--no_extract', action='store_false', help='Run without frame extracting.')
+    parser.add_argument('--check', action='store_true', help='Checl that number of image is correct')
+    return parser.parse_args()
 
 
 if __name__ == '__main__':
-    main()
+    args = parse_args()
+    if not args.check:
+        video_process(args.no_extract)
+    else:
+        check()

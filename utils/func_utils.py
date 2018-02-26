@@ -1,6 +1,9 @@
 import os
 import re
 import shutil
+from multiprocessing import Pool
+
+from tqdm import tqdm
 
 
 def bb(v):
@@ -26,6 +29,24 @@ def safe_remove(f):
             shutil.rmtree(f)
         else:
             os.remove(f)
+
+
+def parfor(func, iterable, desc='', ret=False, order=False, num_thread=8):
+    res = []
+
+    with Pool(num_thread) as pool, tqdm(total=len(iterable), desc=desc) as pbar:
+        if order:
+            map_func = pool.imap
+        else:
+            map_func = pool.imap_unordered
+
+        for ins in map_func(func, iterable):
+            if ret:
+                res.append(ins)
+            pbar.update()
+
+    if ret:
+        return res
 
 
 def imdb_key(base_name):

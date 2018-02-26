@@ -17,6 +17,7 @@ config = MovieQAConfig()
 def npy_read_func(file_name):
     return np.load(file_name.decode('utf-8'))
 
+
 class VLLabMemoryModel(object):
     def __init__(self, data, num_layers=1, is_training=True):
         self.is_training = is_training
@@ -185,7 +186,6 @@ class VLLabMemoryModel(object):
 class DecomposeModel(VLLabMemoryModel):
     def build_model(self):
         self.build_seq_embedding()
-
 
 
 def test_data():

@@ -10,9 +10,9 @@ from pprint import pprint
 
 import tensorflow as tf
 
-from data.tfrecord import TfRecordDataSet
 from embed.args import EmbeddingPath, args_parse
 from embed.model import NGramModel
+from embed.tfrecord import TfRecordDataSet
 from utils import data_utils as du
 from utils import func_utils as fu
 from utils.model_utils import get_loss, get_opt

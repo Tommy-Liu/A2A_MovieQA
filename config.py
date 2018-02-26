@@ -38,6 +38,8 @@ class MovieQAPath(object):
         self.image_dir = join(self.data_dir, 'images')
         # Directory of all features of video clips
         self.feature_dir = join(self.data_dir, 'features')
+        # Directory of all subtitles of video clips
+        self.subtitle_dir = join(self.data_dir, 'subtitle')
         # Directory of tfrecords
         self.dataset_dir = join(self.data_dir, 'dataset')
 
@@ -59,6 +61,10 @@ class MovieQAPath(object):
         # Subtitle shot boundary
         self.subtitle_shot_file = join(self.data_dir, 'video_subtitle_shot.json')
 
+        # Tokenize files for sanity check
+        self.tokenize_qa = join(self.data_dir, 'tokenize_qa.json')
+        self.tokenize_subt = join(self.data_dir, 'tokenize_subt.json')
+
         # Encoded subtitle
         self.encode_subtitle_file = join(self.data_dir, 'encode_subtitle.json')
         # Encoded QA
@@ -67,6 +73,9 @@ class MovieQAPath(object):
         self.vocab_file = join(self.data_dir, 'vocab.json')
         # Embedding file
         self.embedding_file = join(self.data_dir, 'embedding.npy')
+
+        self.ques_file = join(self.data_dir, 'ques.npy')
+        self.ans_file = join(self.data_dir, 'ans.npy')
 
         # Original qa TODO
         self.qa_file = join(self.data_dir, 'qa.json')
