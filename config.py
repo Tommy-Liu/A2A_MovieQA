@@ -38,8 +38,6 @@ class MovieQAPath(object):
         self.image_dir = join(self.data_dir, 'images')
         # Directory of all features of video clips
         self.feature_dir = join(self.data_dir, 'features')
-        # Directory of all subtitles of video clips
-        self.subtitle_dir = join(self.data_dir, 'subtitle')
         # Directory of tfrecords
         self.dataset_dir = join(self.data_dir, 'dataset')
 

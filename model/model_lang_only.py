@@ -6,7 +6,7 @@ from input import Input
 
 _mp = MovieQAPath()
 hp = {'emb_lin_dim': 300, 'feat_dim': 512,
-      'learning_rate': 10 ** (-4), 'decay_rate': 0.5, 'decay_type': 'exp', 'decay_epoch': 1,
+      'learning_rate': 10 ** (-3), 'decay_rate': 0.83, 'decay_type': 'exp', 'decay_epoch': 2,
       'opt': 'adam', 'checkpoint': '', 'dropout_rate': 0.1}
 
 
@@ -112,30 +112,6 @@ class Model(object):
             self.ans_enc = tf.layers.dense(self.ques_enc, hp['feat_dim'])  # (5, L_a, 2 * E_t)
             self.subt_enc = tf.layers.dense(self.ques_enc, hp['feat_dim'])  # (N, L_s, 2 * E_t)
 
-            # self.qs_value = tf.tensordot(self.mask_q_emb, self.mask_s_emb, axes=[[-1], [-1]])  # (1, L_q, N, L_s)
-            # self.qs_value = self.qs_value / (self.mask_q_emb.get_shape().as_list()[-1] ** 0.5)  # (1, L_q, N, L_s)
-            #
-            # self.q_value = tf.reduce_sum(self.qs_value, axis=[2, 3])  # (1, L_q)
-            #
-            # self.q_attention = tf.expand_dims(tf.nn.softmax(self.q_value), axis=2)  # (1, L_q, 1)
-            #
-            # self.ques_attended = tf.contrib.layers.layer_norm(
-            #     self.mask_q_emb * self.q_attention + self.ques, begin_norm_axis=2)  # (1, L_q, E_t)
-            #
-            # self.ques_enc = tf.reduce_sum(
-            #     self.ques_attended, axis=1) / tf.sqrt(tf.to_float(self.data.ql))  # (1, E_t)
-            #
-            # self.s_value = tf.reduce_sum(self.qs_value, axis=[0, 1])  # (N, L_s)
-            #
-            # self.s_attention = tf.expand_dims(tf.nn.softmax(self.s_value), axis=2)  # (N, L_s)
-            #
-            # self.subt_attended = tf.contrib.layers.layer_norm(
-            #     self.mask_s_emb * self.s_attention + self.subt, begin_norm_axis=2)  # (N, L_s, E_t)
-            #
-            # self.subt_enc = tf.reduce_sum(self.mask_s_emb * self.s_attention, axis=1) \
-            #                 / tf.sqrt(tf.to_float(self.data.sl))  # (N, E_t)
-
-        self.feat = tf.layers.dense(self.data.feat, hp['feat_dim'], name='feature_transform')  # (N, 64, F_t)
         self.m_subt = tf.layers.dense(
             self.subt_enc, hp['feat_dim'], use_bias=False, name='encode_transform')  # (N, F_t)
         self.m_ques = tf.layers.dense(
@@ -147,42 +123,13 @@ class Model(object):
         self.m_ques = tf.layers.dropout(self.m_ques, hp['dropout_rate'], training=training)
         self.m_ans = tf.layers.dropout(self.m_ans, hp['dropout_rate'], training=training)
 
-        with tf.variable_scope('Spatial_Attention'):
-            self.qs_aware = tf.nn.tanh(self.m_subt + tf.tile(self.m_ques, [tf.shape(self.m_subt)[0], 1]))  # (N, F_t)
-
-            self.position_matrix = tf.get_variable('position_matrix', shape=[1, 64, hp['feat_dim']])  # (1, 64, F_t)
-
-            self.spatial_attention = tf.expand_dims(tf.nn.softmax(
-                tf.einsum('ijk,ik->ij', self.feat + self.position_matrix, self.qs_aware)), axis=2)  # (N, 64)
-
-            self.feat_weighted_sum = tf.reduce_sum(self.feat * self.spatial_attention, axis=1)  # (N, F_t)
-
-            self.feat_weighted_sum = tf.layers.dropout(self.feat_weighted_sum, hp['dropout_rate'], training=training)
-
-        with tf.variable_scope('Co_Attention'):
-            self.fs_aware = tf.nn.tanh(tf.layers.dense(self.feat_weighted_sum, hp['feat_dim'], use_bias=False) +
-                                       self.m_subt + tf.tile(self.m_ques, [tf.shape(self.m_subt)[0], 1]))  # (N, F_t)
-
-            self.f_co_attention = tf.expand_dims(tf.nn.softmax(
-                tf.einsum('ij,ij->i', self.feat_weighted_sum, self.fs_aware)), axis=1)  # (N, 1)
-
-            self.s_co_attention = tf.expand_dims(tf.nn.softmax(
-                tf.einsum('ij,ij->i', self.m_subt, self.fs_aware)), axis=1)  # (N, 1)
-
-            self.f_co_attended = tf.layers.dropout(self.f_co_attention * self.feat_weighted_sum,
-                                                   hp['dropout_rate'], training=training)  # (N, F_t)
-            self.s_co_attended = tf.layers.dropout(self.s_co_attention * self.m_subt,
-                                                   hp['dropout_rate'], training=training)  # (N, F_t)
-
-            self.story_feat = self.f_co_attended + self.s_co_attended  # (N, F_t)
-
-        t_shape = tf.shape(self.story_feat)
+        t_shape = tf.shape(self.m_subt)
         split_num = tf.cast(tf.ceil(t_shape[0] / 5), dtype=tf.int32)
         pad_num = split_num * 5 - t_shape[0]
         paddings = tf.convert_to_tensor([[0, pad_num], [0, 0]])
 
         with tf.variable_scope('Memory_Block'):
-            self.mem_feat = tf.pad(self.story_feat, paddings)
+            self.mem_feat = tf.pad(self.m_subt, paddings)
 
             self.mem_block = tf.reshape(self.mem_feat, [split_num, 5, hp['feat_dim']])
 

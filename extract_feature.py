@@ -70,14 +70,6 @@ def get_images_path():
                 capacity.append(ins[1])
                 file_names.extend(ins[2])
             pbar.update()
-    # for key in tqdm(video_data.keys(), desc='Collect images'):
-    #     imgs = [join(mp.image_dir, key, '%s_%05d.jpg' % (key, i + 1))
-    #             for i in range(0, video_data[key]['real_frames'], 10)]
-    #     npy_name = join(mp.feature_dir, key + '.npy')
-    #     if not exists(npy_name) or len(np.load(npy_name)) != len(imgs):
-    #         npy_names.append(join(mp.feature_dir, key + '.npy'))
-    #         capacity.append(len(imgs))
-    #         file_names.extend(imgs)
     return file_names, capacity, npy_names
 
 
@@ -110,8 +102,14 @@ def writer_worker(queue, capacity, npy_names):
                     for i in range(len(final_features)):
                         assert fu.basename_wo_ext(npy_names[video_idx]) == final_filename[i].split('/')[-2], \
                             "Wrong images! %s\n%s" % (npy_names[video_idx], final_filename[i])
-
-                    np.save(npy_names[video_idx], final_features)
+                    norm = np.linalg.norm(final_features, axis=3, keepdims=True)
+                    norm = np.select([norm > 0], [norm], default=1.)
+                    final_features = final_features / norm
+                    try:
+                        np.save(npy_names[video_idx], final_features)
+                    except Exception as e:
+                        np.save(npy_names[video_idx], final_features)
+                        raise e
                     pbar.set_description(' '.join([fu.basename_wo_ext(npy_names[video_idx])[:20],
                                                    str(len(final_features))]))
                     local_feature = local_feature[range(capacity[video_idx], len(local_feature))]
@@ -132,7 +130,7 @@ def parse_func(filename):
 def input_pipeline(filename_placeholder, batch_size=32, num_worker=4):
     dataset = tf.data.Dataset.from_tensor_slices(filename_placeholder)
     dataset = dataset.repeat(1)
-    dataset = dataset.map(parse_func, num_parallel_calls=8)
+    dataset = dataset.map(parse_func, num_parallel_calls=num_worker)
     dataset = dataset.prefetch(10000)
     dataset = dataset.batch(batch_size)
     dataset = dataset.prefetch(100)
@@ -156,7 +154,11 @@ def extract(batch_size, num_worker):
 
     print('Start extract !!')
 
-    with tf.Session() as sess:
+    config = tf.ConfigProto(allow_soft_placement=True)
+    config.gpu_options.allow_growth = True
+    config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
+
+    with tf.Session(config=config) as sess:
         queue = Queue()
         p = Process(target=writer_worker, args=(queue, capacity, npy_names))
         p.start()
@@ -179,9 +181,9 @@ def extract(batch_size, num_worker):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num_gpu', default=1)
-    parser.add_argument('--batch_size', default=64)
-    parser.add_argument('--num_worker', default=16)
+    parser.add_argument('--num_gpu', default=1, type=int)
+    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--num_worker', default=4, type=int)
     args = parser.parse_args()
     batch_size = args.batch_size * args.num_gpu
     num_worker = args.num_worker * args.num_gpu

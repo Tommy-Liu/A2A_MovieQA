@@ -118,8 +118,9 @@ class Subtitle(object):
     @staticmethod
     def process():
         subtitle = {}
+        # print(mp.subtitle_dir)
         subtitle_paths = glob(join(mp.subtitle_dir, '*.srt'))
-
+        # print(subtitle_paths)
         for p in tqdm(subtitle_paths, desc='Process subtitle'):
             basename = fu.basename_wo_ext(p)
             subtitle[basename] = {'lines': [], 'start': [], 'end': []}
@@ -127,11 +128,10 @@ class Subtitle(object):
                 for match in SRT_REGEX.finditer(f.read()):
                     raw_index, raw_start, raw_end, proprietary, content = match.groups()
 
-                    content = content.strip()
                     content = re.sub(r'\r\n|\n', ' ', content)
                     content = re.sub(r'<.+?>', '', content, flags=re.DOTALL)
                     content = normalize("NFKD", content)
-                    content = content.encode('utf-8').decode('ascii', 'ignore')
+                    content = content.encode('utf-8').decode('ascii', 'ignore').strip()
 
                     subtitle[basename]['start'].append(Subtitle.timestamp_to_secs(raw_start))
                     subtitle[basename]['end'].append(Subtitle.timestamp_to_secs(raw_end))

@@ -1,11 +1,12 @@
 from glob import glob
-from multiprocessing import Queue, Process, Pool
+from multiprocessing import Queue, Process
 from os.path import join
 
 import numpy as np
-from tqdm import tqdm
 
 from config import MovieQAPath
+from extract_feature import load_shape
+from utils import data_utils as du
 
 _mp = MovieQAPath()
 
@@ -48,10 +49,22 @@ def normalize_save(file):
 
 def main():
     features = glob(join(_mp.feature_dir, '*.npy'))
+    video_data = du.json_load(_mp.video_data_file)
 
-    with Pool(8) as pool, tqdm(total=len(features), desc='Normalize features') as pbar:
-        for _ in pool.imap_unordered(normalize_save, features):
-            pbar.update()
+    imdb_feat = []
+
+    for imdb_key in video_data:
+        imdb_feat.append((imdb_key, [f for f in features if imdb_key in f]))
+
+    for feat in imdb_feat:
+        length = 0
+        for f in feat[1]:
+            length += load_shape(f)[0]
+        print(feat[0], length * 8 * 8 * 600 * 4 / 1024 / 1024 / 1024, 'GB')
+
+    # with Pool(8) as pool, tqdm(total=len(features), desc='Normalize features') as pbar:
+    #     for _ in pool.imap_unordered(normalize_save, features):
+    #         pbar.update()
 
     # feat = np.load(features[0])
     # norm = np.linalg.norm(feat, axis=3, keepdims=True)

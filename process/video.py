@@ -1,4 +1,5 @@
 import argparse
+import os
 from functools import partial
 from glob import glob
 from multiprocessing import Pool, Manager
@@ -10,7 +11,7 @@ from tqdm import tqdm
 
 import utils.data_utils as du
 from config import MovieQAPath
-from data.data_loader import QA, duration
+from data.data_loader import duration
 from utils import func_utils as fu
 
 _mp = MovieQAPath()
@@ -61,14 +62,14 @@ def check_and_extract_videos(extract, video_clips, video_data, key):
 
 
 def get_videos_clips():
-    qa_data = QA().include(video_clips=True).get()
-    videos_clips = {}
-    for qa in qa_data:
-        videos = qa['video_clips']
-        for video in videos:
-            imdb = video.split('.')[0]
-            videos_clips.setdefault(imdb, []).append(join(_mp.video_clips_dir, imdb, video))
-    return videos_clips
+    with os.scandir(_mp.video_clips_dir) as it:
+        movie_dirs = [entry.path for entry in it if entry.is_dir()]
+
+    video_clips = {}
+    for mov in tqdm(movie_dirs, desc='Get video clips'):
+        video_clips[os.path.basename(mov)] = glob(join(mov, '*.mp4'))
+
+    return video_clips
 
 
 def video_process(extract):

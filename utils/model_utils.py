@@ -27,11 +27,31 @@ def get_initializer(name, m=0.0, s=1.0):
     return initializer
 
 
+def get_lr(name, lr, global_step, decay_steps, decay_rate=0.5, staircase=True):
+    if name == 'cos':
+        learning_rate = tf.train.cosine_decay(lr, global_step, decay_steps)
+    elif name == 'exp':
+        learning_rate = tf.train.exponential_decay(lr, global_step, decay_steps, decay_rate, staircase)
+    elif name == 'inv':
+        learning_rate = tf.train.inverse_time_decay(lr, global_step, decay_steps, decay_rate, staircase)
+    elif name == 'linear_cos':
+        learning_rate = tf.train.linear_cosine_decay(lr, global_step, decay_rate)
+    elif name == 'natural_exp':
+        learning_rate = tf.train.natural_exp_decay(lr, global_step, decay_steps, decay_rate, staircase)
+    elif name == 'noisy_linear_cos':
+        learning_rate = tf.train.noisy_linear_cosine_decay(lr, global_step, decay_steps)
+    elif name == 'poly':
+        learning_rate = tf.train.polynomial_decay(lr, global_step, decay_steps)
+    else:
+        learning_rate = lr
+    return learning_rate
+
+
 def get_opt(name, learning_rate):
     if name == 'momentum':
         optimizer = tf.train.MomentumOptimizer(learning_rate, 0.9)
     elif name == 'adam':
-        optimizer = tf.train.AdamOptimizer(learning_rate)
+        optimizer = tf.train.AdamOptimizer(learning_rate, beta2=0.98, epsilon=1e-9)
     elif name == 'sgd':
         optimizer = tf.train.GradientDescentOptimizer(learning_rate)
     elif name == 'rms':
