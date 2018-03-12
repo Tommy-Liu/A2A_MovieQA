@@ -27,13 +27,16 @@ def get_initializer(name, m=0.0, s=1.0):
     return initializer
 
 
-def get_lr(name, lr, global_step, decay_steps, decay_rate=0.5, staircase=True):
+def get_lr(name, lr, global_step, decay_steps, decay_rate=0.5, staircase=False):
     if name == 'cos':
         learning_rate = tf.train.cosine_decay(lr, global_step, decay_steps)
     elif name == 'exp':
         learning_rate = tf.train.exponential_decay(lr, global_step, decay_steps, decay_rate, staircase)
     elif name == 'inv':
         learning_rate = tf.train.inverse_time_decay(lr, global_step, decay_steps, decay_rate, staircase)
+    elif name == 'inv_sqrt':
+        learning_rate = tf.train.inverse_time_decay(lr, tf.sqrt(tf.cast(global_step, tf.float32)),
+                                                    1.0, decay_rate, staircase)
     elif name == 'linear_cos':
         learning_rate = tf.train.linear_cosine_decay(lr, global_step, decay_rate)
     elif name == 'natural_exp':
@@ -56,6 +59,8 @@ def get_opt(name, learning_rate):
         optimizer = tf.train.GradientDescentOptimizer(learning_rate)
     elif name == 'rms':
         optimizer = tf.train.RMSPropOptimizer(learning_rate)
+    elif name == 'adag':
+        optimizer = tf.train.AdagradOptimizer(learning_rate)
     else:
         optimizer = None
 

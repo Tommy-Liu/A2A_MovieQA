@@ -31,7 +31,7 @@ def binary_search(s, e, t):
             if e[pivot] >= t:
                 return pivot
             else:
-                lower = pivot + 1
+                lower = pivot
         pivot = (lower + upper) // 2
     return pivot
 

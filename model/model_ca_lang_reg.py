@@ -112,15 +112,13 @@ class Model(object):
 
             self.summarize = tf.reduce_sum(beta * self.subt_temp1 + (1 - beta) * self.subt_temp2, axis=1)  # (1, E_t)
 
-        gamma = tf.get_variable('gamma', [1, 1])
+            gamma = tf.get_variable('gamma', [1, 1], initializer=tf.zeros_initializer)
 
         self.ans_vec = self.summarize * tf.nn.sigmoid(gamma) + \
                        tf.squeeze(self.ques_enc, axis=0) * (1 - tf.nn.sigmoid(gamma))  # (1, E_t)
 
-        self.output = tf.reduce_sum(self.ans_vec * tf.squeeze(self.ans_enc), axis=1)  # (5)
-
-    def dense_wo_everything(self, x):
-        return tf.layers.dense(x, hp['emb_dim'], use_bias=False, kernel_initializer=self.initializer)
+        self.output = tf.transpose(
+            tf.reduce_sum(self.ans_vec * tf.squeeze(self.ans_enc), axis=1, keepdims=True))  # (1, 5)
 
 
 def main():

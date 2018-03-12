@@ -6,7 +6,7 @@ from input import Input
 
 _mp = MovieQAPath()
 hp = {'emb_dim': 512, 'feat_dim': 512,
-      'learning_rate': 10 ** (-4), 'decay_rate': 0.97, 'decay_type': 'exp', 'decay_epoch': 2,
+      'learning_rate': 10 ** (-3), 'decay_rate': 0.97, 'decay_type': 'exp', 'decay_epoch': 2,
       'opt': 'adam', 'checkpoint': '', 'dropout_rate': 0.1}
 
 
@@ -24,8 +24,8 @@ def safe_mean(x, length):
     return tf.reduce_sum(x, axis=1, keepdims=True) / length
 
 
-def conv_encode(x, length, scope):
-    with tf.variable_scope(scope):
+def conv_encode(x, length, reuse=True):
+    with tf.variable_scope('conv_encode', reuse=reuse):
         attn = tf.layers.conv1d(x, filters=hp['emb_dim'] / 2, kernel_size=3, padding='same', activation=tf.nn.relu)
         attn = tf.layers.conv1d(attn, filters=1, kernel_size=3, padding='same', dilation_rate=2, activation=None)
         attn = tf.nn.softmax(attn, axis=1)
@@ -52,22 +52,25 @@ class Model(object):
             self.ans = tf.nn.embedding_lookup(self.embedding, self.data.ans)  # (5, L_a, E)
             self.subt = tf.nn.embedding_lookup(self.embedding, self.data.subt)  # (N, L_s, E)
 
-            self.ques = dropout(self.ques, training=training)  # (1, L_q, E)
-            self.ans = dropout(self.ans, training=training)  # (5, L_a, E)
-            self.subt = dropout(self.subt, training=training)  # (N, L_s, E)
+            # self.ques = dropout(self.ques, training=training)  # (1, L_q, E)
+            # self.ans = dropout(self.ans, training=training)  # (5, L_a, E)
+            # self.subt = dropout(self.subt, training=training)  # (N, L_s, E)
 
         with tf.variable_scope('Embedding_Linear'):
+            # (1, L_q, E_t)
             self.ques_embedding = dropout(tf.layers.dense(
-                self.ques, hp['emb_dim'], activation=tf.nn.tanh, use_bias=False), training)  # (1, L_q, E_t)
+                self.ques, hp['emb_dim'], activation=None, use_bias=False), training)
+            # (5, L_a, E_t)
             self.ans_embedding = dropout(tf.layers.dense(
-                self.ans, hp['emb_dim'], activation=tf.nn.tanh, use_bias=False, reuse=True), training)  # (5, L_a, E_t)
+                self.ans, hp['emb_dim'], activation=None, use_bias=False, reuse=True), training)
+            # (N, L_s, E_t)
             self.subt_embedding = dropout(tf.layers.dense(
-                self.subt, hp['emb_dim'], activation=tf.nn.tanh, use_bias=False, reuse=True), training)  # (N, L_s, E_t)
+                self.subt, hp['emb_dim'], activation=None, use_bias=False, reuse=True), training)
 
         with tf.variable_scope('Language_Encode'):
-            self.ques_enc = conv_encode(self.ques_embedding, self.data.ql, 'question')  # (1, 1, E_t)
-            self.subt_enc = conv_encode(self.subt_embedding, self.data.sl, 'subtitle')  # (N, 1, E_t)
-            self.ans_enc = conv_encode(self.ans_embedding, self.data.al, 'answer')  # (5, 1, E_t)
+            self.ques_enc = conv_encode(self.ques_embedding, self.data.ql, reuse=False)  # (1, 1, E_t)
+            self.subt_enc = conv_encode(self.subt_embedding, self.data.sl)  # (N, 1, E_t)
+            self.ans_enc = conv_encode(self.ans_embedding, self.data.al)  # (5, 1, E_t)
 
         with tf.variable_scope('Language_Attention'):
             shape = tf.shape(self.subt_embedding)
@@ -115,10 +118,8 @@ class Model(object):
         self.ans_vec = self.summarize * tf.nn.sigmoid(gamma) + \
                        tf.squeeze(self.ques_enc, axis=0) * (1 - tf.nn.sigmoid(gamma))  # (1, E_t)
 
-        self.output = tf.reduce_sum(self.ans_vec * tf.squeeze(self.ans_enc), axis=1)  # (5)
-
-    def dense_wo_everything(self, x):
-        return tf.layers.dense(x, hp['emb_dim'], use_bias=False, kernel_initializer=self.initializer)
+        self.output = tf.transpose(
+            tf.reduce_sum(self.ans_vec * tf.squeeze(self.ans_enc), axis=1, keepdims=True))  # (1, 5)
 
 
 def main():

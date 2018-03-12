@@ -35,7 +35,8 @@ def dual_parser(record, mode):
     c, s = tf.parse_single_sequence_example(record, context_features, sequence_features)
 
     res = [tf.expand_dims(c['ques'], axis=0), s['ans'],
-           tf.expand_dims(c['ql'], axis=0), c['al'], c['gt']]
+           tf.expand_dims(c['ql'], axis=0), c['al'],
+           tf.expand_dims(c['gt'], 0)]
 
     if 'subt' in mode:
         res.append(s['subt'])
@@ -84,18 +85,19 @@ class Input(object):
         else:
             self.pattern = join(_mp.dataset_dir, split + '*.tfrecord')
 
-        self.files = glob(self.pattern)
-        if self.shuffle:
-            random.shuffle(self.files)
-        else:
-            self.files.sort()
+        self._files = glob(self.pattern)
+        self._files.sort()
         self._length = len([0 for qa in du.json_load(_mp.qa_file) if split in qa['qid'] and qa['video_clips']])
 
         parser = partial(dual_parser, mode=mode)
 
-        dataset = tf.data.Dataset.from_tensor_slices(self.files)
+        self.placeholder = tf.placeholder(tf.string, [None])
+
+        dataset = tf.data.Dataset.from_tensor_slices(self.placeholder)
         dataset = dataset.interleave(tf.data.TFRecordDataset, cycle_length=4, block_length=1).prefetch(8)
         dataset = dataset.map(parser, num_parallel_calls=4).prefetch(8)
+        if shuffle:
+            dataset = dataset.shuffle(32)
 
         self.iterator = dataset.make_initializable_iterator()
 
@@ -109,6 +111,12 @@ class Input(object):
             self.ques, self.ans, self.ql, self.al, self.gt, self.subt, self.sl = self.next_elements
         else:
             self.ques, self.ans, self.ql, self.al, self.gt, self.subt, self.sl, self.feat = self.next_elements
+
+    @property
+    def files(self):
+        if self.shuffle:
+            random.shuffle(self._files)
+        return self._files
 
     def __len__(self):
         return self._length
