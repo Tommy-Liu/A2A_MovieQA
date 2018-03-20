@@ -67,20 +67,20 @@ def get_opt(name, learning_rate):
     return optimizer
 
 
-def get_loss(name, data, model):
+def get_loss(name, labels, outputs):
     if name == 'mse':
-        loss = tf.losses.mean_squared_error(data.vec, model.output)
+        loss = tf.losses.mean_squared_error(labels, outputs)
     elif name == 'abs':
-        loss = tf.losses.absolute_difference(data.vec, model.output)
+        loss = tf.losses.absolute_difference(labels, outputs)
     elif name == 'l2':
-        loss = tf.losses.compute_weighted_loss(tf.norm(data.vec - model.output, axis=1))
+        loss = tf.losses.compute_weighted_loss(tf.norm(labels - outputs, axis=1))
     elif name == 'cos':
-        loss = tf.losses.cosine_distance(tf.nn.l2_normalize(data.vec, 1),
-                                         tf.nn.l2_normalize(model.output, 1), 1)
+        loss = tf.losses.cosine_distance(tf.nn.l2_normalize(labels, 1),
+                                         tf.nn.l2_normalize(outputs, 1), 1)
     elif name == 'huber':
-        loss = tf.losses.huber_loss(data.vec, model.output)
+        loss = tf.losses.huber_loss(labels, outputs)
     elif name == 'mpse':
-        loss = tf.losses.mean_pairwise_squared_error(data.vec, model.output)
+        loss = tf.losses.mean_pairwise_squared_error(labels, outputs)
     else:
         loss = 0
     return loss

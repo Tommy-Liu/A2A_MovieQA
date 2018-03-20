@@ -60,7 +60,7 @@ def main():
         length = 0
         for f in feat[1]:
             length += load_shape(f)[0]
-        print(feat[0], length * 8 * 8 * 600 * 4 / 1024 / 1024 / 1024, 'GB')
+        print(feat[0], '%.3f' % (length * 4 * 4 * 1536 / 1024 / 1024 / 1024), 'GB')
 
     # with Pool(8) as pool, tqdm(total=len(features), desc='Normalize features') as pbar:
     #     for _ in pool.imap_unordered(normalize_save, features):

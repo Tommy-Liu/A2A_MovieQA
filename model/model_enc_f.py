@@ -6,8 +6,8 @@ from config import MovieQAPath
 from input import Input
 
 _mp = MovieQAPath()
-hp = {'emb_dim': 512, 'feat_dim': 512,
-      'learning_rate': 10 ** (-1), 'decay_rate': 1, 'decay_type': 'inv_sqrt', 'decay_epoch': 2,
+hp = {'emb_dim': 256, 'feat_dim': 512,
+      'learning_rate': 10 ** (-3), 'decay_rate': 1, 'decay_type': 'inv_sqrt', 'decay_epoch': 2,
       'opt': 'adam', 'checkpoint': '', 'dropout_rate': 0.1}
 
 reg = layers.l2_regularizer(0.01)
@@ -46,11 +46,18 @@ def mask_dense(x, mask, reuse=True):
     return mask_tensor(dense(x, reuse=reuse), mask)
 
 
-def conv_encode(x, mask, scope):
-    with tf.variable_scope(scope):
-        attn = tf.layers.conv1d(x, filters=1, kernel_size=3, padding='same', activation=tf.nn.relu)
-        attn = tf.where(mask, attn, tf.ones_like(attn) * (-2 ** 32 + 1))
-        attn = tf.nn.softmax(attn, axis=1)
+def conv_encode(x, mask, reuse=True):
+    attn = tf.layers.conv1d(x, filters=1, kernel_size=3, padding='same', activation=tf.nn.relu, reuse=reuse)
+    attn = tf.where(mask, attn, tf.ones_like(attn) * (-2 ** 32 + 1))
+    attn = tf.nn.softmax(attn, axis=1)
+    return tf.reduce_sum(x * attn, axis=1)
+
+
+def dilated_conv_encode(x, mask, reuse=True):
+    attn = tf.layers.conv1d(x, filters=1, kernel_size=3, dilation_rate=2,
+                            padding='same', activation=tf.nn.relu, reuse=reuse)
+    attn = tf.where(mask, attn, tf.ones_like(attn) * (-2 ** 32 + 1))
+    attn = tf.nn.softmax(attn, axis=1)
     return tf.reduce_sum(x * attn, axis=1)
 
 
@@ -78,13 +85,24 @@ class Model(object):
             # self.ans = dropout(self.ans, training=training)  # (5, L_a, E)
             # self.subt = dropout(self.subt, training=training)  # (N, L_s, E)
 
+        with tf.variable_scope('Embedding_Linear'):
+            # (1, L_q, E_t)
+            self.ques_embedding = unit_norm(mask_dense(self.ques, q_mask, reuse=False))
+            # (5, L_a, E_t)
+            self.ans_embedding = unit_norm(mask_dense(self.ans, a_mask))
+            # (N, L_s, E_t)
+            self.subt_embedding = unit_norm(mask_dense(self.subt, s_mask))
+
         with tf.variable_scope('Language_Encode'):
             mask = tf.expand_dims(tf.sequence_mask(self.data.ql, 25), axis=-1)
-            self.ques_enc = unit_norm(conv_encode(self.ques, mask, 'ques'), dim=1)
+            self.ques_enc = unit_norm(conv_encode(self.ques_embedding, mask, reuse=False) +
+                                      dilated_conv_encode(self.ques_embedding, mask, reuse=False), dim=1)
             mask = tf.expand_dims(tf.sequence_mask(self.data.al, 34), axis=-1)
-            self.ans_enc = unit_norm(conv_encode(self.ans, mask, 'ans'), dim=1)
+            self.ans_enc = unit_norm(conv_encode(self.ans_embedding, mask) +
+                                     dilated_conv_encode(self.ans_embedding, mask), dim=1)
             mask = tf.expand_dims(tf.sequence_mask(self.data.sl, 29), axis=-1)
-            self.subt_enc = unit_norm(conv_encode(self.subt, mask, 'subt'), dim=1)
+            self.subt_enc = unit_norm(conv_encode(self.subt_embedding, mask) +
+                                      dilated_conv_encode(self.subt_embedding, mask), dim=1)
 
         self.summarize = unit_norm(tf.reduce_mean(self.subt_enc, axis=0, keepdims=True), dim=1)  # (1, 4 * E_t)
 

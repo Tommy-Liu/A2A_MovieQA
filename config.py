@@ -38,6 +38,8 @@ class MovieQAPath(object):
         self.image_dir = join(self.data_dir, 'images')
         # Directory of all features of video clips
         self.feature_dir = join(self.data_dir, 'features')
+        # Directory of all subtitle sentence embedding
+        self.encode_dir = join(self.data_dir, 'encode')
         # Directory of tfrecords
         self.dataset_dir = join(self.data_dir, 'dataset')
 
@@ -58,6 +60,11 @@ class MovieQAPath(object):
         self.frame_time_file = join(self.data_dir, 'frame_time.json')
         # Subtitle shot boundary
         self.subtitle_shot_file = join(self.data_dir, 'video_subtitle_shot.json')
+
+        # Vocabulary frequency file
+        self.freq_file = join(self.data_dir, 'frequency.json')
+        # Temporary subtitle file
+        self.temp_subtitle_file = join(self.data_dir, 'temp_subt.json')
 
         # Tokenize files for sanity check
         self.tokenize_qa = join(self.data_dir, 'tokenize_qa.json')

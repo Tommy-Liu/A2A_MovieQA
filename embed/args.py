@@ -32,7 +32,7 @@ class EmbeddingPath(object):
         # Trained embedding
         self.gram_embedding_vec_file = join(self.data_dir, 'gram_embedding.npy')
         # Parameters
-        self.max_length = 18
+        self.max_length = 17
         self.embedding_size = 300
         self.target = 'glove'
 

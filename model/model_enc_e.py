@@ -6,7 +6,7 @@ from config import MovieQAPath
 from input import Input
 
 _mp = MovieQAPath()
-hp = {'emb_dim': 512, 'feat_dim': 512,
+hp = {'emb_dim': 256, 'feat_dim': 512,
       'learning_rate': 10 ** (-3), 'decay_rate': 1, 'decay_type': 'inv_sqrt', 'decay_epoch': 2,
       'opt': 'adam', 'checkpoint': '', 'dropout_rate': 0.1}
 

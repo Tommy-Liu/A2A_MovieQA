@@ -103,8 +103,9 @@ class Model(object):
             # self.subt_enc = tf.expand_dims(self.subt_enc, axis=0) * self.temp_attn
             nth = nn.nth_element(tf.transpose(self.temp_attn), tf.cast(subt_shape[0] / 2, tf.int32), True)
             # (N, 1)
-            attn_mask = tf.greater_equal(self.temp_attn, nth)
-            self.subt_enc = self.temp_attn * tf.cast(attn_mask, tf.float32)
+            attn_mask = tf.cast(tf.squeeze(tf.greater_equal(self.temp_attn, nth), axis=1), tf.int32)
+            _, self.subt_enc = tf.dynamic_partition(self.subt_enc, attn_mask, 2)
+            _, self.temp_attn = tf.dynamic_partition(self.temp_attn, attn_mask, 2)
             self.subt_enc = self.subt_enc * self.temp_attn
 
         self.summarize = unit_norm(tf.reduce_mean(self.subt_enc, axis=0, keepdims=True), dim=1)  # (1, 4 * E_t)

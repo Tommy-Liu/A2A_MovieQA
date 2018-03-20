@@ -118,7 +118,7 @@ class Subtitle(object):
     @staticmethod
     def process():
         subtitle = {}
-        # print(mp.subtitle_dir)
+        # print(_mp.subtitle_dir)
         subtitle_paths = glob(join(mp.subtitle_dir, '*.srt'))
         # print(subtitle_paths)
         for p in tqdm(subtitle_paths, desc='Process subtitle'):
@@ -133,9 +133,10 @@ class Subtitle(object):
                     content = normalize("NFKD", content)
                     content = content.encode('utf-8').decode('ascii', 'ignore').strip()
 
-                    subtitle[basename]['start'].append(Subtitle.timestamp_to_secs(raw_start))
-                    subtitle[basename]['end'].append(Subtitle.timestamp_to_secs(raw_end))
-                    subtitle[basename]['lines'].append(content)
+                    if content:
+                        subtitle[basename]['start'].append(Subtitle.timestamp_to_secs(raw_start))
+                        subtitle[basename]['end'].append(Subtitle.timestamp_to_secs(raw_end))
+                        subtitle[basename]['lines'].append(content)
         du.json_dump(subtitle, mp.subtitle_file, indent=0)
         return subtitle
 

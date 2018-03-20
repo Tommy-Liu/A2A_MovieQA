@@ -14,14 +14,12 @@ _mp = MovieQAPath()
 
 def parse_feature():
     context_features = {
-        "ques": tf.FixedLenFeature([25], dtype=tf.int64),
-        "ql": tf.FixedLenFeature([], dtype=tf.int64),
-        "al": tf.FixedLenFeature([5], dtype=tf.int64),
+        "ques": tf.FixedLenFeature([300], dtype=tf.float32),
         "subt": tf.FixedLenFeature([], dtype=tf.string),
         "feat": tf.FixedLenFeature([], dtype=tf.string)
     }
     sequence_features = {
-        "ans": tf.FixedLenSequenceFeature([34], dtype=tf.int64),
+        "ans": tf.FixedLenSequenceFeature([300], dtype=tf.float32),
         "spec": tf.FixedLenSequenceFeature([1], dtype=tf.int64),
     }
 
@@ -34,7 +32,7 @@ def feat_load(f):
 
 def subt_load(f):
     subt = np.load(f.decode('utf-8'))
-    return [subt['s'], subt['sl']]
+    return subt
 
 
 def dual_parser(record, mode):
@@ -45,14 +43,14 @@ def dual_parser(record, mode):
     c, s = tf.parse_single_sequence_example(record, context_features, sequence_features)
 
     res = [tf.expand_dims(c['ques'], axis=0), s['ans'],
-           tf.expand_dims(c['ql'], axis=0), c['al'],
            tf.expand_dims(c['gt'], axis=0)]
 
     if 'subt' in mode:
-        subt, sl = tf.py_func(subt_load, [c['subt']], [tf.int64, tf.int64])
-        res = res + [tf.reshape(subt, [-1, 29]), tf.reshape(sl, [-1])]
+        subt = tf.py_func(subt_load, [c['subt']], [tf.float32])
+        res.append(tf.reshape(subt, [-1, 300]))
     if 'feat' in mode:
-        res.append(tf.py_func(feat_load, [c['feat']], [tf.float32]))
+        feat = tf.py_func(feat_load, [c['feat']], [tf.float32])
+        res.append(tf.reshape(feat, [-1, 4, 4, 1536]))
 
     res.append(s['spec'])
 
@@ -120,11 +118,11 @@ class Input(object):
         print(*[i.get_shape() for i in self.next_elements])
 
         if 'subt' not in mode:
-            self.ques, self.ans, self.ql, self.al, self.gt, self.feat, self.spec = self.next_elements
+            self.ques, self.ans, self.gt, self.feat, self.spec = self.next_elements
         elif 'feat' not in mode:
-            self.ques, self.ans, self.ql, self.al, self.gt, self.subt, self.sl, self.spec = self.next_elements
+            self.ques, self.ans, self.gt, self.subt, self.spec = self.next_elements
         else:
-            self.ques, self.ans, self.ql, self.al, self.gt, self.subt, self.sl, self.feat, self.spec = self.next_elements
+            self.ques, self.ans, self.gt, self.subt, self.feat, self.spec = self.next_elements
 
     @property
     def files(self):
@@ -136,29 +134,10 @@ class Input(object):
         return self._length
 
 
-def find_max_length(qa, subt):
-    subt_max = 0
-    for imdb_subt in subt.values():
-        for v in imdb_subt.values():
-            for sent in v:
-                if subt_max < len(sent):
-                    subt_max = len(sent)
-    q_max, a_max = 0, 0
-    for ins in qa:
-        if q_max < len(ins['question']):
-            q_max = len(ins['question'])
-        for a in ins['answers']:
-            if a_max < len(a):
-                a_max = len(a)
-
-    return subt_max, q_max, a_max
-
-
 def main():
     train_data = Input(split='train', mode='subt')
     # foo_data = Input(split='val')
     # bar_data = TestInput()
-
     config = tf.ConfigProto(allow_soft_placement=True, )
     # config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
     config.gpu_options.allow_growth = True
@@ -169,6 +148,10 @@ def main():
         # for i in range(3):
         # for _ in trange(3, desc='Train loop'):
         e = sess.run(train_data.next_elements)
+        print(e[0])
+        s = e[-2][np.sum(e[-2], axis=1) != 0]
+        print(s)
+        print(s.shape)
         print(*[i.shape for i in e])
 
         # sess.run(foo_data.initializer)

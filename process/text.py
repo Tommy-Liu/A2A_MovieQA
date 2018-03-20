@@ -1,8 +1,9 @@
+import os
 from argparse import ArgumentParser
 from collections import Counter
 from functools import partial
 from multiprocessing import Pool, Manager
-from os.path import exists
+from os.path import exists, join
 
 import numpy as np
 from nltk.tokenize import word_tokenize
@@ -31,7 +32,7 @@ def binary_search(s, e, t):
             if e[pivot] >= t:
                 return pivot
             else:
-                lower = pivot
+                lower = pivot + 1
         pivot = (lower + upper) // 2
     return pivot
 
@@ -46,7 +47,7 @@ def align_subtitle(video_data, frame_time, subtitle, tokenize_subt, key):
         start_frame, end_frame = duration(video)
         temp_tokenize[video] = []
 
-        for i in range(0, video_clips[video]['real_frames'], 10):
+        for i in range(0, video_clips[video]['real_frames'], 15):
             time = ft[min(start_frame + i, len(ft) - 1)]
             index = binary_search(subt['start'], subt['end'], time)
             if subt['start'][index] <= time <= subt['end'][index] and subt['lines'][index].strip():
@@ -73,8 +74,8 @@ def subtitle_process(video_data, frame_time, subtitle):
         keys = list(video_data.keys())
         align_func = partial(align_subtitle, video_data, frame_time, subtitle, tokenize_subt)
 
-        with Pool(16) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
-            for i, _ in enumerate(p.imap_unordered(align_func, keys)):
+        with Pool(4) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
+            for _ in p.imap_unordered(align_func, keys):
                 pbar.update()
 
         res = tokenize_subt.copy()
@@ -187,6 +188,26 @@ def encode_sentence(tokenize_subt, tokenize_qa, vocab):
 
         du.json_dump(encode_subt, _mp.encode_subtitle_file)
         du.json_dump(encode_qa, _mp.encode_qa_file)
+    else:
+        encode_subt = du.json_load(_mp.encode_subtitle_file)
+        encode_qa = du.json_load(_mp.encode_qa_file)
+
+    return encode_subt, encode_qa
+
+
+def save_encode(encode_subt, encode_qa):
+    fu.make_dirs(_mp.encode_dir)
+    subt_max, _, _ = find_max_length(encode_qa, encode_subt)
+    for k in tqdm(encode_subt, desc='Save Npy'):
+        subt = np.zeros((0, subt_max), dtype=np.int64)
+        sl = []
+        videos = sorted(list(encode_subt[k].keys()))
+        for v in tqdm(videos):
+            if encode_subt[k][v]:
+                subt = np.concatenate([subt, du.pad_list_numpy(encode_subt[k][v], subt_max)])
+                sl += [len(sent) for sent in encode_subt[k][v]]
+
+        np.savez(join(_mp.encode_dir, k + '.npz'), s=subt, sl=np.array(sl, dtype=np.int64))
 
 
 def remove_all():
@@ -196,6 +217,8 @@ def remove_all():
     fu.safe_remove(_mp.embedding_file)
     fu.safe_remove(_mp.encode_subtitle_file)
     fu.safe_remove(_mp.encode_qa_file)
+    if exists(_mp.encode_dir):
+        os.system('rm -rf %s' % _mp.encode_dir)
 
 
 def print_max():
@@ -219,7 +242,6 @@ def main():
         print_max()
     else:
         qa = QA().include(video_clips=True).get()
-        print(len(qa))
         video_data = du.json_load(_mp.video_data_file)
         frame_time = FrameTime().get()
         subtitle = Subtitle().get()
@@ -227,7 +249,8 @@ def main():
         tokenize_qa = tokenize_question_answer(qa)
 
         vocab = create_vocab_embedding(tokenize_subt, tokenize_qa)
-        encode_sentence(tokenize_subt, tokenize_qa, vocab)
+        encode_subt, encode_qa = encode_sentence(tokenize_subt, tokenize_qa, vocab)
+        save_encode(encode_subt, encode_qa)
 
 
 if __name__ == '__main__':

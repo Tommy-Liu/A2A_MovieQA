@@ -8,7 +8,8 @@ from tensorflow.python import debug as tf_debug
 from tqdm import trange
 
 from config import MovieQAPath
-from input import Input
+# from input import Input as In
+from input_v2 import Input as In2
 from utils import func_utils as fu
 from utils import model_utils as mu
 
@@ -27,8 +28,8 @@ class TrainManager(object):
         fu.make_dirs(os.path.join(self._checkpoint_dir, 'best'))
         fu.make_dirs(self._log_dir)
 
-        self.train_data = Input(split='train', mode=args.mode)
-        self.val_data = Input(split='val', mode=args.mode)
+        self.train_data = In2(split='train', mode=args.mode)
+        self.val_data = In2(split='val', mode=args.mode)
         # self.test_data = TestInput()
 
         self.train_model = modality.Model(self.train_data, training=True)
@@ -43,9 +44,8 @@ class TrainManager(object):
 
         self.loss = tf.losses.sparse_softmax_cross_entropy(self.train_data.gt, self.train_model.output)
 
-        if args.reg:
-            print(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
-            self.loss = self.loss + tf.losses.get_regularization_loss()
+        for v in tf.trainable_variables():
+            self.loss = self.loss + hp['reg'] * tf.nn.l2_loss(v)
 
         self.train_accuracy, self.train_accuracy_update = tf.metrics.accuracy(self.train_data.gt,
                                                                               tf.argmax(self.train_model.output,
@@ -62,10 +62,10 @@ class TrainManager(object):
 
         self.global_step = tf.train.get_or_create_global_step()
 
-        self.learning_rate = mu.get_lr(modality.hp['decay_type'], modality.hp['learning_rate'], self.global_step,
-                                       modality.hp['decay_epoch'] * len(self.train_data), modality.hp['decay_rate'])
+        self.learning_rate = mu.get_lr(hp['decay_type'], hp['learning_rate'], self.global_step,
+                                       hp['decay_epoch'] * len(self.train_data), hp['decay_rate'])
 
-        self.optimizer = mu.get_opt(modality.hp['opt'], self.learning_rate)
+        self.optimizer = mu.get_opt(hp['opt'], self.learning_rate)
 
         grads_and_vars = self.optimizer.compute_gradients(self.loss)
         gradients, variables = list(zip(*grads_and_vars))
@@ -93,8 +93,8 @@ class TrainManager(object):
 
         self.val_summaries_op = tf.summary.scalar('val_accuracy', self.val_accuracy)
 
-        if modality.hp['checkpoint']:
-            self.checkpoint_file = modality.hp['checkpoint']
+        if args.checkpoint:
+            self.checkpoint_file = args.checkpoint
         else:
             self.checkpoint_file = tf.train.latest_checkpoint(self._checkpoint_dir)
 
@@ -166,20 +166,24 @@ class TrainManager(object):
                 self.saver.save(sess, self._checkpoint_file, self.global_step)
 
     @property
+    def _model_name(self):
+        return '-'.join([args.modality, args.hp])
+
+    @property
     def _log_dir(self):
-        return os.path.join(_mp.log_dir, args.modality)
+        return os.path.join(_mp.log_dir, self._model_name)
 
     @property
     def _checkpoint_dir(self):
-        return os.path.join(_mp.checkpoint_dir, args.modality)
+        return os.path.join(_mp.checkpoint_dir, self._model_name)
 
     @property
     def _checkpoint_file(self):
-        return os.path.join(self._checkpoint_dir, args.modality)
+        return os.path.join(self._checkpoint_dir, self._model_name)
 
     @property
     def _best_checkpoint(self):
-        return os.path.join(self._checkpoint_dir, 'best', args.modality)
+        return os.path.join(self._checkpoint_dir, 'best', self._model_name)
 
 
 def main():
@@ -193,9 +197,12 @@ if __name__ == '__main__':
     parser.add_argument('--reset', action='store_true', help='Reset the experiment.')
     parser.add_argument('--debug', action='store_true', help='Debug mode.')
     parser.add_argument('--mode', default='feat+subt', help='Data mode we use.')
-    parser.add_argument('--reg', action='store_true', help='Regularize the model.')
+    parser.add_argument('--checkpoint', default='', help='Checkpoint file.')
+    parser.add_argument('--hp', default='hp01-hp01', help='Hyper-parameters.')
     args = parser.parse_args()
     modality = importlib.import_module('model.' + args.modality)
+    py, att = args.hp.split('-')
+    hp = getattr(importlib.import_module('hp.' + py), att)
     reset = args.reset
     debug = args.debug
     main()

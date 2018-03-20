@@ -91,7 +91,7 @@ def load_glove(filename, embedding_size=cp.embedding_size):
 
 
 def filter_stat(embedding_keys, embedding_vector, max_length=0, print_stat=True,
-                normalize=True):
+                normalize=False):
     # Filter out non-ascii words and words with '<' and '>'.
     count, mean, keys, std = 0, 0, {}, 0
     for idx, k in enumerate(tqdm(embedding_keys, desc='Filtering')):
@@ -100,18 +100,18 @@ def filter_stat(embedding_keys, embedding_vector, max_length=0, print_stat=True,
         except UnicodeEncodeError:
             pass
         else:
+            k = k.strip().lower()
             count += 1
-            kk = '<' + k.lower().strip() + '>'
-            d1 = len(kk) - mean
+            d1 = len(k) - mean
             mean += d1 / count
-            d2 = len(kk) - mean
+            d2 = len(k) - mean
             std += d1 * d2
             # Threshold for maximum length, if max_length set
-            length_flag = len(kk) <= max_length or not max_length
+            length_flag = len(k) <= max_length or not max_length
             lt_gt_flag = not {'<', '>'} & set(k)
-            lower_none_flag = keys.get(kk, None) and k.strip().islower() or not keys.get(kk, None)
+            lower_none_flag = not keys.get(k, None) and k
             if length_flag and lt_gt_flag and lower_none_flag:
-                keys[kk] = idx
+                keys[k] = idx
 
     std = math.sqrt(std / count)
     vector = np.zeros((len(keys), 300), dtype=np.float32)
@@ -165,6 +165,7 @@ def process(args):
     for idx, k in enumerate(tqdm(embedding_keys, desc='Counting')):
         counter_1gram.update(k)
         gram_embedding_keys[idx].extend(k)
+        k = '<' + k + '>'
         three_gram = [k[i:i + 3] for i in range(len(k) - 2)]
         counter_3gram.update(three_gram)
         gram_embedding_keys[idx].extend(three_gram)
@@ -182,7 +183,7 @@ def process(args):
 
     if not args.debug:
         du.json_dump({'1': counter_1gram, '3': counter_3gram, '6': counter_6gram}, cp.gram_counter_file)
-        vocab = list(counter_1gram.keys()) + list(counter_3gram) + list(counter_6gram) + [UNK]
+        vocab = list(counter_1gram) + list(counter_3gram) + list(counter_6gram) + [UNK]
         du.json_dump(vocab, cp.gram_vocab_file)
         gtoi = {gram: idx for idx, gram in enumerate(vocab)}
         encoded_embedding_keys = np.ones((len(embedding_keys), max_size), dtype=np.int64) * (len(gtoi) - 1)

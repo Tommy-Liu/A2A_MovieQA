@@ -1,13 +1,13 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib import layers, nn
+from tensorflow.contrib import layers
 
 from config import MovieQAPath
 from input import Input
 
 _mp = MovieQAPath()
-hp = {'emb_dim': 512, 'feat_dim': 512,
-      'learning_rate': 10 ** (-4), 'decay_rate': 0.5, 'decay_type': 'exp', 'decay_epoch': 2,
+hp = {'emb_dim': 256, 'feat_dim': 512,
+      'learning_rate': 10 ** (-3), 'decay_rate': 1, 'decay_type': 'inv_sqrt', 'decay_epoch': 2,
       'opt': 'adam', 'checkpoint': '', 'dropout_rate': 0.1}
 
 reg = layers.l2_regularizer(0.01)
@@ -29,29 +29,54 @@ def mask_tensor(x, mask):
     return x
 
 
+def l2_norm(x, axis=2):
+    return tf.nn.l2_normalize(x, axis=axis)
+
+
 def unit_norm(x, dim=2):
     return layers.unit_norm(x, dim=dim, epsilon=1e-12)
 
 
-def safe_mean(x, length):
+def safe_mean(x, length, keepdims=True):
     length = tf.reshape(tf.to_float(tf.maximum(tf.constant(1, dtype=tf.int64), length)), [-1, 1, 1])
-    return tf.reduce_sum(x, axis=1, keepdims=True) / length
+    return tf.reduce_sum(x, axis=1, keepdims=keepdims) / length
 
 
-def dense(x, reuse=True):
-    return tf.layers.dense(x, hp['emb_dim'], activation=tf.nn.relu, reuse=reuse)
+def dense(x, units=hp['emb_dim'], use_bias=True, activation=tf.nn.relu, reuse=True):
+    return tf.layers.dense(x, units, activation=activation, use_bias=use_bias, reuse=reuse)
 
 
 def mask_dense(x, mask, reuse=True):
     return mask_tensor(dense(x, reuse=reuse), mask)
 
 
-def conv_encode(x, mask, scope):
-    with tf.variable_scope(scope):
-        attn = tf.layers.conv1d(x, filters=1, kernel_size=3, padding='same', activation=tf.nn.relu)
-        attn = tf.where(mask, attn, tf.ones_like(attn) * (-2 ** 32 + 1))
-        attn = tf.nn.softmax(attn, axis=1)
-    return tf.reduce_sum(x * attn, axis=1)  # , keepdims=True)
+def conv_encode(x, mask, reuse=True):
+    attn = tf.layers.conv1d(x, filters=1, kernel_size=3, padding='same', activation=tf.nn.relu, reuse=reuse)
+    attn = tf.where(mask, attn, tf.ones_like(attn) * (-2 ** 32 + 1))
+    attn = tf.nn.softmax(attn, axis=1)
+    return tf.reduce_sum(x * attn, axis=1)
+
+
+def dilated_conv_encode(x, mask, reuse=True):
+    attn = tf.layers.conv1d(x, filters=1, kernel_size=3, dilation_rate=2,
+                            padding='same', activation=tf.nn.relu, reuse=reuse)
+    attn = tf.where(mask, attn, tf.ones_like(attn) * (-2 ** 32 + 1))
+    attn = tf.nn.softmax(attn, axis=1)
+    return tf.reduce_sum(x * attn, axis=1)
+
+
+def mean_reduce(x, length):
+    m = safe_mean(x, length)
+    v = tf.matmul(x, tf.transpose(m, [0, 2, 1]))
+    x = x - m * v
+    return x
+
+
+def variance_encode(x, length):
+    m = safe_mean(x, length)
+    v = tf.matmul(x, tf.transpose(m, [0, 2, 1]))
+    x = x - m * v
+    return tf.reduce_sum(x, axis=1)
 
 
 class Model(object):
@@ -74,53 +99,52 @@ class Model(object):
             self.ans = tf.nn.embedding_lookup(self.embedding, self.data.ans)  # (5, L_a, E)
             self.subt = tf.nn.embedding_lookup(self.embedding, self.data.subt)  # (N, L_s, E)
 
+            self.ques = l2_norm(mean_reduce(self.ques, self.data.ql))
+            self.ans = l2_norm(mean_reduce(self.ans, self.data.al))
+            self.subt = l2_norm(mean_reduce(self.subt, self.data.sl))
+
             # self.ques = dropout(self.ques, training=training)  # (1, L_q, E)
             # self.ans = dropout(self.ans, training=training)  # (5, L_a, E)
             # self.subt = dropout(self.subt, training=training)  # (N, L_s, E)
 
         with tf.variable_scope('Embedding_Linear'):
             # (1, L_q, E_t)
-            self.ques_embedding = unit_norm(mask_dense(self.ques, q_mask, reuse=False))
+            self.ques_embedding = l2_norm(mask_dense(self.ques, q_mask, reuse=False))
             # (5, L_a, E_t)
-            self.ans_embedding = unit_norm(mask_dense(self.ans, a_mask))
+            self.ans_embedding = l2_norm(mask_dense(self.ans, a_mask))
             # (N, L_s, E_t)
-            self.subt_embedding = unit_norm(mask_dense(self.subt, s_mask))
+            self.subt_embedding = l2_norm(mask_dense(self.subt, s_mask))
 
         with tf.variable_scope('Language_Encode'):
-            mask = tf.expand_dims(tf.sequence_mask(self.data.ql, 25), axis=-1)
-            # (1, E_t)
-            self.ques_enc = unit_norm(conv_encode(self.ques_embedding, mask, 'ques'), dim=1)
-            mask = tf.expand_dims(tf.sequence_mask(self.data.al, 34), axis=-1)
-            self.ans_enc = unit_norm(conv_encode(self.ans_embedding, mask, 'ans'), dim=1)
-            mask = tf.expand_dims(tf.sequence_mask(self.data.sl, 29), axis=-1)
-            self.subt_enc = unit_norm(conv_encode(self.subt_embedding, mask, 'subt'), dim=1)
-
-            self.ques_enc = unit_norm(dense(self.ques_enc, reuse=False), dim=1)
-            self.ans_enc = unit_norm(dense(self.ans_enc), dim=1)
-            self.subt_enc = unit_norm(dense(self.subt_enc), dim=1)
+            self.ques_enc = l2_norm(tf.reduce_sum(self.ques_embedding, axis=1), axis=1)
+            self.ans_enc = l2_norm(tf.reduce_sum(self.ans_embedding, axis=1), axis=1)
+            self.subt_enc = l2_norm(tf.reduce_sum(self.subt_embedding, axis=1), axis=1)
 
         with tf.variable_scope('Temporal_Attention'):
-            self.temp_attn = tf.concat([self.subt_enc, tf.tile(self.ques_enc, [subt_shape[0], 1])], axis=-1)
-            self.temp_attn = dense(self.temp_attn, reuse=False)
-            self.temp_attn = unit_norm(tf.expand_dims(self.temp_attn, axis=0))
-            self.temp_attn = tf.layers.conv1d(self.temp_attn, 1, 5, padding='same', activation=tf.nn.relu)
-            self.temp_attn = tf.squeeze(tf.nn.softmax(self.temp_attn, axis=1), axis=0)
-            nth = nn.nth_element(tf.transpose(self.temp_attn), tf.cast(subt_shape[0] / 2, tf.int32), True)
-            # (N, 1)
-            attn_mask = tf.squeeze(tf.greater_equal(self.temp_attn, nth), axis=1)
-            self.subt_enc = tf.boolean_mask(self.subt_enc, attn_mask)
-            self.temp_attn = tf.boolean_mask(self.temp_attn, attn_mask)
-            self.subt_enc = self.subt_enc * self.temp_attn
-            # self.subt_enc = tf.expand_dims(self.subt_enc, axis=0) * self.temp_attn
+            # (N, E_t)
+            self.temp_attn = dense(self.ques_enc, use_bias=False, activation=None, reuse=False) + \
+                             dense(self.subt_enc, use_bias=False, activation=None, reuse=False)
 
-        self.summarize = unit_norm(tf.reduce_sum(self.subt_enc, axis=0, keepdims=True), dim=1)  # (1, 4 * E_t)
+            self.temp_attn = dense(layers.bias_add(self.temp_attn, tf.nn.tanh), units=1,
+                                   use_bias=False, activation=None, reuse=False)
+
+            # amount = tf.squeeze(dense(self.ques_enc, 1, tf.nn.sigmoid, reuse=False))
+            # nth = nn.nth_element(tf.transpose(self.temp_attn),
+            #                      tf.cast(tf.cast(subt_shape[0], tf.float32) * amount, tf.int32), True)
+            # # (N, 1)
+            # attn_mask = tf.cast(tf.squeeze(tf.greater_equal(self.temp_attn, nth), axis=1), tf.int32)
+            # _, self.subt_enc = tf.dynamic_partition(self.subt_enc, attn_mask, 2)
+            # _, self.temp_attn = tf.dynamic_partition(self.temp_attn, attn_mask, 2)
+            self.subt_enc = self.subt_enc * self.temp_attn
+
+        self.summarize = l2_norm(tf.reduce_mean(self.subt_enc, axis=0, keepdims=True), axis=1)  # (1, 4 * E_t)
 
         # gamma = tf.get_variable('gamma', [1, 1], initializer=tf.zeros_initializer)
 
         # self.ans_vec = self.summarize * tf.nn.sigmoid(gamma) + \
         #                tf.squeeze(self.ques_enc, axis=0) * (1 - tf.nn.sigmoid(gamma))
 
-        self.ans_vec = unit_norm(self.summarize + self.ques_enc, dim=1)  # (1, 4 * E_t)
+        self.ans_vec = l2_norm(self.summarize + self.ques_enc, axis=1)  # (1, 4 * E_t)
 
         self.output = tf.matmul(self.ans_vec, self.ans_enc, transpose_b=True)  # (1, 5)
 
