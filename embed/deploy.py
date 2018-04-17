@@ -1,7 +1,6 @@
-from os.path import join
-
 import numpy as np
 import tensorflow as tf
+from os.path import join
 
 import utils.data_utils as du
 import utils.func_utils as fu
@@ -21,7 +20,7 @@ def main():
     #         min_exp = experiment
     #         min_idx = idx
 
-    checkpoint = tf.train.latest_checkpoint(join(_ep.checkpoint_dir, 'embedding_v2'))
+    checkpoint = tf.train.latest_checkpoint(join(_ep.checkpoint_dir, 'embedding_v3'))
     print(checkpoint)
     vocab = du.json_load(_ep.gram_vocab_file)
     vocab_size = len(vocab)
@@ -35,10 +34,10 @@ def main():
         tf.global_variables_initializer().run()
         saver.restore(sess, checkpoint)
         print('Restore done.')
-        embedding_matrix = sess.run(model.gram_matrix)
+        matrix = sess.run(gram_matrix)
         print('Matrix extraction done.')
         fu.safe_remove(_ep.gram_embedding_vec_file)
-        np.save(_ep.gram_embedding_vec_file, embedding_matrix)
+        np.save(_ep.gram_embedding_vec_file, matrix)
         print('Saving done.')
 
 

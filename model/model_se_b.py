@@ -6,11 +6,9 @@ from config import MovieQAPath
 from input_v2 import Input
 
 _mp = MovieQAPath()
-hp = {'emb_dim': 300, 'feat_dim': 512,
-      'learning_rate': 10 ** (-3), 'decay_rate': 0.01, 'decay_type': 'inv_sqrt', 'decay_epoch': 2,
-      'opt': 'adam', 'checkpoint': '', 'dropout_rate': 0.1}
+hp = {'emb_dim': 1024, 'feat_dim': 512, 'dropout_rate': 0.1}
 
-reg = layers.l2_regularizer(0.01)
+reg = layers.l2_regularizer(0.1)
 
 
 def dropout(x, training):
@@ -79,37 +77,46 @@ def variance_encode(x, length):
     return tf.reduce_sum(x, axis=1)
 
 
+def conv_attn(x, q, training):
+    # (1, N_c, E_t)
+    x = tf.layers.conv1d(x, hp['emb_dim'], 12, 8, padding='valid', activation=tf.nn.relu, kernel_regularizer=reg)
+    x = tf.layers.batch_normalization(x, axis=2, training=training)
+    # (1, N_c, 1)
+    attn = l2_norm(tf.tensordot(x, q, [[2], [1]]), axis=1)
+    # alpha = tf.reduce_mean(self.attn)
+    # self.attn = tf.where(self.attn >= alpha, self.attn, tf.ones_like(self.attn) * (-2 ** 32 + 1))
+    attn = tf.nn.softmax(attn, axis=2)
+    # (1, N_c, E_t)
+    return x, x * attn
+
+
 class Model(object):
     def __init__(self, data, training=False):
         self.data = data
 
         with tf.variable_scope('Embedding_Linear'):
-            # (1, E_t)
-            self.ques = l2_norm(tf.layers.dense(self.data.ques, hp['emb_dim'], activation=tf.nn.relu))
-            # (5, E_t)
-            self.ans = l2_norm(tf.layers.dense(self.data.ans, hp['emb_dim'], activation=tf.nn.relu, reuse=True))
-            # (N, E_t)
-            self.subt = l2_norm(tf.layers.dense(self.data.subt, hp['emb_dim'], activation=tf.nn.relu))
+            self.ques = l2_norm(self.data.ques)
+            self.ans = l2_norm(self.data.ans)
+            self.subt = l2_norm(self.data.subt)
 
-            self.ans_cue = l2_norm(tf.reduce_sum(self.ans, axis=1, keepdims=True))
+            # (1, E_t)
+            self.ques = l2_norm(dropout(tf.layers.dense(self.ques, hp['emb_dim'], kernel_regularizer=reg), training))
+            # (5, E_t)
+            self.ans = l2_norm(dropout(tf.layers.dense(self.ans, hp['emb_dim'], reuse=True), training))
+            # (N, E_t)
+            self.subt = l2_norm(dropout(tf.layers.dense(self.subt, hp['emb_dim'], reuse=True), training))
+
+            # self.ans_cue = l2_norm(tf.reduce_sum(self.ans, axis=1, keepdims=True))
 
         with tf.variable_scope('Abstract'):
-            # (1, N, E_t)
-            subt_conv = tf.expand_dims(self.subt, axis=0)
-            # (1, N_c, E_t)
-            subt_conv = tf.layers.conv1d(subt_conv, hp['emb_dim'], 12, 8, padding='valid', activation=tf.nn.relu)
-            # (1, N_c, 1)
-            self.attn = tf.tensordot(subt_conv, self.ques, [[2], [1]])
-            alpha = tf.reduce_mean(self.attn)
-            self.attn = tf.where(self.attn >= alpha, self.attn, tf.ones_like(self.attn) * (-2 ** 32 + 1))
-            self.attn = tf.nn.softmax(self.attn, axis=1)
-            # (1, N_c, E_t)
-            self.subt_abst = subt_conv * self.attn
+            self.abs_1, self.abs_attn1 = conv_attn(tf.expand_dims(self.subt, axis=0), self.ques, training)
+            self.abs_2, self.abs_attn2 = conv_attn(self.abs_1, self.ques, training)
 
         # (1, E_t)
-        self.summarize = l2_norm(tf.reduce_sum(self.subt_abst, axis=1))
+        self.summarize = l2_norm(tf.reduce_sum(self.abs_attn1, axis=1) * tf.reduce_sum(self.abs_attn2, axis=1))
         # (1, E_t)
-        self.ans_vec = l2_norm(self.summarize + self.ques)
+        # self.ans_vec = l2_norm(self.summarize + self.ques)
+        self.ans_vec = self.summarize
         # (1, 5)
         self.output = tf.matmul(self.ans_vec, self.ans, transpose_b=True)
 

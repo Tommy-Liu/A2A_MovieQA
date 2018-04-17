@@ -1,17 +1,18 @@
 import re
-import time
 from datetime import timedelta
 from glob import glob
-from os.path import exists, join
 from unicodedata import normalize
 
+import numpy as np
+from nltk import sent_tokenize
+from os.path import exists, join
 from tqdm import tqdm
 
 import utils.data_utils as du
 import utils.func_utils as fu
 from config import MovieQAPath
 
-mp = MovieQAPath()
+_mp = MovieQAPath()
 
 RGX_TIMESTAMP_MAGNITUDE_DELIM = r'[,.:]'
 RGX_TIMESTAMP = RGX_TIMESTAMP_MAGNITUDE_DELIM.join([r'\d+'] * 4)
@@ -65,8 +66,8 @@ def duration(basename):
 
 class FrameTime(object):
     def __init__(self):
-        if exists(mp.frame_time_file):
-            self._frame_time = du.json_load(mp.frame_time_file)
+        if exists(_mp.frame_time_file):
+            self._frame_time = du.json_load(_mp.frame_time_file)
         else:
             self._frame_time = self.process()
         self._inc = {'imdb_key': set(list(self._frame_time.keys()))}
@@ -74,10 +75,10 @@ class FrameTime(object):
     @staticmethod
     def process():
         frame_time = {}
-        frame_time_paths = glob(join(mp.frame_time_dir, '*.matidx'))
+        frame_time_paths = glob(join(_mp.frame_time_dir, '*.matidx'))
         for p in tqdm(frame_time_paths, desc='Process frame time'):
             frame_time[fu.basename_wo_ext(p)] = FrameTime.get_frame_time(p)
-        du.json_dump(frame_time, mp.frame_time_file, indent=0)
+        du.json_dump(frame_time, _mp.frame_time_file, indent=0)
         return frame_time
 
     @staticmethod
@@ -109,8 +110,8 @@ class FrameTime(object):
 
 class Subtitle(object):
     def __init__(self):
-        if exists(mp.subtitle_file):
-            self._subtitle = du.json_load(mp.subtitle_file)
+        if exists(_mp.subtitle_file):
+            self._subtitle = du.json_load(_mp.subtitle_file)
         else:
             self._subtitle = self.process()
         self._inc = {'imdb_key': set(list(self._subtitle.keys()))}
@@ -119,9 +120,10 @@ class Subtitle(object):
     def process():
         subtitle = {}
         # print(_mp.subtitle_dir)
-        subtitle_paths = glob(join(mp.subtitle_dir, '*.srt'))
+        subtitle_paths = glob(join(_mp.subtitle_dir, '*.srt'))
         # print(subtitle_paths)
         for p in tqdm(subtitle_paths, desc='Process subtitle'):
+            iid = 0
             basename = fu.basename_wo_ext(p)
             subtitle[basename] = {'lines': [], 'start': [], 'end': []}
             with open(p, 'r', encoding='iso-8859-1') as f:
@@ -130,14 +132,29 @@ class Subtitle(object):
 
                     content = re.sub(r'\r\n|\n', ' ', content)
                     content = re.sub(r'<.+?>', '', content, flags=re.DOTALL)
+                    content = re.sub(r'[<>]', '', content)
                     content = normalize("NFKD", content)
                     content = content.encode('utf-8').decode('ascii', 'ignore').strip()
 
                     if content:
-                        subtitle[basename]['start'].append(Subtitle.timestamp_to_secs(raw_start))
-                        subtitle[basename]['end'].append(Subtitle.timestamp_to_secs(raw_end))
-                        subtitle[basename]['lines'].append(content)
-        du.json_dump(subtitle, mp.subtitle_file, indent=0)
+                        content = sent_tokenize(content)
+                        content = [sent.strip() for sent in content if sent.strip()]
+                        s = Subtitle.timestamp_to_secs(raw_start)
+                        e = Subtitle.timestamp_to_secs(raw_end)
+                        if s > e:
+                            s, e = e, s
+                        time_span = (e - s) / len(content)
+                        for idx, sent in enumerate(content):
+                            subtitle[basename]['start'].append(s + time_span * idx)
+                            subtitle[basename]['end'].append(s + time_span * (idx + 1))
+                            subtitle[basename]['lines'].append(sent)
+                    iid += 1
+            index = np.argsort(np.array(subtitle[basename]['start']))
+            subtitle[basename]['start'] = [subtitle[basename]['start'][idx] for idx in index]
+            subtitle[basename]['end'] = [subtitle[basename]['end'][idx] for idx in index]
+            subtitle[basename]['lines'] = [subtitle[basename]['lines'][idx] for idx in index]
+
+        du.json_dump(subtitle, _mp.subtitle_file, indent=0)
         return subtitle
 
     @staticmethod
@@ -166,9 +183,9 @@ class Subtitle(object):
 
 class QA(object):
     def __init__(self):
-        self._qa = du.json_load(mp.qa_file)
-        self._split = du.json_load(mp.splits_file)
-        self.video_data = du.json_load(mp.video_data_file)
+        self._qa = du.json_load(_mp.qa_file)
+        self._split = du.json_load(_mp.splits_file)
+        self.video_data = du.json_load(_mp.video_data_file)
         self._inc = {'split': set(list(self._split.keys())),
                      'imdb_key': set([k for v in self._split.values() for k in v]),
                      'video_clips': {False}}
@@ -229,8 +246,8 @@ class QA(object):
 
 class ShotBoundary(object):
     def __init__(self):
-        if exists(mp.shot_boundary_file):
-            self._sb = du.json_load(mp.shot_boundary_file)
+        if exists(_mp.shot_boundary_file):
+            self._sb = du.json_load(_mp.shot_boundary_file)
         else:
             self._sb = self.process()
         self._inc = {'imdb_key': set([k.split('.')[0] for k in self._sb]),
@@ -239,7 +256,7 @@ class ShotBoundary(object):
     @staticmethod
     def process():
         shot_boundary = {}
-        sb_paths = glob(join(mp.shot_boundary_dir, '*.sbd'))
+        sb_paths = glob(join(_mp.shot_boundary_dir, '*.sbd'))
         for p in tqdm(sb_paths, desc='Process shot boundary'):
             base_name = fu.basename_wo_ext(p)
             shot_boundary[base_name] = {'start': [], 'end': []}
@@ -248,7 +265,7 @@ class ShotBoundary(object):
                     shot_boundary[base_name]['start'].append(int(match.group(1)))
                     shot_boundary[base_name]['end'].append(int(match.group(2)))
 
-        du.json_dump(shot_boundary, mp.shot_boundary_file)
+        du.json_dump(shot_boundary, _mp.shot_boundary_file)
         return shot_boundary
 
     def reset(self):
@@ -285,35 +302,7 @@ class DataLoader(object):
 
 
 def main():
-    # start_time = time.time()
-    # frame_time = FrameTime()
-    # print('%.3f s' % (time.time() - start_time))
-    # print(len(frame_time.get()))
-    # print(len(frame_time.get(exclude=['tt1371111'])))
-    # print(len(frame_time.get(include=['tt1371111'])))
-    # start_time = time.time()
-    # sub = Subtitle()
-    # print('%.3f s' % (time.time() - start_time))
-    # print(len(sub.get()))
-    # print(len(sub.get(exclude=['tt1371111'])))
-    # print(len(sub.get(include=['tt1371111'])))
-    start_time = time.time()
-    qa = QA()
-    print(len(qa.get()))
-    print(len(qa.include(imdb_key=['tt1371111']).get()))
-    print(len(qa.reset().exclude(imdb_key=['tt1371111']).get()))
-    print(len(qa.reset().include(video_clips=True).get()))
-    print(len(qa.exclude(imdb_key=['tt1371111']).get()))
-    print('%.3f s' % (time.time() - start_time))
-    # start_time = time.time()
-    # sb = ShotBoundary()
-    # print('%.3f s' % (time.time() - start_time))
-    # print(len(sb.get()))
-    # print(len(sb.get(imdb_key=['tt1371111'])))
-    # print(len(sb.get_exclude(imdb_key=['tt1371111'])))
-    # s = 'tt2310332.sf-187938.ef-188077.video'
-    # match = VIDEO_NAME_REGEX.match(s).groups()
-    # print(match)
+    subtitle = Subtitle()
 
 
 if __name__ == '__main__':

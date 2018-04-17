@@ -1,4 +1,7 @@
 import tensorflow as tf
+from tensorflow.contrib.opt import LazyAdamOptimizer, AddSignOptimizer, PowerSignOptimizer
+from tensorflow.contrib.opt.python.training.sign_decay \
+    import get_cosine_decay_fn, get_linear_decay_fn, get_restart_decay_fn
 
 
 def extract_axis_1(data, ind):
@@ -38,7 +41,7 @@ def get_lr(name, lr, global_step, decay_steps, decay_rate=0.5, staircase=False):
         learning_rate = tf.train.inverse_time_decay(lr, tf.sqrt(tf.cast(global_step, tf.float32)),
                                                     1.0, decay_rate, staircase)
     elif name == 'linear_cos':
-        learning_rate = tf.train.linear_cosine_decay(lr, global_step, decay_rate)
+        learning_rate = tf.train.linear_cosine_decay(lr, global_step, decay_steps, beta=0.01)
     elif name == 'natural_exp':
         learning_rate = tf.train.natural_exp_decay(lr, global_step, decay_steps, decay_rate, staircase)
     elif name == 'noisy_linear_cos':
@@ -50,7 +53,7 @@ def get_lr(name, lr, global_step, decay_steps, decay_rate=0.5, staircase=False):
     return learning_rate
 
 
-def get_opt(name, learning_rate):
+def get_opt(name, learning_rate, decay_steps=None):
     if name == 'momentum':
         optimizer = tf.train.MomentumOptimizer(learning_rate, 0.9)
     elif name == 'adam':
@@ -59,8 +62,26 @@ def get_opt(name, learning_rate):
         optimizer = tf.train.GradientDescentOptimizer(learning_rate)
     elif name == 'rms':
         optimizer = tf.train.RMSPropOptimizer(learning_rate)
-    elif name == 'adag':
+    elif name == 'adagrad':
         optimizer = tf.train.AdagradOptimizer(learning_rate)
+    elif name == 'lazyadam':
+        optimizer = LazyAdamOptimizer(learning_rate)
+    elif name == 'powersign':
+        optimizer = PowerSignOptimizer(learning_rate)
+    elif name == 'powersign-ld':
+        optimizer = PowerSignOptimizer(learning_rate, sign_decay_fn=get_linear_decay_fn(decay_steps))
+    elif name == 'powersign-cd':
+        optimizer = PowerSignOptimizer(learning_rate, sign_decay_fn=get_cosine_decay_fn(decay_steps))
+    elif name == 'powersign-rd':
+        optimizer = PowerSignOptimizer(learning_rate, sign_decay_fn=get_restart_decay_fn(decay_steps))
+    elif name == 'addsign':
+        optimizer = AddSignOptimizer(learning_rate)
+    elif name == 'addsign-ld':
+        optimizer = AddSignOptimizer(learning_rate, sign_decay_fn=get_linear_decay_fn(decay_steps))
+    elif name == 'addsign-cd':
+        optimizer = AddSignOptimizer(learning_rate, sign_decay_fn=get_cosine_decay_fn(decay_steps))
+    elif name == 'addsign-rd':
+        optimizer = AddSignOptimizer(learning_rate, sign_decay_fn=get_restart_decay_fn(decay_steps))
     else:
         optimizer = None
 
@@ -81,6 +102,21 @@ def get_loss(name, labels, outputs):
         loss = tf.losses.huber_loss(labels, outputs)
     elif name == 'mpse':
         loss = tf.losses.mean_pairwise_squared_error(labels, outputs)
+    elif name == 'sparse_softmax':
+        loss = tf.losses.sparse_softmax_cross_entropy(labels, outputs)
+    elif name == 'softmax':
+        labels = tf.one_hot(labels, 5, axis=-1)
+        loss = tf.losses.softmax_cross_entropy(labels, outputs)
+    elif name == 'sigmoid':
+        # labels = tf.one_hot(labels, 5, axis=-1)
+        loss = tf.losses.sigmoid_cross_entropy(labels, outputs)
     else:
         loss = 0
     return loss
+
+
+def get_acc(labels, outputs, name='accuracy'):
+    accuracy, accuracy_update = tf.metrics.accuracy(labels, outputs, name=name)
+    accuracy_initializer = tf.variables_initializer(tf.get_collection(
+        tf.GraphKeys.LOCAL_VARIABLES, scope=name))
+    return accuracy, accuracy_update, accuracy_initializer

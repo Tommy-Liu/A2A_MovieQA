@@ -2,12 +2,12 @@ import argparse
 from functools import partial
 from math import ceil
 from multiprocessing import Pool, Queue, Process
-from os.path import join, exists
 
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 from numpy.lib.format import read_array_header_1_0, read_magic
+from os.path import join, exists
 from tqdm import tqdm
 
 from config import MovieQAPath
@@ -94,6 +94,26 @@ def get_images_path_v2():
     return file_names, capacity, npy_names
 
 
+def get_images_path_v3():
+    file_names, capacity, npy_names = [], [], []
+    sample = du.json_load(_mp.sample_frame_file)
+
+    for imdb_key in tqdm(sample, desc='Collect Images'):
+        if not exists(join(_mp.feature_dir, imdb_key + '.npy')):
+            npy_names.append(join(_mp.feature_dir, imdb_key + '.npy'))
+            videos = list(sample[imdb_key].keys())
+            videos.sort()
+            num = 0
+            for v in tqdm(videos):
+                images = [join(_mp.image_dir, v, '%s_%05d.jpg' % (v, i + 1))
+                          for i in sample[imdb_key][v]]
+                file_names.extend(images)
+                num += len(images)
+            capacity.append(num)
+    print(capacity, npy_names)
+    return file_names, capacity, npy_names
+
+
 def count_num(features_list):
     num = 0
     for features in features_list:
@@ -103,19 +123,22 @@ def count_num(features_list):
 
 def writer_worker(queue, capacity, npy_names):
     video_idx = 0
-    local_feature = np.zeros((0, 4, 4, 1536), dtype=np.float32)
+    local_feature = []
     local_filename = []
+    local_size = 0
     with tqdm(total=len(npy_names)) as pbar:
         while True:
             item = queue.get()
             if item:
                 f, n = item
-                local_feature = np.concatenate([local_feature, f])
+                local_feature.append(f)
+                local_size += len(f)
                 local_filename.extend(n)
                 while len(capacity) > video_idx and \
-                        local_feature.shape[0] >= capacity[video_idx]:
+                        local_size >= capacity[video_idx]:
 
-                    final_features = local_feature[range(capacity[video_idx])]
+                    concat_feature = np.concatenate(local_feature, axis=0)
+                    final_features = concat_feature[:capacity[video_idx]]
                     final_filename = local_filename[:capacity[video_idx]]
 
                     assert final_features.shape[0] == capacity[video_idx], \
@@ -124,9 +147,9 @@ def writer_worker(queue, capacity, npy_names):
                         assert fu.basename_wo_ext(npy_names[video_idx]) == \
                                fu.basename_wo_ext(final_filename[i]).split('.')[0], \
                             "Wrong images! %s\n%s" % (npy_names[video_idx], final_filename[i])
-                    norm = np.linalg.norm(final_features, axis=3, keepdims=True)
-                    norm = np.select([norm > 0], [norm], default=1.)
-                    final_features = final_features / norm
+                    # norm = np.linalg.norm(final_features, axis=3, keepdims=True)
+                    # norm = np.select([norm > 0], [norm], default=1.)
+                    # final_features = final_features / norm
                     try:
                         np.save(npy_names[video_idx], final_features)
                     except Exception as e:
@@ -134,7 +157,9 @@ def writer_worker(queue, capacity, npy_names):
                         raise e
                     pbar.set_description(' '.join([fu.basename_wo_ext(npy_names[video_idx]),
                                                    str(len(final_features))]))
-                    local_feature = local_feature[range(capacity[video_idx], len(local_feature))]
+                    del local_feature[:]
+                    local_feature.append(concat_feature[capacity[video_idx]:])
+                    local_size -= capacity[video_idx]
                     local_filename = local_filename[capacity[video_idx]:]
                     video_idx += 1
                     pbar.update()
@@ -163,7 +188,7 @@ def input_pipeline(filename_placeholder, batch_size=32, num_worker=4):
 
 def extract(batch_size, num_worker):
     fu.make_dirs(_mp.feature_dir)
-    filenames, capacity, npy_names = get_images_path_v2()
+    filenames, capacity, npy_names = get_images_path_v3()
 
     num_step = int(ceil(len(filenames) / batch_size))
     filename_placeholder = tf.placeholder(tf.string, shape=[None])
@@ -177,8 +202,8 @@ def extract(batch_size, num_worker):
     print('Start extract !!')
 
     config = tf.ConfigProto(allow_soft_placement=True)
-    config.gpu_options.allow_growth = True
-    config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
+    # config.gpu_options.allow_growth = True
+    # config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
 
     with tf.Session(config=config) as sess:
         queue = Queue()

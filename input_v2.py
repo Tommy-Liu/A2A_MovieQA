@@ -1,10 +1,10 @@
 import random
 from functools import partial
 from glob import glob
-from os.path import join
 
 import numpy as np
 import tensorflow as tf
+from os.path import join
 
 from config import MovieQAPath
 from utils import data_utils as du
@@ -20,7 +20,7 @@ def parse_feature():
     }
     sequence_features = {
         "ans": tf.FixedLenSequenceFeature([300], dtype=tf.float32),
-        "spec": tf.FixedLenSequenceFeature([1], dtype=tf.int64),
+        # "spec": tf.FixedLenSequenceFeature([1], dtype=tf.int64),
     }
 
     return context_features, sequence_features

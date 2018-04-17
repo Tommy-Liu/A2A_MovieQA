@@ -30,38 +30,29 @@ class TrainManager(object):
         fu.make_dirs(self._log_dir)
 
         self.train_data = Input(split='train', mode=args.mode)
+        self.step_data = Input(split='train', mode=args.mode)
         self.val_data = Input(split='val', mode=args.mode)
         # self.test_data = TestInput()
 
-        self.train_model = mod.Model(self.train_data, beta=hp['reg'], training=True)
+        self.train_model = mod.Model(self.train_data, training=True)
+
         with tf.variable_scope(tf.get_variable_scope(), reuse=True):
             self.val_model = mod.Model(self.val_data)
-
         # with tf.variable_scope(tf.get_variable_scope(), reuse=True):
         #     self.test_model = mod.Model(self.test_data, training=False)
 
         for v in tf.trainable_variables():
             print(v)
 
-        self.main_loss = mu.get_loss(hp['loss'], self.train_data.gt, self.train_model.output)
-        self.attn_loss = mu.get_loss('sigmoid', self.train_data.spec, tf.squeeze(self.train_model.attn))
-        self.regu_loss = tf.losses.get_regularization_loss()
+        self.loss = tf.losses.sparse_softmax_cross_entropy(self.train_data.gt, self.train_model.output)
 
-        self.loss = 0
-        if 'main' in target:
-            self.loss += self.main_loss
-        elif 'attn' in target:
-            self.loss += self.attn_loss
-        self.loss += self.regu_loss
+        if args.reg:
+            self.loss += tf.losses.get_regularization_loss()
 
         self.train_accuracy, self.train_accuracy_update = tf.metrics.accuracy(self.train_data.gt,
                                                                               tf.argmax(self.train_model.output,
                                                                                         axis=1),
                                                                               name='train_accuracy')
-        self.train_attn_accuracy, self.train_attn_accuracy_update = tf.metrics.accuracy(self.train_data.spec,
-                                                                                        self.train_model.output,
-                                                                                        name='train_accuracy')
-
         self.train_accuracy_initializer = tf.variables_initializer(tf.get_collection(
             tf.GraphKeys.LOCAL_VARIABLES, scope='train_accuracy'))
 
@@ -73,11 +64,10 @@ class TrainManager(object):
 
         self.global_step = tf.train.get_or_create_global_step()
 
-        decay_step = int(hp['decay_epoch'] * len(self.train_data))
         self.learning_rate = mu.get_lr(hp['decay_type'], hp['learning_rate'], self.global_step,
-                                       decay_step, hp['decay_rate'])
+                                       hp['decay_epoch'] * len(self.train_data), hp['decay_rate'])
 
-        self.optimizer = mu.get_opt(hp['opt'], self.learning_rate, decay_step)
+        self.optimizer = mu.get_opt(hp['opt'], self.learning_rate)
 
         grads_and_vars = self.optimizer.compute_gradients(self.loss)
         gradients, variables = list(zip(*grads_and_vars))
@@ -85,6 +75,14 @@ class TrainManager(object):
         with tf.control_dependencies(self.update_ops):
             self.train_op = tf.group(self.optimizer.apply_gradients(grads_and_vars, self.global_step),
                                      self.train_accuracy_update)
+        with tf.control_dependencies([self.train_op]):
+            with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+                self.step_model = mod.Model(self.step_data)
+            gamma = tf.equal(self.step_data.gt, tf.argmax(self.step_model.output, axis=1))
+            neg_grads_and_vars = [(tf.where(tf.logical_and(gamma, tf.ones_like(g, dtype=tf.bool)),
+                                            self.train_accuracy * g, -(1 + self.train_accuracy / 2) * g), v)
+                                  for g, v in grads_and_vars]
+            self.roll_back = self.optimizer.apply_gradients(neg_grads_and_vars)
 
         self.saver = tf.train.Saver(tf.global_variables())
         self.best_saver = tf.train.Saver(tf.global_variables())
@@ -93,7 +91,7 @@ class TrainManager(object):
         train_gv_summaries = []
         for idx, grad in enumerate(gradients):
             if grad is not None:
-                train_gv_summaries.append(tf.summary.histogram('gradients/' + variables[idx].name, grad))
+                train_gv_summaries.append(tf.summary.histogram(grad.name, grad))
                 train_gv_summaries.append(tf.summary.histogram(variables[idx].name, variables[idx]))
 
         train_summaries = [
@@ -111,7 +109,6 @@ class TrainManager(object):
         else:
             self.checkpoint_file = tf.train.latest_checkpoint(self._checkpoint_dir)
 
-        self.op_list = [self.train_op, self.loss, self.train_accuracy, self.global_step]
         # self.run_metadata = tf.RunMetadata()
 
     def train(self):
@@ -119,7 +116,7 @@ class TrainManager(object):
         config.gpu_options.allow_growth = True
         # config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
 
-        with tf.Session(config=config) as sess, tf.summary.FileWriter(self._log_dir, sess.graph) as sw:
+        with tf.Session(config=config) as sess, tf.summary.FileWriter(self._log_dir) as sw:
             if debug:
                 sess = tf_debug.LocalCLIDebugWrapperSession(sess)
             sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
@@ -136,16 +133,15 @@ class TrainManager(object):
                     epoch = math.floor(step / len(self.train_data)) + 1
 
                     # Train Loop
-                    sess.run([self.train_data.initializer, self.train_accuracy_initializer],
-                             feed_dict=self.train_data.feed_dict)
+                    sess.run([self.train_data.initializer, self.train_accuracy_initializer, self.step_data.initializer],
+                             feed_dict={**self.train_data.feed_dict, **self.step_data.feed_dict})
 
                     with trange(epoch * len(self.train_data) - step) as pbar:
-
                         for _ in pbar:
                             if step % 10000 == 0:
-                                _, gv_summary, l, acc, step = sess.run(
+                                _, gv_summary, l, acc, step, _ = sess.run(
                                     [self.train_op, self.train_gv_summaries_op, self.loss, self.train_accuracy,
-                                     self.global_step])
+                                     self.global_step, self.roll_back])
                                 # options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
                                 # run_metadata=self.run_metadata)
                                 # trace = timeline.Timeline(step_stats=self.run_metadata.step_stats)
@@ -154,13 +150,13 @@ class TrainManager(object):
                                 # with open(args.mod + '.timeline.ctf.json', 'w') as trace_file:
                                 #     trace_file.write(trace.generate_chrome_trace_format())
                             elif step % 100 == 0:
-                                _, summary, l, step, acc = sess.run(
+                                _, summary, l, step, acc, _ = sess.run(
                                     [self.train_op, self.train_summaries_op, self.loss, self.global_step,
-                                     self.train_accuracy])
+                                     self.train_accuracy, self.roll_back])
                                 sw.add_summary(summary, step)
                             else:
-                                _, l, step, acc = sess.run(
-                                    [self.train_op, self.loss, self.global_step, self.train_accuracy])
+                                _, l, step, acc, _ = sess.run(
+                                    [self.train_op, self.loss, self.global_step, self.train_accuracy, self.roll_back])
                             pbar.set_description('[%03d] Train loss: %.3f acc: %.2f' % (epoch, l, acc))
 
                     self.saver.save(sess, self._checkpoint_file, step)
@@ -182,7 +178,7 @@ class TrainManager(object):
 
     @property
     def _model_name(self):
-        return '-'.join([args.mod, args.hp, args.extra])
+        return '-'.join(['v2', args.mod, args.hp, args.extra])
 
     @property
     def _log_dir(self):
@@ -213,14 +209,14 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true', help='Debug mode.')
     parser.add_argument('--mode', default='feat+subt', help='Data mode we use.')
     parser.add_argument('--checkpoint', default='', help='Checkpoint file.')
-    parser.add_argument('--hp', default='01', help='Hyper-parameters.')
+    parser.add_argument('--hp', default='hp03', help='Hyper-parameters.')
     parser.add_argument('--extra', default='', help='Extra model name.')
-    parser.add_argument('--target', default='main+target', help='Train what?')
-    # parser.add_argument('--reg', action='store_true', help='Regularize the model.')
+    parser.add_argument('--reg', action='store_true', help='Regularize the model.')
     args = parser.parse_args()
     mod = importlib.import_module('model.' + args.mod)
-    hp = getattr(importlib.import_module('hp'), 'hp' + args.hp)
+    hp = getattr(importlib.import_module('hp'), args.hp)
     reset = args.reset
     debug = args.debug
-    target = args.target
+    if args.reg:
+        args.extra += 'reg'
     main()

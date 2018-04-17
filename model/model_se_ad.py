@@ -5,8 +5,9 @@ from config import MovieQAPath
 from input import Input
 
 _mp = MovieQAPath()
-hp = {'emb_dim': 32, 'feat_dim': 512, 'sec_size': 30,
-      'dropout_rate': 0.1}
+hp = {'emb_dim': 8, 'feat_dim': 512, 'sec_size': 30,
+      'learning_rate': 10 ** (-3), 'decay_rate': 1, 'decay_type': 'inv_sqrt', 'decay_epoch': 2,
+      'opt': 'adam', 'checkpoint': '', 'dropout_rate': 0.1}
 
 reg = layers.l2_regularizer(0.01)
 
@@ -103,7 +104,7 @@ class Model(object):
             # (S, (N+p) / S, E_t)
             self.pad_subt = tf.reshape(self.pad_subt, [-1, hp['sec_size'], hp['emb_dim']])
             # (S, 1, E_t)
-            self.sec_repr = l2_norm(tf.reduce_max(self.pad_subt, axis=1, keepdims=True), axis=2)
+            self.sec_repr = tf.reduce_max(self.pad_subt, axis=1, keepdims=True)
             # (S, 1, 1)
             self.sec_score = l2_norm(tf.matmul(
                 self.sec_repr, tf.tile(tf.reshape(self.ques, [1, -1, 1]), [split_num, 1, 1])), axis=0)
@@ -111,7 +112,8 @@ class Model(object):
             self.sec_attn = tf.nn.softmax(self.sec_score, axis=0)
 
             # (S, (N+p) / S, 1)
-            self.local_score = l2_norm(tf.matmul(self.pad_subt, self.sec_repr, transpose_b=True), axis=1)
+            self.local_score = l2_norm(tf.matmul(
+                self.pad_subt, tf.tile(tf.reshape(self.ques, [1, -1, 1]), [split_num, 1, 1])), axis=1)
             # (S, (N+p) / S, 1)
             self.local_attn = tf.nn.softmax(self.local_score, axis=1)
             # (1, N+p, E_t)

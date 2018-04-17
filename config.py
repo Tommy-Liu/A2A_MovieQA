@@ -3,6 +3,7 @@ import json
 import os
 from contextlib import contextmanager
 from glob import glob
+
 from os.path import join
 
 
@@ -44,8 +45,8 @@ class MovieQAPath(object):
         self.dataset_dir = join(self.data_dir, 'dataset')
 
         # Experiment directory
-        self.checkpoint_dir = './checkpoint'
-        self.log_dir = './log'
+        self.checkpoint_dir = join(self.benchmark_dir, 'checkpoint')
+        self.log_dir = join(self.benchmark_dir, 'log')
         self.exp_dir = './exp'
 
         # Video data
@@ -88,6 +89,8 @@ class MovieQAPath(object):
         self.movies_file = join(self.data_dir, 'movies.json')
         # Original qa split
         self.splits_file = join(self.data_dir, 'splits.json')
+        # Subtitle shot sample list
+        self.sample_frame_file = join(self.data_dir, 'sample.json')
         # Npy file pattern
         self.npy_files = glob(os.path.join(self.feature_dir, '*.npy'))
 

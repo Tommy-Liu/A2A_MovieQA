@@ -1,14 +1,14 @@
+import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import layers
 
 from config import MovieQAPath
-from input import Input
+from input_v2 import Input
 
 _mp = MovieQAPath()
-hp = {'emb_dim': 32, 'feat_dim': 512, 'sec_size': 30,
-      'dropout_rate': 0.1}
+hp = {'emb_dim': 256, 'feat_dim': 512, 'dropout_rate': 0.1}
 
-reg = layers.l2_regularizer(0.01)
+reg = layers.l2_regularizer(0.3)
 
 
 def dropout(x, training):
@@ -77,52 +77,68 @@ def variance_encode(x, length):
     return tf.reduce_sum(x, axis=1)
 
 
+def watch_movie(story, mem, l):
+    mask = tf.sequence_mask(l, tf.shape(story)[0], dtype=tf.int32)
+    _, clips = tf.dynamic_partition(story, mask, 2)
+
+
 class Model(object):
     def __init__(self, data, training=False):
         self.data = data
 
         with tf.variable_scope('Embedding_Linear'):
-            # (1, L_q, E_t)
-            self.ques = l2_norm(tf.layers.dense(self.data.ques, hp['emb_dim'], activation=tf.nn.relu))
-            # (5, L_a, E_t)
-            self.ans = l2_norm(tf.layers.dense(self.data.ans, hp['emb_dim'], activation=tf.nn.relu, reuse=True))
-            # (N, L_s, E_t)
-            self.subt = l2_norm(tf.layers.dense(self.data.subt, hp['emb_dim'], activation=tf.nn.relu, reuse=True))
+            self.ques = l2_norm(self.data.ques)
+            self.ans = l2_norm(self.data.ans)
+            self.subt = l2_norm(self.data.subt)
 
-            # self.ques = self.data.ques
-            # self.ans = self.data.ans
-            # self.subt = self.data.subt
+            # (1, E_t)
+            self.ques = l2_norm(dropout(tf.layers.dense(self.ques, hp['emb_dim'], kernel_regularizer=reg), training))
+            # (5, E_t)
+            self.ans = l2_norm(dropout(tf.layers.dense(self.ans, hp['emb_dim'], reuse=True), training))
+            # (N, E_t)
+            self.subt = l2_norm(dropout(tf.layers.dense(self.subt, hp['emb_dim'], reuse=True), training))
 
-        t_shape = tf.shape(self.subt)
-        split_num = tf.to_int32(tf.ceil(t_shape[0] / hp['sec_size']))
-        pad_num = split_num * hp['sec_size'] - t_shape[0]
-        paddings = tf.convert_to_tensor([[0, pad_num], [0, 0]])
-        with tf.variable_scope('Temporal_Attention'):
-            # (1, N+p, E_t)
-            self.pad_subt = tf.expand_dims(tf.pad(self.subt, paddings), axis=0)
-            # (S, (N+p) / S, E_t)
-            self.pad_subt = tf.reshape(self.pad_subt, [-1, hp['sec_size'], hp['emb_dim']])
-            # (S, 1, E_t)
-            self.sec_repr = l2_norm(tf.reduce_max(self.pad_subt, axis=1, keepdims=True), axis=2)
-            # (S, 1, 1)
-            self.sec_score = l2_norm(tf.matmul(
-                self.sec_repr, tf.tile(tf.reshape(self.ques, [1, -1, 1]), [split_num, 1, 1])), axis=0)
-            # (S, 1, 1)
-            self.sec_attn = tf.nn.softmax(self.sec_score, axis=0)
+            # (1, N, E_t)
+            s_exp = tf.expand_dims(self.subt, 0)
+            # (1, 1, E_t)
+            q_exp = tf.expand_dims(self.ques, 0)
+            # (1, 5, E_t)
+            a_exp = tf.expand_dims(self.ans, 0)
 
-            # (S, (N+p) / S, 1)
-            self.local_score = l2_norm(tf.matmul(self.pad_subt, self.sec_repr, transpose_b=True), axis=1)
-            # (S, (N+p) / S, 1)
-            self.local_attn = tf.nn.softmax(self.local_score, axis=1)
-            # (1, N+p, E_t)
-            self.temp_output = tf.reshape(self.pad_subt * self.sec_attn * self.local_attn, [1, -1, hp['emb_dim']])
+        s_shape = tf.shape(self.subt)
+        with tf.variable_scope('Underline'):
+            # (1, N, 1)
+            self.conv1 = tf.layers.conv1d(s_exp, 1, 60,
+                                          activation=tf.nn.relu, padding='same', kernel_regularizer=reg)
+            # (1, N, E_t)
+            underline = s_exp * (1 + self.conv1)
+            # (1, N, 1)
+            self.conv2 = tf.layers.conv1d(underline, 1, 30,
+                                          activation=tf.nn.relu, padding='same', kernel_regularizer=reg)
+            # (1, N, E_t)
+            self.underline = underline * (1 + self.conv2)
+            # (1, N, 1)
+            attn = tf.nn.softmax(tf.matmul(self.underline, q_exp, transpose_b=True), 1)
+            # (1, N, E_t)
+            self.underline = self.underline * (1 + attn)
+
+            # (1, N, 5)
+            self.response = tf.matmul(self.underline, a_exp, transpose_b=True)
+            self.response = tf.transpose(tf.squeeze(self.response))
+            # (5, 8)
+            self.top_k_output, _ = tf.nn.top_k(self.response, 8)
+            # (1, 5)
+            self.output = tf.transpose(tf.reduce_sum(self.top_k_output, 1, keepdims=True))
+            # self.subt_abst = tf.reduce_max(self.subt, axis=0, keepdims=True)
+
         # (1, E_t)
-        self.summarize = l2_norm(tf.reduce_max(self.temp_output, axis=1))
-        # (1, E_t)
-        self.ans_vec = l2_norm(tf.nn.relu(self.summarize + self.ques))
+        # self.summarize = l2_norm(tf.reduce_sum(self.subt_abst, axis=1))
+        # self.summarize = l2_norm(self.subt_abst, axis=1)
+        # # (1, E_t)
+        # # self.ans_vec = l2_norm(self.summarize + self.ques)
         # self.ans_vec = self.summarize
-        # (1, 5)
-        self.output = tf.matmul(self.ans_vec, self.ans, transpose_b=True)
+        # # (1, 5)
+        # self.output = tf.matmul(self.ans_vec, self.ans, transpose_b=True)
 
 
 def main():
@@ -135,16 +151,17 @@ def main():
     config.gpu_options.allow_growth = True
     # config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
     with tf.Session(config=config) as sess:
-        sess.run([model.data.initializer, tf.global_variables_initializer()], )
+        sess.run([model.data.initializer, tf.global_variables_initializer()],
+                 feed_dict={data.placeholder: data.files})
 
         # q, a, s = sess.run([model.ques_enc, model.ans_enc, model.subt_enc])
         # print(q.shape, a.shape, s.shape)
         # a, b, c, d = sess.run(model.tri_word_encodes)
         # print(a, b, c, d)
         # print(a.shape, b.shape, c.shape, d.shape)
-        a, b = sess.run([model.ans_vec, model.output])
-        print(a, b)
-        print(a.shape, b.shape)
+        a, b = sess.run([model.compact_subt, model.subt])
+        print(a, b[np.sum(b, axis=1) != 0])
+        print(a.shape, b[np.sum(b, axis=1) != 0].shape, b.shape)
 
 
 if __name__ == '__main__':

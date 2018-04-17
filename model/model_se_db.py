@@ -6,9 +6,9 @@ from config import MovieQAPath
 from input_v2 import Input
 
 _mp = MovieQAPath()
-hp = {'emb_dim': 1024, 'feat_dim': 512, 'dropout_rate': 0.1}
+hp = {'emb_dim': 512, 'feat_dim': 512, 'dropout_rate': 0.1}
 
-reg = layers.l2_regularizer(0.1)
+reg = layers.l2_regularizer(0.05)
 
 
 def dropout(x, training):
@@ -94,22 +94,41 @@ class Model(object):
             # (1, E_t)
             # self.ques = l2_norm(dropout(tf.layers.dense(self.ques, hp['emb_dim'], kernel_regularizer=reg), training))
             # (5, E_t)
-            self.ans = l2_norm(dropout(tf.layers.dense(self.ans, hp['emb_dim'],
-                                                       activation=tf.nn.relu, kernel_regularizer=reg), training))
+            self.ans = l2_norm(dropout(tf.layers.dense(self.ans, hp['emb_dim'], kernel_regularizer=reg), training))
             # (N, E_t)
-            self.subt = l2_norm(dropout(tf.layers.dense(self.subt, hp['emb_dim'],
-                                                        activation=tf.nn.relu, reuse=True), training))
+            self.subt = l2_norm(dropout(tf.layers.dense(self.subt, hp['emb_dim'], reuse=True), training))
 
             self.ans_cue = l2_norm(tf.reduce_sum(self.ans, axis=1, keepdims=True))
 
         s_shape = tf.shape(self.subt)
         with tf.variable_scope('Abstract'):
-            # (N, 5)
-            self.response = tf.matmul(self.subt, self.ans, transpose_b=True)
-            # (5, 2)
-            self.top_k_response, _ = tf.nn.top_k(tf.transpose(self.response), 2)
+            # (1, N, E_t)
+            self.conv1 = l2_norm(tf.layers.conv1d(tf.expand_dims(self.subt, 0), hp['emb_dim'], 10,
+                                                  activation=tf.nn.relu, padding='same', kernel_regularizer=reg), 2)
+            # (1, N, E_t / 2)
+            self.conv2 = l2_norm(tf.layers.conv1d(self.conv1, hp['emb_dim'] / 4, 10, dilation_rate=2,
+                                                  activation=tf.nn.relu, padding='same', kernel_regularizer=reg), 2)
+            # (1, N, E_t / 4)
+            self.conv3 = l2_norm(tf.layers.conv1d(self.conv2, hp['emb_dim'] / 8, 10, dilation_rate=3,
+                                                  activation=tf.nn.relu, padding='same', kernel_regularizer=reg), 2)
+            # (1, N, E_t / 8)
+            self.conv4 = l2_norm(tf.layers.conv1d(self.conv3, hp['emb_dim'] / 16, 10, dilation_rate=4,
+                                                  activation=tf.nn.relu, padding='same', kernel_regularizer=reg), 2)
+            # (N, E_t, E_t / 32)
+            self.confuse = tf.matmul(tf.transpose(tf.expand_dims(self.subt, 0), [1, 2, 0]),
+                                     tf.transpose(self.conv4, [1, 0, 2]))
+
+            # (N, 5, E_t / 32)
+            self.response = tf.matmul(tf.tile(tf.expand_dims(self.ans, 0), [tf.shape(self.subt)[0], 1, 1]),
+                                      self.confuse)
+            # (5, E_t / 32, 2)
+            self.top_k_response, _ = tf.nn.top_k(tf.transpose(self.response, [1, 2, 0]), 8)
+            # (5, E_t / 32)
+            self.top_k_response = tf.reduce_sum(self.top_k_response, 2)
+            # (5, 4)
+            self.top_k_output, _ = tf.nn.top_k(self.top_k_response, 4)
             # (1, 5)
-            self.output = tf.transpose(tf.reduce_sum(self.top_k_response, axis=1, keepdims=True))
+            self.output = tf.transpose(tf.reduce_sum(self.top_k_output, 1, keepdims=True))
             # self.subt_abst = tf.reduce_max(self.subt, axis=0, keepdims=True)
 
         # (1, E_t)

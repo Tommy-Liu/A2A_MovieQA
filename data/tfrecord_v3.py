@@ -2,10 +2,10 @@ import argparse
 import math
 from functools import partial
 from multiprocessing import Pool, Manager
-from os.path import join
 
 import numpy as np
 import tensorflow as tf
+from os.path import join
 from tqdm import tqdm
 
 import utils.data_utils as du
@@ -48,22 +48,22 @@ def create_one_tfrecord(qa, args, video_data, shard_id):
             ques = qa_embedding[0]
             ans = qa_embedding[1:6]
 
-            video_list = sorted(list(video_data[ins['imdb_key']].keys()))
-
-            num_frame = sum([int(math.ceil(video_data[ins['imdb_key']][v]['real_frames'] / 15))
-                             for v in video_list])
-            spectrum = np.zeros(num_frame, dtype=np.int64)
-
-            index = 0
-            for v in video_list:
-                num = int(math.ceil(video_data[ins['imdb_key']][v]['real_frames'] / 15))
-                if v in ins['video_clips']:
-                    spectrum[idx][index:(index + num)] = 1
-                index += num
+            # video_list = sorted(list(video_data[ins['imdb_key']].keys()))
+            #
+            # num_frame = sum([int(math.ceil(video_data[ins['imdb_key']][v]['real_frames'] / 15))
+            #                  for v in video_list])
+            # spectrum = np.zeros(num_frame, dtype=np.int64)
+            #
+            # index = 0
+            # for v in video_list:
+            #     num = int(math.ceil(video_data[ins['imdb_key']][v]['real_frames'] / 15))
+            #     if v in ins['video_clips']:
+            #         spectrum[idx][index:(index + num)] = 1
+            #     index += num
 
             feature_lists = tf.train.FeatureLists(feature_list={
                 "ans": du.feature_list(ans, 'float'),
-                "spec": du.feature_list(spectrum, 'int')
+                # "spec": du.feature_list(spectrum, 'int')
             })
 
             feature = {

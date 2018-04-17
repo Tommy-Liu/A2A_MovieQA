@@ -5,9 +5,8 @@ from config import MovieQAPath
 from input import Input
 
 _mp = MovieQAPath()
-hp = {'emb_dim': 300, 'feat_dim': 512, 'sec_size': 30,
-      'learning_rate': 10 ** (-3), 'decay_rate': 1, 'decay_type': 'inv_sqrt', 'decay_epoch': 2,
-      'opt': 'adam', 'checkpoint': '', 'dropout_rate': 0.1}
+hp = {'emb_dim': 32, 'feat_dim': 512, 'sec_size': 30,
+      'dropout_rate': 0.1}
 
 reg = layers.l2_regularizer(0.01)
 
@@ -81,20 +80,14 @@ def variance_encode(x, length):
 class Model(object):
     def __init__(self, data, training=False):
         self.data = data
-        self.initializer = layers.xavier_initializer()
 
         with tf.variable_scope('Embedding_Linear'):
             # (1, L_q, E_t)
-            self.ques = l2_norm(tf.layers.dense(
-                self.data.ques, hp['emb_dim'], kernel_initializer=self.initializer, bias_initializer=self.initializer))
+            self.ques = l2_norm(tf.layers.dense(self.data.ques, hp['emb_dim'], activation=tf.nn.relu))
             # (5, L_a, E_t)
-            self.ans = l2_norm(tf.layers.dense(
-                self.data.ans, hp['emb_dim'], kernel_initializer=self.initializer,
-                bias_initializer=self.initializer, reuse=True))
+            self.ans = l2_norm(tf.layers.dense(self.data.ans, hp['emb_dim'], activation=tf.nn.relu, reuse=True))
             # (N, L_s, E_t)
-            self.subt = l2_norm(tf.layers.dense(
-                self.data.subt, hp['emb_dim'],
-                kernel_initializer=self.initializer, bias_initializer=self.initializer))
+            self.subt = l2_norm(tf.layers.dense(self.data.subt, hp['emb_dim'], activation=tf.nn.relu, reuse=True))
 
             # self.ques = self.data.ques
             # self.ans = self.data.ans
@@ -110,26 +103,24 @@ class Model(object):
             # (S, (N+p) / S, E_t)
             self.pad_subt = tf.reshape(self.pad_subt, [-1, hp['sec_size'], hp['emb_dim']])
             # (S, 1, E_t)
-            self.sec_repr = tf.reduce_mean(self.pad_subt, axis=1, keepdims=True)
+            self.sec_repr = l2_norm(tf.reduce_max(self.pad_subt, axis=1, keepdims=True), axis=2)
             # (S, 1, 1)
-            self.sec_score = tf.matmul(tf.layers.dense(self.sec_repr, hp['emb_dim'],
-                                                       use_bias=False, kernel_initializer=self.initializer),
-                                       tf.tile(tf.reshape(self.ques, [1, -1, 1]), [split_num, 1, 1]))
+            self.sec_score = l2_norm(tf.matmul(
+                self.sec_repr, tf.tile(tf.reshape(self.ques, [1, -1, 1]), [split_num, 1, 1])), axis=0)
             # (S, 1, 1)
             self.sec_attn = tf.nn.softmax(self.sec_score, axis=0)
 
             # (S, (N+p) / S, 1)
-            self.local_score = tf.matmul(tf.layers.dense(self.pad_subt, hp['emb_dim'],
-                                                         use_bias=False, kernel_initializer=self.initializer),
-                                         tf.tile(tf.reshape(self.ques, [1, -1, 1]), [split_num, 1, 1]))
+            self.local_score = l2_norm(tf.matmul(self.pad_subt, self.sec_repr, transpose_b=True), axis=1)
             # (S, (N+p) / S, 1)
             self.local_attn = tf.nn.softmax(self.local_score, axis=1)
             # (1, N+p, E_t)
             self.temp_output = tf.reshape(self.pad_subt * self.sec_attn * self.local_attn, [1, -1, hp['emb_dim']])
         # (1, E_t)
-        self.summarize = l2_norm(tf.reduce_sum(self.temp_output, axis=1))
+        self.summarize = l2_norm(tf.reduce_max(self.temp_output, axis=1))
         # (1, E_t)
-        self.ans_vec = l2_norm(self.summarize + self.ques)
+        self.ans_vec = l2_norm(tf.nn.relu(self.summarize + self.ques))
+        # self.ans_vec = self.summarize
         # (1, 5)
         self.output = tf.matmul(self.ans_vec, self.ans, transpose_b=True)
 
