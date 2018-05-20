@@ -98,6 +98,8 @@ def get_loss(name, labels, outputs):
     elif name == 'cos':
         loss = tf.losses.cosine_distance(tf.nn.l2_normalize(labels, 1),
                                          tf.nn.l2_normalize(outputs, 1), 1)
+    elif name == 'hinge':
+        loss = tf.losses.hinge_loss(labels, outputs)
     elif name == 'huber':
         loss = tf.losses.huber_loss(labels, outputs)
     elif name == 'mpse':
@@ -108,7 +110,7 @@ def get_loss(name, labels, outputs):
         labels = tf.one_hot(labels, 5, axis=-1)
         loss = tf.losses.softmax_cross_entropy(labels, outputs)
     elif name == 'sigmoid':
-        # labels = tf.one_hot(labels, 5, axis=-1)
+        labels = tf.one_hot(labels, 5, axis=-1)
         loss = tf.losses.sigmoid_cross_entropy(labels, outputs)
     else:
         loss = 0

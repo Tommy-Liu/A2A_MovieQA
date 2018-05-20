@@ -5,6 +5,8 @@ from functools import partial
 from multiprocessing import Manager, Pool
 
 import numpy as np
+import tensorflow as tf
+import tensorflow_hub as hub
 from nltk.tokenize import wordpunct_tokenize
 from sklearn.decomposition import TruncatedSVD
 from tqdm import tqdm
@@ -53,87 +55,106 @@ def flbs(a, t):
     return pivot
 
 
-def sample_frame(video_data, frame_time, subtitle, sample, key):
+def sample_frame(video_data, frame_time, subtitle, sample, index, key):
     subt = subtitle[key]
     ft = frame_time[key]
     vd = video_data[key]
     temp_sample = {}
-    subt_embedding = []
-
-    for video in sorted(list(vd.keys())):
-        start_frame, end_frame = duration(video)
-        start_frame = max(start_frame, 0)
-        end_frame = min(start_frame + vd[video]['real_frames'], len(ft) - 1)
-        start_time, end_time = ft[start_frame], ft[end_frame]
-
-        start_index, end_index = flbs(subt['end'], start_time), lsbs(subt['start'], end_time)
-
-        temp_sample[video] = []
-        for i in range(start_index, end_index + 1):
-            i_start, i_end = subt['start'][i], subt['end'][i]
-            i_start_frame = min(max(flbs(ft, i_start) - start_frame, 0), vd[video]['real_frames'])
-            i_end_frame = max(min(lsbs(ft, i_end) - start_frame, vd[video]['real_frames']), 0)
-            sample_list = list(range(i_start_frame, i_end_frame, 6))
-            temp_sample[video].extend(sample_list)
-            subt_embedding.append(np.tile(subt['lines'][i], [len(sample_list), 1]))
-
-    sample[key] = temp_sample
-    np.save(os.path.join(_mp.encode_dir, key + '.npy'), np.concatenate(subt_embedding, axis=0))
-
-
-def sample_frame_v2(video_data, frame_time, subtitle, sample, key):
-    subt = subtitle[key]
-    ft = frame_time[key]
-    vd = video_data[key]
-    temp_sample = {}
-    subt_embedding = []
+    temp_index = []
     a = 0
     b = 0
     for video in sorted(list(vd.keys())):
-        start_frame, end_frame = duration(video)
-        start_frame = max(start_frame, 0)
-        end_frame = min(start_frame + vd[video]['real_frames'], len(ft) - 1)
-        start_time, end_time = ft[start_frame], ft[end_frame]
+        if vd[video]['real_frames'] > 0:
+            start_frame, end_frame = duration(video)
+            start_frame = max(start_frame, 0)
+            end_frame = min(start_frame + vd[video]['real_frames'] - 1, len(ft) - 1)
+            start_time, end_time = ft[start_frame], ft[end_frame]
 
-        start_index, end_index = flbs(subt['end'], start_time), lsbs(subt['start'], end_time)
-        # assert start_index <= end_index, '%s index reversed. %d %d\n%f %f %f %f\n%f %f' % \
-        #                                  (video, start_index, end_index, subt['start'][start_index], subt['end'][start_index],
-        #                                   subt['start'][end_index], subt['end'][end_index],
-        #                                   start_time, end_time)
-        if start_index > end_index:
-            end_index = start_index
-        temp_sample[video] = []
-        for i in range(start_index, end_index + 1):
-            i_start, i_end = subt['start'][i], subt['end'][i]
-            i_start_frame = min(max(flbs(ft, i_start) - start_frame, 0), vd[video]['real_frames'])
-            i_end_frame = max(min(lsbs(ft, i_end) - start_frame, vd[video]['real_frames']), 0)
-            temp_sample[video].append((i_start_frame + i_end_frame) // 2)
-            a += 1
-        b += len(subt['lines'][start_index:end_index + 1])
-        assert a == b, '%s not aligned. %d %d %d %d %d %d' % \
-                       (key, a, b, end_index + 1 - start_index, len(subt['lines'][start_index:end_index + 1]),
-                        start_index, end_index)
-        subt_embedding.append(subt['lines'][start_index:end_index + 1])
+            start_index, end_index = flbs(subt['end'], start_time), lsbs(subt['start'], end_time)
+
+            if start_index > end_index:
+                end_index = start_index
+            temp_sample[video] = []
+            index_sample = list(range(start_index, end_index + 1))
+            for i in index_sample:
+                i_start, i_end = subt['start'][i], subt['end'][i]
+                i_start_frame = min(max(flbs(ft, i_start) - start_frame, 0), vd[video]['real_frames'] - 1)
+                i_end_frame = max(min(lsbs(ft, i_end) - start_frame, vd[video]['real_frames'] - 1), 0)
+                sample_list = list(range(i_start_frame, i_end_frame, 6))
+                temp_sample[video].extend(sample_list)
+                temp_index.extend([i] * len(sample_list))
+                a += len(sample_list)
+                b += len(subt['lines'][[i] * len(sample_list)])
+            assert a == b, '%s not aligned. %d %d %d %d %d %d' % \
+                           (key, a, b, end_index + 1 - start_index, len(subt['lines'][index_sample]),
+                            start_index, end_index)
 
     sample[key] = temp_sample
-    np.save(os.path.join(_mp.encode_dir, key + '.npy'), np.concatenate(subt_embedding, axis=0))
+    index[key] = temp_index
+    np.save(os.path.join(_mp.encode_dir, key + '.npy'), subt['lines'][temp_index])
+
+
+def sample_frame_v2(video_data, frame_time, subtitle, sample, index, key):
+    subt = subtitle[key]
+    ft = frame_time[key]
+    vd = video_data[key]
+    temp_sample = {}
+    temp_index = []
+    a = 0
+    b = 0
+    for video in sorted(list(vd.keys())):
+        if vd[video]['real_frames'] > 0:
+            start_frame, end_frame = duration(video)
+            start_frame = max(start_frame, 0)
+            end_frame = min(start_frame + vd[video]['real_frames'] - 1, len(ft) - 1)
+            start_time, end_time = ft[start_frame], ft[end_frame]
+            start_index, end_index = flbs(subt['end'], start_time), lsbs(subt['start'], end_time)
+            # assert start_index <= end_index, '%s index reversed. %d %d\n%f %f %f %f\n%f %f' % \
+            #                                  (video, start_index, end_index, subt['start'][start_index], subt['end'][start_index],
+            #                                   subt['start'][end_index], subt['end'][end_index],
+            #                                   start_time, end_time)
+            if start_index > end_index:
+                end_index = start_index
+            temp_sample[video] = []
+
+            index_sample = list(range(start_index, end_index + 1))
+            for i in index_sample:
+                i_start, i_end = subt['start'][i], subt['end'][i]
+                i_start_frame = min(max(flbs(ft, i_start) - start_frame, 0), vd[video]['real_frames'] - 1)
+                i_end_frame = max(min(lsbs(ft, i_end) - start_frame, vd[video]['real_frames'] - 1), 0)
+                temp_sample[video].append((i_start_frame + i_end_frame) // 2)
+                a += 1
+            b += len(subt['lines'][index_sample])
+            assert a == b, '%s not aligned. %d %d %d %d %d %d' % \
+                           (key, a, b, end_index + 1 - start_index, len(subt['lines'][index_sample]),
+                            start_index, end_index)
+            temp_index += index_sample
+
+    sample[key] = temp_sample
+    index[key] = temp_index
+    np.save(os.path.join(_mp.encode_dir, key + '.npy'), subt['lines'][temp_index])
 
 
 def subtitle_process(video_data, frame_time, subtitle):
     manager = Manager()
     sample = manager.dict()
+    index = manager.dict()
     video_data = manager.dict(video_data)
     frame_time = manager.dict(frame_time)
     subtitle = manager.dict(subtitle)
 
     keys = list(video_data.keys())
-    align_func = partial(sample_frame_v2, video_data, frame_time, subtitle, sample)
+    if args.one:
+        align_func = partial(sample_frame_v2, video_data, frame_time, subtitle, sample, index)
+    else:
+        align_func = partial(sample_frame, video_data, frame_time, subtitle, sample, index)
 
     with Pool(4) as p, tqdm(total=len(keys), desc="Align subtitle") as pbar:
         for _ in p.imap_unordered(align_func, keys):
             pbar.update()
 
     du.json_dump(sample.copy(), _mp.sample_frame_file)
+    du.json_dump(index.copy(), _mp.sample_index_file)
     return sample.copy()
 
 
@@ -176,20 +197,10 @@ def collect_embedding(qa, subtitle, video_data, filter_vocab, vocab_embed, frequ
     for key in tqdm(video_data, desc='Subtitle Remove Component'):
         subtitle[key]['lines'] = subtitle[key]['lines'] - \
                                  subtitle[key]['lines'].dot(np.transpose(svd.components_)) * svd.components_
-        # norm = np.linalg.norm(subtitle[key]['lines'], axis=1, keepdims=True)
-        # norm = np.select([norm > 0], [norm], default=1.)
-        # subtitle[key]['lines'] = subtitle[key]['lines'] / norm
 
     for ins in tqdm(qa, desc='QA Remove Component'):
         ins['question'] = ins['question'] - ins['question'].dot(np.transpose(svd.components_)) * svd.components_
-        # norm = np.linalg.norm(ins['question'], axis=1, keepdims=True)
-        # norm = np.select([norm > 0], [norm], default=1.)
-        # ins['question'] = ins['question'] / norm
-
         ins['answers'] = ins['answers'] - ins['answers'].dot(np.transpose(svd.components_)) * svd.components_
-        # norm = np.linalg.norm(ins['answers'], axis=1, keepdims=True)
-        # norm = np.select([norm > 0], [norm], default=1.)
-        # ins['answers'] = ins['answers'] / norm
 
         np.save(os.path.join(_mp.encode_dir, ins['qid'] + '.npy'),
                 np.concatenate([ins['question'], ins['answers']], axis=0))
@@ -246,50 +257,72 @@ def create_vocab(qa, subtitle, video_data, gram_vocab, gram_embed):
 
 
 def remove_all():
-    # fu.safe_remove(_mp.subtitle_file)
-    # fu.safe_remove(_mp.tokenize_qa)
-    # fu.safe_remove(_mp.tokenize_subt)
-    # fu.safe_remove(_mp.vocab_file)
-    # fu.safe_remove(_mp.embedding_file)
-    # fu.safe_remove(_mp.freq_file)
+    fu.safe_remove(_mp.subtitle_file)
+    fu.safe_remove(_mp.tokenize_qa)
+    fu.safe_remove(_mp.tokenize_subt)
+    fu.safe_remove(_mp.vocab_file)
+    fu.safe_remove(_mp.embedding_file)
+    fu.safe_remove(_mp.freq_file)
     fu.safe_remove(_mp.sample_frame_file)
     if os.path.exists(_mp.encode_dir):
         os.system('rm -rf %s' % _mp.encode_dir)
+
+
+def gen_embedding(qa, subtitle, video_data):
+    embed = hub.Module("https://tfhub.dev/google/universal-sentence-encoder/1")
+    sentences_placeholder = tf.placeholder(tf.string, [None])
+    embed_encoding = embed(sentences_placeholder)
+    config = tf.ConfigProto()
+    # config.gpu_options.allow_growth = True
+    with tf.Session(config=config) as sess:
+        sess.run([tf.global_variables_initializer(), tf.tables_initializer()])
+        for k in tqdm(video_data):
+            subt = subtitle[k]
+            lines_embedding = sess.run(embed_encoding,
+                                       feed_dict={sentences_placeholder: subt['lines']})
+            subt['lines'] = lines_embedding
+
+        for ins in tqdm(qa):
+            lines_embedding = sess.run(embed_encoding,
+                                       feed_dict={sentences_placeholder: [ins['question']] + ins['answers']})
+            np.save(os.path.join(_mp.encode_dir, ins['qid'] + '.npy'), lines_embedding)
 
 
 def arg_parse():
     parser = ArgumentParser()
     parser.add_argument('--rm', action='store_true', help='Remove pre-processing files.')
     parser.add_argument('--max', action='store_true', help='Find maximal length of all input.')
-
+    parser.add_argument('--uni', action='store_true', help='Use Universal Sentence Encoder')
+    parser.add_argument('--one', action='store_true', help='Sample only one frame.')
     return parser.parse_args()
 
 
 def main():
-    args = arg_parse()
-    if args.rm:
-        remove_all()
-
+    print('Start loading data...')
     qa = QA().include(video_clips=True).get()
     video_data = du.json_load(_mp.video_data_file)
     frame_time = FrameTime().get()
     subtitle = Subtitle().get()
     gram_vocab = {k: i for i, k in enumerate(du.json_load(_ep.gram_vocab_file))}
     gram_embed = np.load(_ep.gram_embedding_vec_file)
+    print('Loading done!')
 
-    filter_vocab, subtitle, vocab_embed, frequency, qa = \
-        create_vocab(qa, subtitle, video_data, gram_vocab, gram_embed)
+    if args.uni:
+        gen_embedding(qa, subtitle, video_data)
+    else:
+        filter_vocab, subtitle, vocab_embed, frequency, qa = \
+            create_vocab(qa, subtitle, video_data, gram_vocab, gram_embed)
 
-    collect_embedding(qa, subtitle, video_data, filter_vocab, vocab_embed, frequency)
+        collect_embedding(qa, subtitle, video_data, filter_vocab, vocab_embed, frequency)
 
     sample = subtitle_process(video_data, frame_time, subtitle)
 
     for ins in tqdm(qa, desc='Create Spectrum'):
-        video_list = sorted(list(video_data[ins['imdb_key']].keys()))
+        video_list = sorted(list(sample[ins['imdb_key']].keys()))
 
         num_frame = sum([len(sample[ins['imdb_key']][v])
                          for v in video_list])
-        spectrum = np.zeros(num_frame, dtype=np.int64)
+        spectrum = np.zeros(num_frame, dtype=np.int32)
 
         index = 0
         for v in video_list:
@@ -303,4 +336,7 @@ def main():
 
 
 if __name__ == '__main__':
+    args = arg_parse()
+    if args.rm:
+        remove_all()
     main()

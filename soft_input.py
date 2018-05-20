@@ -23,7 +23,7 @@ def feat_load(f, mode):
     if 'feat' in mode:
         return np.load(f.decode('utf-8')).astype(np.float32)
     else:
-        return np.zeros((1, 6, 2048), dtype=np.float32)
+        return np.zeros((1, 8, 8, 1536), dtype=np.float32)
 
 
 def qa_load(qa):
@@ -49,22 +49,23 @@ def load(tensor, comp, mode):
         return tf.reshape(tf.py_func(func, [tensor], [tf.int32]), [-1])
     else:
         func = partial(feat_load, mode=mode)
-        return tf.reshape(tf.py_func(func, [tensor], [tf.float32]), [-1, 6, 2048])
+        return tf.reshape(tf.py_func(func, [tensor], [tf.float32]), [-1, 8, 8, 1536])
 
 
 class Input(object):
-    def __init__(self, split='train', mode='feat+subt', shuffle=True):
+    def __init__(self, split='train', mode='feat+subt', shuffle=True, drop_rate=0.1, model=''):
         self.shuffle = shuffle
+        self.drop_rate = drop_rate
         vsqa = [qa for qa in du.json_load(_mp.qa_file) if qa['video_clips']]
         self.qa = [qa for qa in vsqa if split in qa['qid']]
-        self.index = list(range(len(self)))
+        self.index = list(range(len(self.qa)))
         self._feed_dict = {
             tf.placeholder(dtype=tf.string, shape=[None]):
                 [join(_mp.encode_dir, qa['qid'] + '.npy') for qa in self.qa],
             tf.placeholder(dtype=tf.string, shape=[None]):
                 [join(_mp.encode_dir, qa['imdb_key'] + '.npy') for qa in self.qa],
             tf.placeholder(dtype=tf.string, shape=[None]):
-                [join(_mp.object_feature_dir, qa['imdb_key'] + '.npy') for qa in self.qa],
+                [join(_mp.feature_dir, qa['imdb_key'] + '.npy') for qa in self.qa],
             tf.placeholder(dtype=tf.int64, shape=[None]): [qa['correct_index'] for qa in self.qa],
             tf.placeholder(dtype=tf.string, shape=[None]):
                 [join(_mp.encode_dir, qa['qid'] + '_spec' + '.npy') for qa in self.qa],
@@ -94,7 +95,11 @@ class Input(object):
         self.initializer = iterator.initializer
 
     def __len__(self):
-        return len(self.qa)
+        return len(self.index)
+
+    def drop(self):
+        if self.drop_rate > 0:
+            self.index = random.sample(range(len(self.qa)), int(len(self.qa) * (1 - self.drop_rate)))
 
     @property
     def feed_dict(self):
@@ -114,10 +119,9 @@ def main():
     with tf.Session(config=config) as sess:
         sess.run([data.initializer, data2.initializer], feed_dict={**data.feed_dict, **data2.feed_dict})
         # np.set_printoptions(threshold=np.inf)
-        for _ in range(len(data.qa)):
-            q1, q2 = sess.run([data.feat, data2.feat])
-            # print(q1, q2)
-            print(q1.shape, q2.shape)
+        # for _ in range(len(data.qa)):
+        q1, q2 = sess.run([data.feat, data2.feat])
+        print(q1, q2)
 
 
 if __name__ == '__main__':

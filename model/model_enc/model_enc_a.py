@@ -23,7 +23,7 @@ def get_cell():
 
 
 class Model(object):
-    def __init__(self, data, training=True):
+    def __init__(self, data, training=True, **kwargs):
         self.data = data
 
         with tf.variable_scope('Embedding'):

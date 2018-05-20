@@ -5,7 +5,7 @@ from config import MovieQAPath
 from raw_input import Input
 
 _mp = MovieQAPath()
-hp = {'emb_dim': 256, 'feat_dim': 512, 'dropout_rate': 0.1}
+hp = {'emb_dim': 256, 'feat_dim': 512, 'dropout_rate': 0.2}
 
 
 def dropout(x, training):

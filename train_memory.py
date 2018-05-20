@@ -47,42 +47,20 @@ class TrainManager(object):
         for v in tf.trainable_variables():
             print(v)
 
-        self.train_attn = tf.squeeze(self.train_model.attn[self.train_data.gt[0]])
-        self.val_attn = tf.squeeze(self.val_model.attn[self.val_data.gt[0]])
         self.main_loss = mu.get_loss(hp['loss'], self.train_data.gt, self.train_model.output)
-        self.attn_loss = mu.get_loss('hinge', tf.to_float(self.train_data.spec), self.train_attn)
         self.regu_loss = tf.losses.get_regularization_loss()
 
         self.loss = 0
-        if 'main' in target:
-            self.loss += self.main_loss
-        elif 'attn' in target:
-            self.loss += self.attn_loss
+        self.loss += self.main_loss
         self.loss += self.regu_loss
 
-        self.train_acc, self.train_acc_update, self.train_acc_init = \
-            mu.get_acc(self.train_data.gt, tf.argmax(self.train_model.output, axis=1), name='train_accuracy')
+        self.train_answer = tf.argmax(self.train_model.output, axis=1)
+        self.train_accuracy, self.train_accuracy_update, self.train_accuracy_initializer \
+            = mu.get_acc(self.train_data.gt, self.train_answer, name='train_accuracy')
 
-        self.train_attn_acc, self.train_attn_acc_update, self.train_attn_acc_init = \
-            mu.get_acc(self.train_data.spec, tf.to_int32(self.train_attn > 0.5), name='train_attention_accuracy')
-
-        # self.train_q_attn_acc, self.train_q_attn_acc_update, self.train_q_attn_acc_init = \
-        #     tf.metrics.accuracy(self.train_data.spec, self.train_model.output, name='train_q_attention_accuracy')
-        #
-        # self.train_a_attn_acc, self.train_a_attn_acc_update, self.train_a_attn_acc_init = \
-        #     tf.metrics.accuracy(self.train_data.spec, self.train_model.output, name='train_a_attention_accuracy')
-
-        self.val_acc, self.val_acc_update, self.val_acc_init = \
-            mu.get_acc(self.val_data.gt, tf.argmax(self.val_model.output, axis=1), name='val_accuracy')
-
-        self.val_attn_acc, self.val_attn_acc_update, self.val_attn_acc_init = \
-            mu.get_acc(self.val_data.spec, tf.to_int32(self.val_attn > 0.5), name='val_attention_accuracy')
-
-        # self.val_q_attn_acc, self.val_q_attn_acc_update, self.val_q_attn_acc_init = \
-        #     tf.metrics.accuracy(self.train_data.spec, self.train_model.output, name='val_q_attention_accuracy')
-        #
-        # self.val_a_attn_acc, self.val_a_attn_acc_update, self.val_a_attn_acc_init = \
-        #     tf.metrics.accuracy(self.train_data.spec, self.train_model.output, name='val_a_attention_accuracy')
+        self.val_answer = tf.argmax(self.val_model.output, axis=1)
+        self.val_accuracy, self.val_accuracy_update, self.val_accuracy_initializer \
+            = mu.get_acc(self.val_data.gt, tf.argmax(self.val_model.output, axis=1), name='val_accuracy')
 
         self.global_step = tf.train.get_or_create_global_step()
 
@@ -93,12 +71,13 @@ class TrainManager(object):
         self.optimizer = mu.get_opt(hp['opt'], self.learning_rate, decay_step)
 
         grads_and_vars = self.optimizer.compute_gradients(self.loss)
+        # grads_and_vars = [(tf.clip_by_norm(grad, 0.01, axes=[0]), var) if grad is not None else (grad, var)
+        #                   for grad, var in grads_and_vars ]
         gradients, variables = list(zip(*grads_and_vars))
         self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(self.update_ops):
             self.train_op = tf.group(self.optimizer.apply_gradients(grads_and_vars, self.global_step),
-                                     self.train_acc_update,
-                                     self.train_attn_acc_update)  # self.train_a_attn_acc_update, self.train_q_attn_acc_update)
+                                     self.train_accuracy_update)
 
         self.saver = tf.train.Saver(tf.global_variables())
         self.best_saver = tf.train.Saver(tf.global_variables())
@@ -112,45 +91,34 @@ class TrainManager(object):
 
         train_summaries = [
             tf.summary.scalar('train_loss', self.loss),
-            tf.summary.scalar('train_accuracy', self.train_acc),
-            # tf.summary.scalar('train_a_attn_accuracy', self.train_a_attn_acc),
-            # tf.summary.scalar('train_q_attn_accuracy', self.train_q_attn_acc),
-            tf.summary.scalar('train_attn_accuracy', self.train_attn_acc),
+            tf.summary.scalar('train_accuracy', self.train_accuracy),
             tf.summary.scalar('learning_rate', self.learning_rate)
         ]
         self.train_summaries_op = tf.summary.merge(train_summaries)
         self.train_gv_summaries_op = tf.summary.merge(train_gv_summaries + train_summaries)
 
-        val_summaries = [
-            tf.summary.scalar('val_accuracy', self.val_acc),
-            tf.summary.scalar('val_attn_accuracy', self.val_attn_acc),
-            # tf.summary.scalar('val_a_attn_accuracy', self.val_a_attn_acc),
-            # tf.summary.scalar('val_q_attn_accuracy', self.val_q_attn_acc),
-        ]
-        self.val_summaries_op = tf.summary.merge(val_summaries)
+        self.val_summaries_op = tf.summary.scalar('val_accuracy', self.val_accuracy)
 
         if args.checkpoint:
             self.checkpoint_file = args.checkpoint
         else:
             self.checkpoint_file = tf.train.latest_checkpoint(self._checkpoint_dir)
 
-        self.train_init_op_list = [self.train_data.initializer, self.train_acc_init,
-                                   # self.train_q_attn_acc_init, self.train_a_attn_acc_init,
-                                   self.train_attn_acc_init]
+        self.train_init_op_list = [self.train_data.initializer, self.train_accuracy_initializer]
 
-        self.val_init_op_list = [self.val_data.initializer, self.val_acc_init,
-                                 # self.val_q_attn_acc_init, self.val_a_attn_acc_init,
-                                 self.val_attn_acc_init]
+        self.val_init_op_list = [self.val_data.initializer, self.val_accuracy_initializer]
 
-        self.train_op_list = [self.train_op, self.loss, self.attn_loss, self.train_acc,
-                              self.train_attn_acc,  # self.val_q_attn_acc, self.val_a_attn_acc,
-                              self.global_step, self.train_data.spec, self.train_attn]
-        self.val_op_list = [self.val_acc, self.val_attn_acc,  # self.val_q_attn_acc, self.val_a_attn_acc,
-                            tf.group(self.val_acc_update, self.val_attn_acc_update
-                                     # self.val_q_attn_acc_update, self.val_a_attn_acc_update
-                                     ),
-                            self.val_summaries_op, self.val_data.spec, self.val_attn]
-        # self.run_metadata = tf.RunMetadata()
+        self.train_op_list = [self.train_op, self.loss, self.train_accuracy, self.global_step]
+
+        self.val_op_list = [self.val_accuracy, self.val_accuracy_update, self.val_summaries_op]
+
+        if attn:
+            self.train_op_list += [self.train_model.sq, self.train_model.sa,
+                                   self.train_data.gt, self.train_answer]
+            self.val_op_list += [self.val_model.sq, self.val_model.sa,
+                                 self.val_data.gt, self.val_answer]
+
+            # self.run_metadata = tf.RunMetadata()
 
     def train(self):
         config = tf.ConfigProto(allow_soft_placement=True)
@@ -167,7 +135,9 @@ class TrainManager(object):
                 self.saver.restore(sess, self.checkpoint_file)
 
             summary, acc, max_acc = None, 0, 0
-            train_fig, val_fig = {}, {}
+            if attn:
+                train_attn, val_attn = {}, {}
+                train_pair, val_pair = {}, {}
             try:
                 while True:
                     step = tf.train.global_step(sess, self.global_step)
@@ -180,8 +150,12 @@ class TrainManager(object):
 
                         for i in pbar:
                             if step % 10000 == 0:
-                                _, l, al, acc, a_acc, step, spec, attn, gv_summary = sess.run(
-                                    self.train_op_list + [self.train_gv_summaries_op])
+                                if attn:
+                                    _, l, acc, step, qs_attn, as_attn, gt, ans, gv_summary = \
+                                        sess.run(self.train_op_list + [self.train_gv_summaries_op])
+                                else:
+                                    _, l, acc, step, gv_summary = \
+                                        sess.run(self.train_op_list + [self.train_gv_summaries_op])
                                 # options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
                                 # run_metadata=self.run_metadata)
                                 # trace = timeline.Timeline(step_stats=self.run_metadata.step_stats)
@@ -190,32 +164,48 @@ class TrainManager(object):
                                 # with open(args.mod + '.timeline.ctf.json', 'w') as trace_file:
                                 #     trace_file.write(trace.generate_chrome_trace_format())
                             elif step % 100 == 0:
-                                _, l, al, acc, a_acc, step, spec, attn, summary = sess.run(
-                                    self.train_op_list + [self.train_summaries_op])
+                                if attn:
+                                    _, l, acc, step, qs_attn, as_attn, gt, ans, summary = sess.run(
+                                        self.train_op_list + [self.train_summaries_op])
+                                else:
+                                    _, l, acc, step, summary = sess.run(
+                                        self.train_op_list + [self.train_summaries_op])
                                 sw.add_summary(summary, step)
                             else:
-                                _, l, al, acc, a_acc, step, spec, attn = sess.run(self.train_op_list)
-                            pbar.set_description('[%03d] Train l: %.2f al: %.2f acc: %.2f a_acc: %.2f' %
-                                                 (epoch, l, al, acc, a_acc))
-                            qa = self.train_data.qa[self.train_data.index[i]]
-                            train_fig[qa['qid'].replace(':', '')] = np.stack([spec, attn])
+                                if attn:
+                                    _, l, acc, step, qs_attn, as_attn, gt, ans = sess.run(self.train_op_list)
+                                else:
+                                    _, l, acc, step = sess.run(self.train_op_list)
+                            pbar.set_description('[%03d] Train loss: %.3f acc: %.2f' % (epoch, l, acc))
+                            if attn:
+                                qa = self.train_data.qa[self.train_data.index[i]]
+                                train_attn[qa['qid'].replace(':', '')] = np.concatenate([qs_attn, as_attn], axis=1)
+                                train_pair[qa['qid'].replace(':', '')] = np.stack([gt, ans])
 
-                    np.savez(os.path.join(self._attn_dir, 'train_attn.npz'), **train_fig)
                     self.saver.save(sess, self._checkpoint_file, step)
 
                     # Validation Loop
                     sess.run(self.val_init_op_list, feed_dict=self.val_data.feed_dict)
                     with trange(len(self.val_data)) as pbar:
                         for i in pbar:
-                            acc, a_acc, _, summary, spec, attn = sess.run(self.val_op_list)
-                            pbar.set_description(
-                                '[%03d] Val acc: %.2f a_acc: %.2f' % (epoch, acc, a_acc))
-                            qa = self.val_data.qa[self.val_data.index[i]]
-                            val_fig[qa['qid'].replace(':', '')] = np.stack([spec, attn])
+                            if attn:
+                                acc, _, summary, qs_attn, as_attn, gt, ans = sess.run(self.val_op_list)
+                            else:
+                                acc, _, summary = sess.run(self.val_op_list)
+                            pbar.set_description('[%03d] Validation acc: %.2f' % (epoch, acc))
+                            if attn:
+                                qa = self.val_data.qa[self.val_data.index[i]]
+                                val_attn[qa['qid'].replace(':', '')] = np.concatenate([qs_attn, as_attn], axis=1)
+                                val_pair[qa['qid'].replace(':', '')] = np.stack([gt, ans])
                         sw.add_summary(summary, step)
-                        np.savez(os.path.join(self._attn_dir, 'val_attn.npz'), **val_fig)
+
                     if acc > max_acc:
                         max_acc = acc
+                        if attn:
+                            np.savez(os.path.join(self._attn_dir, 'train_attn.npz'), **train_attn)
+                            np.savez(os.path.join(self._attn_dir, 'train_pair.npz'), **train_pair)
+                            np.savez(os.path.join(self._attn_dir, 'val_attn.npz'), **val_attn)
+                            np.savez(os.path.join(self._attn_dir, 'val_pair.npz'), **val_pair)
                         self.best_saver.save(sess, self._best_checkpoint, step)
             except KeyboardInterrupt:
                 self.saver.save(sess, self._checkpoint_file, self.global_step)
@@ -259,12 +249,13 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint', default='', help='Checkpoint file.')
     parser.add_argument('--hp', default='01', help='Hyper-parameters.')
     parser.add_argument('--extra', default='', help='Extra model name.')
-    parser.add_argument('--target', default='main/attn', help='Train what?')
+    parser.add_argument('--attn', action='store_true', help='Save attention.')
+
     # parser.add_argument('--reg', action='store_true', help='Regularize the model.')
     args = parser.parse_args()
     mod = importlib.import_module('model.' + args.mod)
     hp = getattr(importlib.import_module('hp'), 'hp' + args.hp)
     reset = args.reset
     debug = args.debug
-    target = args.target
+    attn = args.attn
     main()

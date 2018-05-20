@@ -32,8 +32,8 @@ class Model(object):
         reg = layers.l2_regularizer(beta)
         initializer = tf.orthogonal_initializer()
 
-        def dense_kernel(inp, width, in_c, out_c, factor=1, name=''):
-            with tf.variable_scope('Dense_Kernel_' + name):
+        def dense_kernel(inp, width, in_c, out_c, factor=1, name='', reuse=False):
+            with tf.variable_scope('Dense_Kernel_' + name, reuse=reuse):
                 k1 = tf.layers.dense(inp, in_c * width * factor, tf.nn.relu,
                                      kernel_initializer=initializer, kernel_regularizer=reg)
                 # k1 = dropout(k1, training)
@@ -77,7 +77,7 @@ class Model(object):
                 self.ans = l2_norm(self.ans)
                 a_k_1, a_b_1 = [], []
                 for i in range(5):
-                    k, b = dense_kernel(self.ans[0], 3, hp['emb_dim'], 1, 1, 'a' + str(i))
+                    k, b = dense_kernel(tf.expand_dims(self.ans[i], 0), 3, hp['emb_dim'], 1, 1, 'a1', i != 0)
                     a_k_1.append(k)
                     a_b_1.append(b)
 
@@ -95,39 +95,38 @@ class Model(object):
             a_exp = tf.expand_dims(self.ans, 0)
 
         with tf.variable_scope('Abstract'):
-            # (1, N, E_t)
-            self.q_attn_1 = tf.nn.relu(tf.nn.bias_add(tf.nn.convolution(
-                s_exp, q_k_1, strides=[1], padding='SAME'), q_b_1))
+            # (1, N, 1)
+            self.q_attn_1 = tf.nn.bias_add(tf.nn.convolution(
+                s_exp, q_k_1, strides=[1], padding='SAME'), q_b_1)
 
             self.a_attn_1 = []
             for i in range(5):
-                a_attn = tf.nn.relu(tf.nn.bias_add(tf.nn.convolution(
-                    s_exp, a_k_1[i], strides=[1], padding='SAME'), a_b_1[i]))
+                a_attn = tf.nn.bias_add(tf.nn.convolution(
+                    s_exp, a_k_1[i], strides=[1], padding='SAME'), a_b_1[i])
                 self.a_attn_1.append(a_attn)
+            # (5, N, 1)
+            self.a_attn_1 = tf.concat(self.a_attn_1, 0)
 
-            # (N, E_t, E_t / 8)
-            self.confuse = tf.matmul(tf.transpose(s_exp, [1, 2, 0]), tf.transpose(self.conv4, [1, 0, 2]))
+            # (5, N, 1)
+            self.attn = tf.nn.sigmoid(self.q_attn_1) * tf.nn.sigmoid(self.a_attn_1)
+            self.attn_mask = tf.where(self.attn > 0.5, self.attn, tf.zeros_like(self.attn))
 
-            # (E_t / 8, N, E_t)
-            self.confuse = tf.transpose(self.confuse, [2, 0, 1])
+            # (5, N, E_t)
+            self.abs = s_exp * self.attn_mask
+            # (5, E_t)
+            self.abs = l2_norm(tf.reduce_sum(self.abs, axis=1), axis=1)
 
-            # (E_t / 8, 5, N_t)
-            self.response = tf.matmul(tf.tile(a_exp, [tf.shape(self.confuse)[0], 1, 1]),
-                                      self.confuse, transpose_b=True)
-            # (E_t / 8, 5, 8)
-            self.top_k_response, _ = tf.nn.top_k(self.response, 8)
-            # (5, E_t / 8)
-            self.top_k_response = tf.transpose(tf.reduce_sum(self.top_k_response, 2))
-            # (5, 2)
-            self.top_k_output, _ = tf.nn.top_k(self.top_k_response, 2)
+            # (5, 1)
+            self.output = tf.reduce_sum(self.abs * self.ans, axis=1, keepdims=True)
             # (1, 5)
-            self.output = tf.transpose(tf.reduce_sum(self.top_k_output, 1, keepdims=True))
+            self.output = tf.transpose(self.output)
 
 
 def main():
     data = Input(split='train', mode='subt')
     model = Model(data)
 
+    attn = tf.squeeze(model.attn[data.gt[0]])
     for v in tf.global_variables():
         print(v)
     config = tf.ConfigProto(allow_soft_placement=True)
@@ -142,7 +141,7 @@ def main():
         # a, b, c, d = sess.run(model.tri_word_encodes)
         # print(a, b, c, d)
         # print(a.shape, b.shape, c.shape, d.shape)
-        a, b = sess.run([model.abstract, model.attn])
+        a, b = sess.run([model.output, attn])
         print(a, b)
         print(a.shape, b.shape)
 

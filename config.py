@@ -26,6 +26,7 @@ class MovieQAParameter(object):
 class MovieQAPath(object):
     def __init__(self):
         self.benchmark_dir = '/mnt/data/tommy8054/MovieQA_benchmark'
+        self.faster_rcnn_graph = '/mnt/data/tommy8054/faster_rcnn_resnet101_coco_2018_01_28/frozen_inference_graph.pb'
         # Directory of original data
         self.story_dir = join(self.benchmark_dir, 'story')
         self.video_clips_dir = join(self.story_dir, 'video_clips')
@@ -39,6 +40,8 @@ class MovieQAPath(object):
         self.image_dir = join(self.data_dir, 'images')
         # Directory of all features of video clips
         self.feature_dir = join(self.data_dir, 'features')
+        # Directory of all features of video clips
+        self.object_feature_dir = join(self.data_dir, 'object_features')
         # Directory of all subtitle sentence embedding
         self.encode_dir = join(self.data_dir, 'encode')
         # Directory of tfrecords
@@ -47,6 +50,7 @@ class MovieQAPath(object):
         # Experiment directory
         self.checkpoint_dir = join(self.benchmark_dir, 'checkpoint')
         self.log_dir = join(self.benchmark_dir, 'log')
+        self.attn_dir = join(self.benchmark_dir, 'attn')
         self.exp_dir = './exp'
 
         # Video data
@@ -91,6 +95,8 @@ class MovieQAPath(object):
         self.splits_file = join(self.data_dir, 'splits.json')
         # Subtitle shot sample list
         self.sample_frame_file = join(self.data_dir, 'sample.json')
+        # Subtitle index sample list
+        self.sample_index_file = join(self.data_dir, 'index.json')
         # Npy file pattern
         self.npy_files = glob(os.path.join(self.feature_dir, '*.npy'))
 
