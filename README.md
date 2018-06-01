@@ -62,7 +62,7 @@ qa_list = [
 ]
 total_qa = {
         'train': qa_list,
-        'test': qa_list,
+        tests: qa_list,
         'val': qa_list,
     }
 ```

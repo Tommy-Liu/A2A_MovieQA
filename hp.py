@@ -2,7 +2,7 @@ hp01 = {
     'learning_rate': 10 ** (-3),
     'decay_rate': 0.88,
     'decay_type': 'linear_cos',
-    'decay_epoch': 128,
+    'decay_epoch': 64,
     'opt': 'powersign-ld',
     'reg': 0.01,
     'loss': 'sparse_softmax',
@@ -20,7 +20,7 @@ hp03 = {
     'learning_rate': 10 ** (-3),
     'decay_rate': 0.88,
     'decay_type': 'linear_cos',
-    'decay_epoch': 128,
+    'decay_epoch': 256,
     'opt': 'powersign-ld',
     'reg': 0.01,
     'loss': 'sparse_softmax',
@@ -28,10 +28,10 @@ hp03 = {
 hp04 = {
     'learning_rate': 10 ** (-3),
     'decay_rate': 0.88,
-    'decay_type': 'exp',
-    'decay_epoch': 2,
-    'opt': 'sgd',
-    'reg': 0.1,
+    'decay_type': 'linear_cos',
+    'decay_epoch': 512,
+    'opt': 'powersign-ld',
+    'reg': 0.01,
     'loss': 'sparse_softmax',
 }
 hp05 = {

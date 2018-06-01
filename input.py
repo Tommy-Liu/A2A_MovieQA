@@ -71,10 +71,10 @@ def test_parser(record):
 
 class TestInput(object):
     def __init__(self):
-        self.test_pattern = join(_mp.dataset_dir, 'test*.tfrecord')
+        self.test_pattern = join(_mp.dataset_dir, 'tests*.tfrecord')
         self.test_files = glob(self.test_pattern)
         self.test_files.sort()
-        self._length = len([0 for qa in du.json_load(_mp.qa_file) if 'test' in qa['qid'] and qa['video_clips']])
+        self._length = len([0 for qa in du.json_load(_mp.qa_file) if 'tests' in qa['qid'] and qa['video_clips']])
         dataset = tf.data.Dataset.from_tensor_slices(self.test_files)
         dataset = dataset.interleave(tf.data.TFRecordDataset, cycle_length=4, block_length=1).prefetch(16)
         dataset = dataset.map(test_parser, num_parallel_calls=4).prefetch(16)

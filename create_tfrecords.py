@@ -58,7 +58,7 @@ def get_total_example(qas, split, is_training=False):
                     })
     else:
         for qa in tqdm(qas, desc="Get total examples"):
-            if split != 'test':
+            if split != 'tests':
                 ans = [a for a in qa['encoded_answer']
                        if a and a != qa['encoded_answer'][qa['correct_index']]]
                 assert all(ans), "Empty answer occurs!\n %s" % json.dumps(qa, indent=4)
@@ -133,7 +133,7 @@ def test():
     _, example = reader.read(file_name_queue)
     if FLAGS.is_training:
         context_features, sequence_features = du.qa_feature_parsed()
-    elif FLAGS.split != 'test':
+    elif FLAGS.split != 'tests':
         context_features, sequence_features = du.qa_eval_feature_parsed()
     else:
         context_features, sequence_features = du.qa_test_feature_parsed()
@@ -203,9 +203,9 @@ def main(_):
 if __name__ == '__main__':
     flags = tf.app.flags
     flags.DEFINE_bool("is_training", False, "")
-    flags.DEFINE_string("split", "train", "train, test, val")
+    flags.DEFINE_string("split", "train", "train, tests, val")
     flags.DEFINE_string("modality", "fixed_num",
                         "fixed_num, fixed_interval, shot_major, subtitle_major")
-    flags.DEFINE_bool("test", False, "")
+    flags.DEFINE_bool("tests", False, "")
     FLAGS = flags.FLAGS
     tf.app.run()

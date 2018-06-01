@@ -2,10 +2,10 @@ import argparse
 import math
 from functools import partial
 from multiprocessing import Pool, Manager
+from os.path import join
 
 import numpy as np
 import tensorflow as tf
-from os.path import join
 from tqdm import tqdm
 
 import utils.data_utils as du
@@ -108,12 +108,12 @@ def create_tfrecord(encode_qa, split, mode, num_per_shards):
 def count(encode_qa):
     print(len([qa for qa in encode_qa if 'train' in qa['qid']]))
     print(len([qa for qa in encode_qa if 'val' in qa['qid']]))
-    print(len([qa for qa in encode_qa if 'test' in qa['qid']]))
+    print(len([qa for qa in encode_qa if 'tests' in qa['qid']]))
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--split', default='train/val/test', help='Which split we want to make.')
+    parser.add_argument('--split', default='train/val/tests', help='Which split we want to make.')
     parser.add_argument('--num_per_shards', default=32, help='Number of shards.', type=int)
     parser.add_argument('--count', action='store_true', help='Count the number of qa.')
     parser.add_argument('--mode', default='subt+feat', help='Create records with only subtitle.')
@@ -133,8 +133,8 @@ def main():
             create_tfrecord(encode_qa, 'train', args.mode, args.num_per_shards)
         if 'val' in split:
             create_tfrecord(encode_qa, 'val', args.mode, args.num_per_shards)
-        if 'test' in split:
-            create_tfrecord(encode_qa, 'test', args.mode, args.num_per_shards)
+        if 'tests' in split:
+            create_tfrecord(encode_qa, 'tests', args.mode, args.num_per_shards)
 
 
 if __name__ == '__main__':

@@ -82,7 +82,7 @@ def main():
     video_qa = [qa for qa in du.json_load(_mp.qa_file) if qa['video_clips']]
     train = [qa for qa in video_qa if 'train' in qa['qid']]
     val = [qa for qa in video_qa if 'val' in qa['qid']]
-    test = [qa for qa in video_qa if 'test' in qa['qid']]
+    test = [qa for qa in video_qa if 'tests' in qa['qid']]
 
     with Pool(4) as pool, Manager() as manager:
         index = manager.dict(du.json_load(_mp.sample_index_file))

@@ -81,7 +81,7 @@ def build_vocab(counter, embedding=None):
 def get_split(qa, video_data):
     total_qa = {
         'train': [],
-        'test': [],
+        'tests': [],
         'val': [],
     }
     for qa_ in tqdm(qa, desc='Get available split'):
@@ -200,17 +200,17 @@ def main():
 
     total_qa = get_split(qa, video_data)
 
-    print('Available qa # : train | test | val ')
+    print('Available qa # : train | tests | val ')
     print('                 %5d   %4d   %3d' % (len([0 for qa_ in total_qa['train'] if qa_['avail']]),
-                                                len([0 for qa_ in total_qa['test'] if qa_['avail']]),
+                                                len([0 for qa_ in total_qa['tests'] if qa_['avail']]),
                                                 len([0 for qa_ in total_qa['val'] if qa_['avail']])))
-    print('Mv+Sub qa # :    train | test | val ')
+    print('Mv+Sub qa # :    train | tests | val ')
     print('                 %5d   %4d   %3d' % (len([0 for qa_ in total_qa['train'] if qa_['mv+sub']]),
-                                                len([0 for qa_ in total_qa['test'] if qa_['mv+sub']]),
+                                                len([0 for qa_ in total_qa['tests'] if qa_['mv+sub']]),
                                                 len([0 for qa_ in total_qa['val'] if qa_['mv+sub']])))
-    print('Total qa # :     train | test | val ')
+    print('Total qa # :     train | tests | val ')
     print('                 %5d   %4d   %3d' % (len(total_qa['train']),
-                                                len(total_qa['test']),
+                                                len(total_qa['tests']),
                                                 len(total_qa['val'])))
 
     tokenize_qa_train, vocab_counter = \
@@ -233,7 +233,7 @@ def main():
         _, vocab, inverse_vocab = build_vocab(vocab_counter)
 
     # encode sentences
-    tokenize_qa_test, _ = tokenize_sentences(total_qa['test'], video_subtitle)
+    tokenize_qa_test, _ = tokenize_sentences(total_qa['tests'], video_subtitle)
     tokenize_qa_val, _ = tokenize_sentences(total_qa['val'], video_subtitle)
     encode_sub = encode_subtitles(video_subtitle, vocab, shot_boundary, subtitle_shot)
     encode_qa_train = encode_sentences(tokenize_qa_train, vocab)

@@ -47,6 +47,8 @@ class MovieQAPath(object):
         # Directory of tfrecords
         self.dataset_dir = join(self.data_dir, 'dataset')
 
+        self.test_dir = join(self.data_dir, 'test')
+
         # Experiment directory
         self.checkpoint_dir = join(self.benchmark_dir, 'checkpoint')
         self.log_dir = join(self.benchmark_dir, 'log')
@@ -99,6 +101,10 @@ class MovieQAPath(object):
         self.sample_index_file = join(self.data_dir, 'index.json')
         # Npy file pattern
         self.npy_files = glob(os.path.join(self.feature_dir, '*.npy'))
+
+        self.object_feature = join(self.object_feature_dir, 'object_feature.npz')
+        self.subtitle_feature = join(self.encode_dir, 'subtitle.npz')
+        self.qa_feature = join(self.encode_dir, 'qa.npz')
 
 
 class ExtendedObject(object):

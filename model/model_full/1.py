@@ -31,43 +31,6 @@ def l1_norm(x, axis=None, epsilon=1e-6, name=None):
         return tf.multiply(x, x_inv_norm, name=name)
 
 
-def bhattacharyya_norm(x, axis=None, epsilon=1e-6, name=None):
-    with tf.name_scope(name, "l1_normalize", [x]) as name:
-        x = tf.convert_to_tensor(x, name="x")
-        x = tf.sqrt(x)
-        square_sum = tf.reduce_sum(x, axis, keepdims=True)
-        x_inv_norm = tf.reciprocal(tf.maximum(square_sum, epsilon))
-        return tf.multiply(x, x_inv_norm, name=name)
-
-
-def cond(i, s, q, a, w, v):
-    return i < 10
-
-
-def body(s, q, a, w, v):
-    clue = tf.concat([q, v], axis=1)
-    pick = tf.nn.relu(tf.matmul(clue, w))
-    v = v
-    # v = l2_norm(v)
-    return s, q, w, v
-
-
-def scan_fn(a, x):
-    # v, w
-    x = tf.expand_dims(x, 0)
-    clue = tf.concat([x, a[0]], axis=1)
-    pick = tf.nn.relu(tf.matmul(clue, a[1]))
-    return a[0] + pick * x, a[1]
-
-
-def iterable(o):
-    try:
-        iter(o)
-        return True
-    except TypeError:
-        return False
-
-
 class Model(object):
     def __init__(self, data, scale=0.0, training=False):
         self.data = data
@@ -86,26 +49,29 @@ class Model(object):
             self.raw_ques = self.data.ques
             self.raw_ans = self.data.ans
             self.raw_subt = self.data.subt
+            self.raw_feat = self.data.feat
             # self.raw_subt = tf.boolean_mask(self.data.subt, tf.cast(self.data.spec, tf.bool))
             self.raw_ques = l2_norm(self.raw_ques)
             self.raw_ans = l2_norm(self.raw_ans)
             self.raw_subt = l2_norm(self.raw_subt)
+            self.raw_feat = l2_norm(self.raw_feat)
 
             self.raw_ques = dropout(self.raw_ques, training)
             self.raw_ans = dropout(self.raw_ans, training)
             self.raw_subt = dropout(self.raw_subt, training)
+            self.raw_feat = dropout(self.raw_feat, training)
 
             self.spec = tf.cast(self.data.spec, tf.bool)
             self.neg_spec = tf.logical_not(self.spec)
 
-            self.spec = tf.to_int32(self.spec)
-            self.neg_spec = tf.to_int32(self.neg_spec)
+            # self.spec = tf.to_int32(self.spec)
+            # self.neg_spec = tf.to_int32(self.neg_spec)
 
             self.spec = tf.expand_dims(self.spec, 1)
             self.neg_spec = tf.expand_dims(self.neg_spec, 1)
 
-            self.spec_mask = tf.matmul(self.neg_spec, self.spec, transpose_b=True)
-            self.spec_mask = tf.to_float(self.spec_mask)
+            # self.spec_mask = tf.matmul(self.neg_spec, self.spec, transpose_b=True)
+            # self.spec_mask = tf.to_float(self.spec_mask)
             # self.spec_mask = tf.cast(self.spec_mask, tf.bool)
             # self.spec_mask = tf.logical_not(self.spec_mask)
             # self.spec_mask = tf.cast(self.spec_mask, tf.float32)
@@ -135,57 +101,98 @@ class Model(object):
             self.ques = l2_norm(self.ques)
             self.ques = dropout(self.ques, training)
 
+            self.feat = tf.layers.dense(self.raw_feat, hp['emb_dim'],
+                                        kernel_initializer=init, kernel_regularizer=reg)
+            self.feat = l2_norm(self.feat)
+            self.feat = dropout(self.feat, training)
+
             # num_subt = tf.shape(self.subt)[0]
 
         with tf.variable_scope('Response'):
             # (N, E_t)
-            self.front_subt = tf.layers.dense(self.subt, hp['emb_dim'], use_bias=False,
+            self.front_subt = tf.layers.dense(self.subt + self.ques, hp['emb_dim'],
                                               kernel_initializer=init, kernel_regularizer=reg)
-            # self.front_subt = self.subt + self.front_subt
             self.front_subt = l2_norm(self.front_subt)
             self.front_subt = dropout(self.front_subt, training)
-            # (N, N)
-            # self.dist_mat = distance_matrix(num_subt)
-            # (N, N)
-            self.propagation = tf.matmul(self.front_subt, self.subt, transpose_b=True)
+            self.front_subt = tf.layers.dense(self.front_subt, hp['emb_dim'],
+                                              kernel_initializer=init, kernel_regularizer=reg)
+            self.front_subt = l2_norm(self.front_subt)
+            self.front_subt = dropout(self.front_subt, training)
+            self.front_subt = tf.layers.dense(self.front_subt, hp['emb_dim'],
+                                              kernel_initializer=init, kernel_regularizer=reg)
+            self.front_subt = l2_norm(self.front_subt)
+            self.front_subt = dropout(self.front_subt, training)
+            self.front_subt = tf.layers.dense(self.front_subt, hp['emb_dim'],
+                                              kernel_initializer=init, kernel_regularizer=reg)
+            self.front_subt = l2_norm(self.front_subt)
+            self.front_subt = dropout(self.front_subt, training)
+            self.front_subt = tf.layers.dense(self.front_subt, hp['emb_dim'],
+                                              kernel_initializer=init, kernel_regularizer=reg)
+            self.front_subt = l2_norm(self.front_subt)
+            self.front_subt = dropout(self.front_subt, training)
+            # (N_s, E_t)
+            self.spec_subt = tf.boolean_mask(self.subt, tf.cast(self.data.spec, tf.bool))
+            # (N, N_s)
+            self.propagation = tf.matmul(self.front_subt, self.spec_subt, transpose_b=True)
             self.propagation = tf.nn.relu(self.propagation)
-            # self.propagation = self.propagation / self.dist_mat
-            self.propagation = self.propagation * self.spec_mask
-            num_spec = tf.reduce_sum(self.spec)
-            self.belief = tf.matmul(self.propagation, self.spec) / num_spec
+            # (N, 1)
+            self.propagation = tf.reduce_mean(self.propagation, axis=1, keepdims=True)
+            # (N, 1)
+            self.belief = self.propagation * self.neg_spec
+            # max_b = tf.maximum(tf.reduce_max(self.belief), 10 ** (-6))
+            # self.belief = self.belief / max_b
             self.belief = dropout(self.belief, training)
             # self.belief = tf.reduce_max(self.propagation, axis=1, keepdims=True)
             self.belief = self.spec + self.belief
             self.belief = tf.minimum(self.belief, 1.0)
 
+            self.fq = tf.matmul(self.feat, tf.tile(tf.expand_dims(self.ques, 0), [tf.shape(self.feat)[0], 1, 1]),
+                                transpose_b=True)
+            self.fq = tf.nn.relu(self.fq)
+            self.fq = dropout(self.fq, training)
+
+            self.feat_new = tf.reduce_sum(self.feat * self.fq, axis=1)
+            self.feat_new = l2_norm(self.feat_new)
+            self.feat_new = dropout(self.feat_new, training)
+
+            self.fna = tf.matmul(self.feat_new, self.ans, transpose_b=True)
+            self.fna = tf.nn.relu(self.fna)
+            self.fna = dropout(self.fna, training)
+
+            self.fnq = tf.matmul(self.feat_new, self.ques, transpose_b=True)
+            self.fnq = tf.nn.relu(self.fnq)
+            self.fnq = dropout(self.fnq, training)
+
             # (N, 1)
             self.sq = tf.matmul(self.subt, self.ques, transpose_b=True)
             self.sq = tf.nn.relu(self.sq)
             self.sq = dropout(self.sq, training)
-            # # (N, 5)
+            # (N, 5)
             self.sa = tf.matmul(self.subt, self.ans, transpose_b=True)
             self.sa = tf.nn.relu(self.sa)
             self.sa = dropout(self.sa, training)
-            beta = tf.nn.sigmoid(tf.get_variable('beta', [], initializer=tf.zeros_initializer()))
+            alpha1 = tf.nn.sigmoid(tf.get_variable('alpha1', [], initializer=tf.zeros_initializer()))
+            alpha2 = tf.nn.sigmoid(tf.get_variable('alpha2', [], initializer=tf.zeros_initializer()))
 
-            self.attn = self.sq + beta * self.sa
+            self.attn = self.sq + alpha1 * self.sa
             self.attn = self.attn * self.belief
             self.attn = tf.expand_dims(self.attn, 0)
-            # (5, N, 1)
             self.attn = tf.transpose(self.attn, [2, 1, 0])
-            # (5, N, E_t)
-            self.abs = tf.expand_dims(self.subt, 0) * self.attn
-            # (5, E_t)
-            self.abs = tf.reduce_sum(self.abs, axis=1)
-            alpha = tf.nn.sigmoid(tf.get_variable('alpha', [], initializer=tf.zeros_initializer()))
-            self.abs = (1 - alpha) * self.abs + alpha * self.ques
-            self.abs = l2_norm(self.abs)
-            self.abs = dropout(self.abs, training)
-            # self.evd = l2_norm(self.ans)
-            # (5, 1)
-            self.output = tf.reduce_sum(self.abs * self.ans, axis=1, keepdims=True)
-            self.output = self.output - tf.reduce_mean(self.output, axis=0, keepdims=True)
-            # (1, 5)
+
+            self.feat_attn = self.fnq + self.fna * alpha2
+            self.feat_attn = self.feat_attn * self.belief
+            self.feat_attn = tf.expand_dims(self.feat_attn, 0)
+            self.feat_attn = tf.transpose(self.feat_attn, [2, 1, 0])
+
+            self.abst = tf.reduce_sum(self.attn * tf.expand_dims(self.subt, 0), axis=1)
+            self.abst_feat = tf.reduce_sum(self.feat_attn * tf.expand_dims(self.feat_new, 0), axis=1)
+            beta1 = tf.nn.sigmoid(tf.get_variable('beta1', [], initializer=tf.zeros_initializer()))
+            beta2 = tf.nn.sigmoid(tf.get_variable('beta2', [], initializer=tf.zeros_initializer()))
+            self.abst = beta1 * self.abst + self.ques * (1 - beta1) + beta2 * self.abst_feat
+            self.abst = l2_norm(self.abst)
+            self.abst = dropout(self.abst, training)
+
+            self.output = tf.reduce_sum(self.ans * self.abst, axis=1, keepdims=True)
             self.output = tf.transpose(self.output)
 
 

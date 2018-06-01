@@ -5,8 +5,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.data as data
 
-from utils import data_utils as du
 from config import MovieQAConfig
+from utils import data_utils as du
 
 config = MovieQAConfig()
 
@@ -84,7 +84,7 @@ class MovieQAData(object):
             self.file_names_placeholder = tf.placeholder(tf.string, shape=[None])
             if is_training:
                 parser = train_parser
-            elif split != 'test':
+            elif split != 'tests':
                 parser = eval_parser
             else:
                 parser = test_parser
@@ -96,7 +96,7 @@ class MovieQAData(object):
 
     def unpack_data(self, dummy, split):
         if not dummy:
-            if split != 'test':
+            if split != 'tests':
                 self.ques, self.ques_length, self.ans, self.ans_length, \
                 self.subt, self.subt_length, self.feat, self.label = \
                     self.iterator.get_next()
@@ -200,7 +200,7 @@ def test(_):
 if __name__ == '__main__':
     flags = tf.app.flags
     flags.DEFINE_bool("is_training", True, "")
-    flags.DEFINE_string("split", "train", "train, test, val")
+    flags.DEFINE_string("split", "train", "train, tests, val")
     flags.DEFINE_string("modality", "fixed_num",
                         "fixed_num, fixed_interval, shot_major, subtitle_major")
     FLAGS = flags.FLAGS

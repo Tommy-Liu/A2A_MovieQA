@@ -91,7 +91,7 @@ def get_images_path_v3():
     sample = du.json_load(_mp.sample_frame_file)
 
     for imdb_key in tqdm(sample, desc='Collect Images'):
-        if not exists(join(_mp.feature_dir, imdb_key + '.npy')):
+        if not exists(join(_mp.object_feature_dir, imdb_key + '.npy')):
             npy_names.append(join(_mp.object_feature_dir, imdb_key + '.npy'))
             videos = list(sample[imdb_key].keys())
             videos.sort()
@@ -115,7 +115,7 @@ def check():
         videos.sort()
         for v in tqdm(videos):
             capacity += len(sample[imdb_key][v])
-        if load_shape(join(_mp.feature_dir, imdb_key + '.npy'))[0] != capacity:
+        if load_shape(join(_mp.object_feature_dir, imdb_key + '.npy'))[0] != capacity:
             raise ValueError('Fuck up! %s' % join(_mp.feature_dir, imdb_key + '.npy'))
 
 
@@ -147,6 +147,7 @@ def writer_worker(queue, capacity, npy_names):
                     except Exception as e:
                         np.save(npy_names[video_idx], final_features)
                         raise e
+                    time.sleep(3)
                     pbar.set_description(' '.join([fu.basename_wo_ext(npy_names[video_idx]),
                                                    str(len(final_features))]))
                     del local_feature[:]
@@ -219,7 +220,7 @@ if __name__ == '__main__':
     tensor_list = tf.import_graph_def(od_graph_def, input_map={'image_tensor:0': img},
                                       return_elements=[key + ':0' for key in
                                                        ['SecondStageBoxPredictor/AvgPool']])
-    object_feature = tf.reshape(tensor_list[0], [bsize, 100, 2048])[:, :6, :]
+    object_feature = tf.reshape(tensor_list[0], [-1, 100, 2048])[:, :6, :]
     print('Pipeline setup done !!')
 
     print('Start extract !!')

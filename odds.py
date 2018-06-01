@@ -172,7 +172,7 @@ if __name__ == '__main__':
 # # ax = sns.heatmap(uniform_data, xticklabels=50, yticklabels=['GT','Q','A'], vmin=0, vmax=1)
 # #
 # #
-# # plt.savefig('test.jpg')
+# # plt.savefig('tests.jpg')
 #
 # if __name__ == '__main__':
 #     parser = argparse.ArgumentParser()

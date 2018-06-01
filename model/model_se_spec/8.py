@@ -94,8 +94,8 @@ class Model(object):
         with tf.variable_scope('Embedding_Linear'):
             self.raw_ques = self.data.ques
             self.raw_ans = self.data.ans
-            # self.raw_subt = self.data.subt
-            self.raw_subt = tf.boolean_mask(self.data.subt, tf.cast(self.data.spec, tf.bool))
+            self.raw_subt = self.data.subt
+            # self.raw_subt = tf.boolean_mask(self.data.subt, tf.cast(self.data.spec, tf.bool))
             self.raw_ques = l2_norm(self.raw_ques)
             self.raw_ans = l2_norm(self.raw_ans)
             self.raw_subt = l2_norm(self.raw_subt)
