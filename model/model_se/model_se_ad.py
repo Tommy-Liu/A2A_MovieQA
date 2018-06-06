@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow.contrib import layers
 
 from config import MovieQAPath
-from input import Input
+from legacy.input import Input
 
 _mp = MovieQAPath()
 hp = {'emb_dim': 8, 'feat_dim': 512, 'sec_size': 30,

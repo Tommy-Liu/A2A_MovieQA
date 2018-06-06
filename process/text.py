@@ -14,7 +14,7 @@ import utils.func_utils as fu
 from config import MovieQAPath
 from data.data_loader import Subtitle, FrameTime, duration, QA
 from embed.args import EmbeddingPath
-from input import find_max_length
+from legacy.input import find_max_length
 
 _mp = MovieQAPath()
 _ep = EmbeddingPath()

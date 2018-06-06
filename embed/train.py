@@ -21,9 +21,21 @@ cp = EmbeddingPath()
 
 
 class EmbeddingData(object):
+    """
+    This is a class for training input.
+    """
+
     def __init__(self, name, batch_size=128, num_threads=16):
+        """
+        It will create a tf.data.dataset, and we will take this object
+        to the training manager.
+        :param name: embedding data name
+        :param batch_size: training batch size
+        :param num_threads: number of threads which is used to load data
+        """
         start_time = time.time()
         self.name = name
+        # It will automatically create tfrecords
         self.records = TfRecordDataSet(OrderedDict([
             ('word', cp.encode_embedding_key_file),
             ('vec', cp.encode_embedding_vec_file)]
@@ -32,6 +44,7 @@ class EmbeddingData(object):
         self.batch_size = batch_size
         # Use floor instead of ceil because we drop last batch.
         self.total_step = int(math.ceil(self.records.num_example / self.batch_size))
+        # Create dataset from records
         self.dataset = self.records.dataset \
             .shuffle(buffer_size=999) \
             .map(self.records.parse_fn,
@@ -40,6 +53,7 @@ class EmbeddingData(object):
             .shuffle(buffer_size=8192) \
             .batch(self.batch_size) \
             .repeat()
+        # Create iterator of dataset
         self.iterator = self.dataset.make_initializable_iterator()
         self.word, self.vec = self.iterator.get_next()
         self.initializer = self.iterator.initializer
@@ -49,7 +63,17 @@ class EmbeddingData(object):
 
 
 class HyperParameter(object):
+    """
+    This class is an experimental hyper-parameter object.
+    It contains different calculation method of hyper-parameter.
+    """
     def __init__(self, initial, progress, scale):
+        """
+        Choose calculation method of hyper-parameter
+        :param initial: initial value of hyper-parameter
+        :param progress: calculation method
+        :param scale: scale of value change
+        """
         self.value = initial
         if progress == 'arithmetic' or progress == 'arith' or progress == 'a':
             self.progress = partial(self.arith, scale)
@@ -64,9 +88,19 @@ class HyperParameter(object):
             raise ValueError('Wrong progress value.')
 
     def __call__(self, i):
+        """
+        Return the value at i
+        :param i: int, the index
+        :return: value of hyper-parameter
+        """
         return self.progress(self.value, i)
 
     def index(self, value):
+        """
+        Return the index given value
+        :param value: value of hyper-parameter
+        :return: int, index
+        """
         return self.reverse(value)
 
     @staticmethod
@@ -95,6 +129,11 @@ class HyperParameter(object):
 
 
 class HyperParameterSelector(object):
+    """
+    This class is an experimental hyper-parameter selector.
+    It will automatically choose hyper-parameters and record the performance of those.
+
+    """
     def __init__(self, hp, rest, parser, name):
         self.args = hp
         self.rest = rest

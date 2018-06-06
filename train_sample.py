@@ -9,7 +9,7 @@ from tqdm import trange
 from config import MovieQAPath
 # from input import Input as In
 # from input_v2 import Input as In2
-from soft_input import Input
+from legacy.soft_input import Input
 from utils import data_utils as du
 from utils import func_utils as fu
 from utils import model_utils as mu

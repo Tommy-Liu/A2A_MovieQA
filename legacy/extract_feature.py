@@ -12,8 +12,8 @@ from numpy.lib.format import read_array_header_1_0, read_magic
 from tqdm import tqdm
 
 from config import MovieQAPath
-from inception_preprocessing import preprocess_image
-from inception_resnet_v2 import inception_resnet_v2_arg_scope, inception_resnet_v2
+from legacy.inception_preprocessing import preprocess_image
+from legacy.inception_resnet_v2 import inception_resnet_v2_arg_scope, inception_resnet_v2
 from utils import data_utils as du
 from utils import func_utils as fu
 

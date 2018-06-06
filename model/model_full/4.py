@@ -109,8 +109,17 @@ class Model(object):
             # num_subt = tf.shape(self.subt)[0]
 
         with tf.variable_scope('Response'):
+            self.fq = tf.matmul(self.feat, tf.tile(tf.expand_dims(self.ques, 0), [tf.shape(self.feat)[0], 1, 1]),
+                                transpose_b=True)
+            self.fq = tf.nn.relu(self.fq)
+            self.fq = dropout(self.fq, training)
+
+            self.feat_new = tf.reduce_sum(self.feat * self.fq, axis=1)
+            self.feat_new = l2_norm(self.feat_new)
+            self.feat_new = dropout(self.feat_new, training)
+
             # (N, E_t)
-            self.front_subt = tf.layers.dense(self.subt + self.ques, hp['emb_dim'],
+            self.front_subt = tf.layers.dense(self.subt + self.ques + self.feat_new, hp['emb_dim'],
                                               kernel_initializer=init, kernel_regularizer=reg)
             self.front_subt = l2_norm(self.front_subt)
             self.front_subt = dropout(self.front_subt, training)
@@ -146,14 +155,7 @@ class Model(object):
             self.belief = self.spec + self.belief
             self.belief = tf.minimum(self.belief, 1.0)
 
-            self.fq = tf.matmul(self.feat, tf.tile(tf.expand_dims(self.ques, 0), [tf.shape(self.feat)[0], 1, 1]),
-                                transpose_b=True)
-            self.fq = tf.nn.relu(self.fq)
-            self.fq = dropout(self.fq, training)
 
-            self.feat_new = tf.reduce_sum(self.feat * self.fq, axis=1)
-            self.feat_new = l2_norm(self.feat_new)
-            self.feat_new = dropout(self.feat_new, training)
 
             self.fna = tf.matmul(self.feat_new, self.ans, transpose_b=True)
             self.fna = tf.nn.relu(self.fna)

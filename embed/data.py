@@ -17,7 +17,13 @@ cp = EmbeddingPath()
 UNK = 'UNK'
 
 
-def load_embedding_vec(target, embedding_size=cp.embedding_size):
+def load_embedding_vec(target):
+    """
+    Load word embedding of different method. You can refer to EmbeddingPath
+    to prepare data.
+    :param target: string, target word embedding
+    :return embedding_keys, embedding_vecs: list of words, and numpy array of embedding vector
+    """
     start_time = time.time()
     # File and function setup for embedding
     if target == 'glove':
@@ -56,6 +62,11 @@ def load_embedding_vec(target, embedding_size=cp.embedding_size):
 
 
 def load_w2v(filename):
+    """
+    Load word2vec.
+    :param filename: string, file path of woed2vec.
+    :return embedding_keys, embedding_vecs: list of words, and numpy array of embedding vector
+    """
     embedding_key, embedding_vec = [], []
 
     with open(filename, 'r') as f:
@@ -72,9 +83,14 @@ def load_w2v(filename):
     return embedding_key, embedding_vec
 
 
-def load_glove(filename, embedding_size=cp.embedding_size):
+def load_glove(filename):
+    """
+    Load GloVe embedding.
+    :param filename: string, file path of GloVe.
+    :return embedding_keys, embedding_vecs: list of words, and numpy array of embedding vector.
+    """
     embedding_key, embedding_vec = [], []
-
+    embedding_size = cp.embedding_size
     # Read in the data.
     with io.open(filename, 'r', encoding='utf-8') as savefile:
         # Split each line of the rest to word and embedding vector
@@ -92,7 +108,15 @@ def load_glove(filename, embedding_size=cp.embedding_size):
 
 def filter_stat(embedding_keys, embedding_vector, max_length=0, print_stat=True,
                 normalize=False):
-    # Filter out non-ascii words and words with '<' and '>'.
+    """
+    Filter out non-ascii words and words with '<' and '>', and print the statistics of the data.
+    :param embedding_keys: list of words.
+    :param embedding_vector: numpy array of embedding vector.
+    :param max_length: int, maximal length threshold of words.
+    :param print_stat: boolean, print the statistics or not.
+    :param normalize: boolean, l2 normalize the vector or not.
+    :return embedding_keys, embedding_vecs: list of words, and numpy array of embedding vector.
+    """
     count, mean, keys, std = 0, 0, {}, 0
     for idx, k in enumerate(tqdm(embedding_keys, desc='Filtering')):
         try:
@@ -144,6 +168,12 @@ def filter_stat(embedding_keys, embedding_vector, max_length=0, print_stat=True,
 
 
 def process(args):
+    """
+    Process word embedding. We split each words into n-gram character tokens, and
+    save the intermediate file for later training.
+    :param args: named tuple, arguments
+    :return: None
+    """
     embedding_keys, embedding_vector = load_embedding_vec(cp.target)
 
     fu.block_print(['%s\'s # of embedding: %d' % (cp.target, len(embedding_keys)),
@@ -179,7 +209,7 @@ def process(args):
     print('Max size of tokens:', max_size)
     print('Size set of tokens:', size_set)
     print('Number of grams:\n',
-          '1-gram:', len(counter_1gram), '2-gram:', len(counter_3gram), '3-gram:', len(counter_6gram))
+          '1-gram:', len(counter_1gram), '3-gram:', len(counter_3gram), '6-gram:', len(counter_6gram))
 
     if not args.debug:
         du.json_dump({'1': counter_1gram, '3': counter_3gram, '6': counter_6gram}, cp.gram_counter_file)

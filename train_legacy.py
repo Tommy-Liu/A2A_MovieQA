@@ -6,7 +6,7 @@ import tensorflow as tf
 from tqdm import trange
 
 from config import MovieQAConfig
-from get_dataset import MovieQAData
+from legacy.get_dataset import MovieQAData
 from model import VLLabMemoryModel
 from utils import data_utils as du
 from utils import func_utils as fu

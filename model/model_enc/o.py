@@ -3,7 +3,7 @@ import tensorflow as tf
 from tensorflow.contrib.rnn import AttentionCellWrapper, CompiledWrapper
 
 from config import MovieQAPath
-from input import Input
+from legacy.input import Input
 
 _mp = MovieQAPath()
 

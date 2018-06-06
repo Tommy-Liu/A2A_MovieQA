@@ -10,7 +10,7 @@ from tqdm import tqdm
 import utils.data_utils as du
 import utils.func_utils as fu
 from config import MovieQAPath
-from input import find_max_length
+from legacy.input import find_max_length
 
 _mp = MovieQAPath()
 dataset_dir = _mp.dataset_dir

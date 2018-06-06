@@ -6,7 +6,7 @@ import tensorflow.contrib.layers as layers
 
 from config import MovieQAConfig
 from embed.model import extract_axis_1
-from get_dataset import MovieQAData
+from legacy.get_dataset import MovieQAData
 
 time_steps = 20
 frame_size = 20000

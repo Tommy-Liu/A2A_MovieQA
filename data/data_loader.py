@@ -1,11 +1,11 @@
 import re
 from datetime import timedelta
 from glob import glob
+from os.path import exists, join
 from unicodedata import normalize
 
 import numpy as np
 from nltk import sent_tokenize
-from os.path import exists, join
 from tqdm import tqdm
 
 import utils.data_utils as du
@@ -77,6 +77,7 @@ class FrameTime(object):
         frame_time = {}
         frame_time_paths = glob(join(_mp.frame_time_dir, '*.matidx'))
         for p in tqdm(frame_time_paths, desc='Process frame time'):
+            # fu.basename_wo_ext(p) -> imdb_key
             frame_time[fu.basename_wo_ext(p)] = FrameTime.get_frame_time(p)
         du.json_dump(frame_time, _mp.frame_time_file, indent=0)
         return frame_time
@@ -124,6 +125,7 @@ class Subtitle(object):
         # print(subtitle_paths)
         for p in tqdm(subtitle_paths, desc='Process subtitle'):
             iid = 0
+            # basename imdb_key
             basename = fu.basename_wo_ext(p)
             subtitle[basename] = {'lines': [], 'start': [], 'end': []}
             with open(p, 'r', encoding='iso-8859-1') as f:

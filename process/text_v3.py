@@ -206,6 +206,37 @@ def collect_embedding(qa, subtitle, video_data, filter_vocab, vocab_embed, frequ
                 np.concatenate([ins['question'], ins['answers']], axis=0))
 
 
+def create_vocab_glove(qa, subtitle, video_data, glove_vocab, glove_embed):
+    vocab = Counter()
+    glove_embed = np.concatenate([glove_embed, np.mean(glove_embed, axis=0, keepdims=True)], axis=0)
+
+    for key in tqdm(video_data, desc='Tokenize Subtitle'):
+        subt = subtitle[key]
+        for idx, line in enumerate(subt['lines']):
+            line = wordpunct_tokenize(line.strip().lower())
+            for w in line:
+                if w not in glove_vocab:
+                    glove_vocab[w] = len(glove_embed) - 1
+            vocab.update(line)
+            subt['lines'][idx] = line
+
+    for ins in tqdm(qa, desc='Tokenize QA'):
+        ins['question'] = wordpunct_tokenize(ins['question'].strip().lower())
+        for w in ins['question']:
+            if w not in glove_vocab:
+                glove_vocab[w] = len(glove_embed) - 1
+        vocab.update(ins['question'])
+        ins['answers'] = [wordpunct_tokenize(sent.strip().lower()) if sent else ['.']
+                          for sent in ins['answers']]
+        for sent in ins['answers']:
+            for w in sent:
+                if w not in glove_vocab:
+                    glove_vocab[w] = len(glove_embed) - 1
+            vocab.update(sent)
+
+    return glove_vocab, subtitle, glove_embed, vocab, qa
+
+
 def create_vocab(qa, subtitle, video_data, gram_vocab, gram_embed):
     if not os.path.exists(_mp.vocab_file):
         vocab = Counter()
@@ -292,7 +323,9 @@ def arg_parse():
     parser = ArgumentParser()
     parser.add_argument('--rm', action='store_true', help='Remove pre-processing files.')
     parser.add_argument('--max', action='store_true', help='Find maximal length of all input.')
-    parser.add_argument('--uni', action='store_true', help='Use Universal Sentence Encoder')
+    parser.add_argument('--mode', default=0, help='0: our trained word embedding, '
+                                                  '1: universal embedding, '
+                                                  '2: Glove embedding', type=int)
     parser.add_argument('--one', action='store_true', help='Sample only one frame.')
     return parser.parse_args()
 
@@ -303,18 +336,22 @@ def main():
     video_data = du.json_load(_mp.video_data_file)
     frame_time = FrameTime().get()
     subtitle = Subtitle().get()
-    gram_vocab = {k: i for i, k in enumerate(du.json_load(_ep.gram_vocab_file))}
-    gram_embed = np.load(_ep.gram_embedding_vec_file)
-    print('Loading done!')
-
-    if args.uni:
-        gen_embedding(qa, subtitle, video_data)
-    else:
+    if args.mode == 0:
+        gram_vocab = {k: i for i, k in enumerate(du.json_load(_ep.gram_vocab_file))}
+        gram_embed = np.load(_ep.gram_embedding_vec_file)
         filter_vocab, subtitle, vocab_embed, frequency, qa = \
             create_vocab(qa, subtitle, video_data, gram_vocab, gram_embed)
-
+        collect_embedding(qa, subtitle, video_data, filter_vocab, vocab_embed, frequency)
+    elif args.mode == 1:
+        gen_embedding(qa, subtitle, video_data)
+    elif args.mode == 2:
+        glove_vocab = {k: i for i, k in enumerate(du.json_load(_ep.glove_embedding_key_file))}
+        glove_embed = np.load(_ep.glove_embedding_vec_file)
+        filter_vocab, subtitle, vocab_embed, frequency, qa = \
+            create_vocab(qa, subtitle, video_data, glove_vocab, glove_embed)
         collect_embedding(qa, subtitle, video_data, filter_vocab, vocab_embed, frequency)
 
+    print('Process done!')
     sample = subtitle_process(video_data, frame_time, subtitle)
 
     for ins in tqdm(qa, desc='Create Spectrum'):

@@ -130,6 +130,10 @@ class Model(object):
                                               kernel_initializer=init, kernel_regularizer=reg)
             self.front_subt = l2_norm(self.front_subt)
             self.front_subt = dropout(self.front_subt, training)
+            self.front_subt = tf.layers.dense(self.front_subt, hp['emb_dim'],
+                                              kernel_initializer=init, kernel_regularizer=reg)
+            self.front_subt = l2_norm(self.front_subt)
+            self.front_subt = dropout(self.front_subt, training)
             # (N_s, E_t)
             self.spec_subt = tf.boolean_mask(self.subt, tf.cast(self.data.spec, tf.bool))
             # (N, N_s)
