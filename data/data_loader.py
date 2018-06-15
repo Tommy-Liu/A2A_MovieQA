@@ -65,6 +65,21 @@ def duration(basename):
 
 
 class FrameTime(object):
+    """
+    A simple data loader for loading frame time.
+    self._frame_time =
+    {
+        'ttxxxxxx':[0.xxx, 1.xxx, ..., 14938.xxx],
+        ...,
+    }
+    ttxxxxx: imdb key
+    [0.xxx, 1.xxx, ..., 14938.xxx]: a list of timestamp of each frame
+
+    self._inc =
+    {
+        'imdb_key': set of included imdb keys
+    }
+    """
     def __init__(self):
         if exists(_mp.frame_time_file):
             self._frame_time = du.json_load(_mp.frame_time_file)
@@ -74,6 +89,10 @@ class FrameTime(object):
 
     @staticmethod
     def process():
+        """
+        Process frame time of each movie, and return a dictionary {imdb_key: a list of timestamp}
+        :return frame_time: dictionary mapping imdb key to a list of timestamp
+        """
         frame_time = {}
         frame_time_paths = glob(join(_mp.frame_time_dir, '*.matidx'))
         for p in tqdm(frame_time_paths, desc='Process frame time'):
@@ -84,6 +103,11 @@ class FrameTime(object):
 
     @staticmethod
     def get_frame_time(p):
+        """
+        Parse the frame time from the file, and return timestamp of each frame.
+        :param p: file path of frame time
+        :return times: a list of timestamp in seconds
+        """
         times = []
         with open(p, 'r') as f:
             for match in FRAME_TIME_REGEX.finditer(f.read()):
@@ -91,25 +115,64 @@ class FrameTime(object):
         return times
 
     def reset(self):
+        """
+        Reset included set to all.
+        :return self: self object
+        """
         self._inc['imdb_key'] = set(list(self._frame_time.keys()))
         return self
 
     def include(self, imdb_key=None):
+        """
+        Intersect the set of imdb_key.
+        :param imdb_key: included keys
+        :return self: self object
+        """
         if imdb_key:
             self._inc['imdb_key'].intersection_update(imdb_key)
         return self
 
     def exclude(self, imdb_key=None):
+        """
+        Difference the set of imdb_key.
+        :param imdb_key: excluded keys
+        :return self: self object
+        """
         if imdb_key:
             self._inc['imdb_key'].difference_update(imdb_key)
         return self
 
     def get(self):
+        """
+        Return the dictionary mapping imdb key to a list of timestamp confined in self._inc
+        :return: dictionary mapping imdb key to a list of timestamp
+        """
         return {k: self._frame_time[k] for k in self._frame_time
                 if k in self._inc['imdb_key']}
 
 
 class Subtitle(object):
+    """
+        A simple data loader for loading frame time.
+        self._subtitle =
+        {
+            'ttxxxxxx':{
+                'lines': ['xxxx', 'yyyyyy', ..., 'zzzzzzz'],
+                'start': [0.xxx, 1.xxx, ..., 14938.xxx],
+                'end': [0.xxx, 1.xxx, ..., 14938.xxx],
+            },
+            ...,
+        }
+        ttxxxxx: imdb key
+        lines: subtitle sentences
+        start: start timestamp of sentences
+        end: end timestamp of sentences
+
+        self._inc =
+        {
+            'imdb_key': set of included imdb keys
+        }
+        """
     def __init__(self):
         if exists(_mp.subtitle_file):
             self._subtitle = du.json_load(_mp.subtitle_file)
@@ -119,6 +182,11 @@ class Subtitle(object):
 
     @staticmethod
     def process():
+        """
+        Process subtitle files of movies. It will encode the subtitle with ISO-8859-1,
+        and substitute new line or <> tokens with '\b' or '', and normalize the characters.
+        :return subtitle: dictionary mapping imdb key to subtitle
+        """
         subtitle = {}
         # print(_mp.subtitle_dir)
         subtitle_paths = glob(join(_mp.subtitle_dir, '*.srt'))
@@ -161,6 +229,11 @@ class Subtitle(object):
 
     @staticmethod
     def timestamp_to_secs(timestamp):
+        """
+        String timestamp to seconds.
+        :param timestamp:
+        :return: seconds
+        """
         hrs, mins, secs, msecs = map(int, re.split(r'[:,]', timestamp))
         return timedelta(hours=hrs, minutes=mins, seconds=secs, milliseconds=msecs).total_seconds()
 

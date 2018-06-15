@@ -110,7 +110,8 @@ def sample_frame_v2(video_data, frame_time, subtitle, sample, index, key):
             start_time, end_time = ft[start_frame], ft[end_frame]
             start_index, end_index = flbs(subt['end'], start_time), lsbs(subt['start'], end_time)
             # assert start_index <= end_index, '%s index reversed. %d %d\n%f %f %f %f\n%f %f' % \
-            #                                  (video, start_index, end_index, subt['start'][start_index], subt['end'][start_index],
+            #                                  (video, start_index, end_index, subt['start'][start_index],
+            #                                   subt['end'][start_index],
             #                                   subt['start'][end_index], subt['end'][end_index],
             #                                   start_time, end_time)
             if start_index > end_index:
@@ -331,6 +332,10 @@ def arg_parse():
 
 
 def main():
+    """
+    Main function.
+    :return: None
+    """
     print('Start loading data...')
     qa = QA().include(video_clips=True).get()
     video_data = du.json_load(_mp.video_data_file)

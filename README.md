@@ -3,7 +3,7 @@
 ## Installation Guidance
 
 1. Python Version: 3.6
-2. Required Package: tensorflow:1.7.0, imageio, numpy, scipy, pillow
+2. Required Package: tensorflow:1.7.0, imageio, numpy, scipy, pillow, bokeh, seaborn
 3. Git clone MovieQA_benchmark from <a href="https://github.com/makarandtapaswi/MovieQA_benchmark">github</a>, and change the path of ```MovieQAPath.benchmark_dir``` to the path where you clone to.
 4. Download Faster-RCNN pretrained model from <a href="https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/detection_model_zoo.md">model zoo</a> and change the path of ```MovieQAPath.faster_rcnn_graph``` to the path where you download to.
 5. Download all data from MovieQA to MovieQA_benchmark. (Note: you have to register first.)

@@ -106,9 +106,9 @@ class TestManager(object):
 def main():
     tester = TestManager()
     try:
-        # for i in range(11, 21):
-        #     args.extra = '%02d' % i
-        #     tester.test()
+        for i in range(11, 21):
+            args.extra = '%02d' % i
+            tester.test()
         ans_file_list = glob.glob(os.path.join(_mp.test_dir, '*.json'))
         ans_dict = defaultdict(Counter)
         for f in ans_file_list:

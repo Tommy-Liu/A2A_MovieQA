@@ -37,20 +37,21 @@ def spec_load(spec):
 
 
 def load(tensor, comp, mode):
-    if comp == 'qa':
-        func = qa_load
-        q, a = tf.py_func(func, [tensor], [tf.float32, tf.float32])
-        return tf.reshape(q, [-1, embedding_size]), tf.reshape(a, [-1, embedding_size])
-    elif comp == 'subt':
-        func = partial(subt_load, mode=mode)
-        return tf.reshape(tf.py_func(func, [tensor], [tf.float32]), [-1, embedding_size])
-    elif comp == 'spec':
-        func = spec_load
-        # return tf.reshape(tf.py_func(func, [tensor], [tf.int64]), [-1, 1])
-        return tf.reshape(tf.py_func(func, [tensor], [tf.int32]), [-1])
-    else:
-        func = partial(feat_load, mode=mode)
-        return tf.reshape(tf.py_func(func, [tensor], [tf.float32]), [-1, 6, 2048])
+    with tf.device("/cpu:0"):
+        if comp == 'qa':
+            func = qa_load
+            q, a = tf.py_func(func, [tensor], [tf.float32, tf.float32])
+            return tf.reshape(q, [-1, embedding_size]), tf.reshape(a, [-1, embedding_size])
+        elif comp == 'subt':
+            func = partial(subt_load, mode=mode)
+            return tf.reshape(tf.py_func(func, [tensor], [tf.float32]), [-1, embedding_size])
+        elif comp == 'spec':
+            func = spec_load
+            # return tf.reshape(tf.py_func(func, [tensor], [tf.int64]), [-1, 1])
+            return tf.reshape(tf.py_func(func, [tensor], [tf.int32]), [-1])
+        else:
+            func = partial(feat_load, mode=mode)
+            return tf.reshape(tf.py_func(func, [tensor], [tf.float32]), [-1, 6, 2048])
 
 
 class Input(object):

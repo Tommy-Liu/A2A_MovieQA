@@ -108,7 +108,7 @@ class Model(object):
 
             # num_subt = tf.shape(self.subt)[0]
 
-        with tf.variable_scope('Propagation'):
+        with tf.variable_scope('Feat_Propagation'):
             # (N, 6, 1)
             self.fq = tf.matmul(self.feat, tf.tile(tf.expand_dims(self.ques, 0), [tf.shape(self.feat)[0], 1, 1]),
                                 transpose_b=True)
@@ -120,70 +120,80 @@ class Model(object):
             self.feat_new = l2_norm(self.feat_new)
             self.feat_new = dropout(self.feat_new, training)
 
-            self.inter_feat = tf.concat([self.subt, self.feat_new], axis=1)
-
-            self.inter_feat = tf.layers.dense(self.inter_feat, hp['emb_dim'],
-                                              kernel_initializer=init, kernel_regularizer=reg)
-            self.inter_feat = l2_norm(self.inter_feat)
-            self.inter_feat = dropout(self.inter_feat, training)
-            self.inter_feat = tf.layers.dense(self.inter_feat, hp['emb_dim'],
-                                              kernel_initializer=init, kernel_regularizer=reg)
-            self.inter_feat = l2_norm(self.inter_feat)
-            self.inter_feat = dropout(self.inter_feat, training)
-
-            self.spec_inter_feat = tf.boolean_mask(self.inter_feat, tf.cast(self.data.spec, tf.bool))
-
+            self.mut_feat = tf.layers.dense(self.feat_new + self.ques, hp['emb_dim'],
+                                            kernel_initializer=init, kernel_regularizer=reg)
+            self.mut_feat = l2_norm(self.mut_feat)
+            self.mut_feat = dropout(self.mut_feat, training)
+            self.mut_feat = tf.layers.dense(self.mut_feat, hp['emb_dim'],
+                                            kernel_initializer=init, kernel_regularizer=reg)
+            self.mut_feat = l2_norm(self.mut_feat)
+            self.mut_feat = dropout(self.mut_feat, training)
+            self.mut_feat = tf.layers.dense(self.mut_feat, hp['emb_dim'],
+                                            kernel_initializer=init, kernel_regularizer=reg)
+            self.mut_feat = l2_norm(self.mut_feat)
+            self.mut_feat = dropout(self.mut_feat, training)
+            # self.mut_feat = tf.layers.dense(self.mut_feat, hp['emb_dim'],
+            #                                 kernel_initializer=init, kernel_regularizer=reg)
+            # self.mut_feat = l2_norm(self.mut_feat)
+            # self.mut_feat = dropout(self.mut_feat, training)
+            # self.mut_feat = tf.layers.dense(self.mut_feat, hp['emb_dim'],
+            #                                 kernel_initializer=init, kernel_regularizer=reg)
+            # self.mut_feat = l2_norm(self.mut_feat)
+            # self.mut_feat = dropout(self.mut_feat, training)
+            # (N_s, E_t)
+            self.spec_feat = tf.boolean_mask(self.feat_new, tf.cast(self.data.spec, tf.bool))
             # (N, N_s)
-            self.propagation = tf.matmul(self.inter_feat, self.spec_inter_feat + self.ques, transpose_b=True)
-            self.propagation = tf.nn.relu(self.propagation)
+            self.feat_prop = tf.matmul(self.mut_feat, self.spec_feat, transpose_b=True)
+            self.feat_prop = tf.nn.relu(self.feat_prop)
             # (N, 1)
-            self.propagation = tf.reduce_mean(self.propagation, axis=1, keepdims=True)
+            self.feat_prop = tf.reduce_mean(self.feat_prop, axis=1, keepdims=True)
             # (N, 1)
-            self.belief = self.propagation * self.neg_spec
+            self.feat_belief = self.feat_prop * self.neg_spec
             # max_b = tf.maximum(tf.reduce_max(self.belief), 10 ** (-6))
             # self.belief = self.belief / max_b
-            self.belief = dropout(self.belief, training)
+            self.feat_belief = dropout(self.feat_belief, training)
             # self.belief = tf.reduce_max(self.propagation, axis=1, keepdims=True)
-            self.belief = self.spec + self.belief
-            # self.belief = tf.minimum(self.belief, 1.0)
+            self.feat_belief = self.spec + self.feat_belief
+            self.feat_belief = tf.minimum(self.feat_belief, 1.0)
+
+        with tf.variable_scope('Subt_Propagation'):
+            self.mut_subt = tf.layers.dense(self.subt + self.ques, hp['emb_dim'],
+                                            kernel_initializer=init, kernel_regularizer=reg)
+            self.mut_subt = l2_norm(self.mut_subt)
+            self.mut_subt = dropout(self.mut_subt, training)
+            self.mut_subt = tf.layers.dense(self.mut_subt, hp['emb_dim'],
+                                            kernel_initializer=init, kernel_regularizer=reg)
+            self.mut_subt = l2_norm(self.mut_subt)
+            self.mut_subt = dropout(self.mut_subt, training)
+            self.mut_subt = tf.layers.dense(self.mut_subt, hp['emb_dim'],
+                                            kernel_initializer=init, kernel_regularizer=reg)
+            self.mut_subt = l2_norm(self.mut_subt)
+            self.mut_subt = dropout(self.mut_subt, training)
+            self.mut_subt = tf.layers.dense(self.mut_subt, hp['emb_dim'],
+                                            kernel_initializer=init, kernel_regularizer=reg)
+            self.mut_subt = l2_norm(self.mut_subt)
+            self.mut_subt = dropout(self.mut_subt, training)
+            self.mut_subt = tf.layers.dense(self.mut_subt, hp['emb_dim'],
+                                            kernel_initializer=init, kernel_regularizer=reg)
+            self.mut_subt = l2_norm(self.mut_subt)
+            self.mut_subt = dropout(self.mut_subt, training)
+            # (N_s, E_t)
+            self.spec_subt = tf.boolean_mask(self.subt, tf.cast(self.data.spec, tf.bool))
+            # (N, N_s)
+            self.subt_prop = tf.matmul(self.mut_subt, self.spec_subt, transpose_b=True)
+            self.subt_prop = tf.nn.relu(self.subt_prop)
+            # (N, 1)
+            self.subt_prop = tf.reduce_mean(self.subt_prop, axis=1, keepdims=True)
+            # (N, 1)
+            self.subt_belief = self.subt_prop * self.neg_spec
+            # max_b = tf.maximum(tf.reduce_max(self.belief), 10 ** (-6))
+            # self.belief = self.belief / max_b
+            self.subt_belief = dropout(self.subt_belief, training)
+            # self.belief = tf.reduce_max(self.propagation, axis=1, keepdims=True)
+            self.subt_belief = self.spec + self.subt_belief
+            self.subt_belief = tf.minimum(self.subt_belief, 1.0)
 
         with tf.variable_scope('Response'):
-            # # (N, E_t)
-            # self.front_subt = tf.layers.dense(self.subt + self.ques, hp['emb_dim'],
-            #                                   kernel_initializer=init, kernel_regularizer=reg)
-            # self.front_subt = l2_norm(self.front_subt)
-            # self.front_subt = dropout(self.front_subt, training)
-            # self.front_subt = tf.layers.dense(self.front_subt, hp['emb_dim'],
-            #                                   kernel_initializer=init, kernel_regularizer=reg)
-            # self.front_subt = l2_norm(self.front_subt)
-            # self.front_subt = dropout(self.front_subt, training)
-            # self.front_subt = tf.layers.dense(self.front_subt, hp['emb_dim'],
-            #                                   kernel_initializer=init, kernel_regularizer=reg)
-            # self.front_subt = l2_norm(self.front_subt)
-            # self.front_subt = dropout(self.front_subt, training)
-            # self.front_subt = tf.layers.dense(self.front_subt, hp['emb_dim'],
-            #                                   kernel_initializer=init, kernel_regularizer=reg)
-            # self.front_subt = l2_norm(self.front_subt)
-            # self.front_subt = dropout(self.front_subt, training)
-            # self.front_subt = tf.layers.dense(self.front_subt, hp['emb_dim'],
-            #                                   kernel_initializer=init, kernel_regularizer=reg)
-            # self.front_subt = l2_norm(self.front_subt)
-            # self.front_subt = dropout(self.front_subt, training)
-            # # (N_s, E_t)
-            # self.spec_subt = tf.boolean_mask(self.subt, tf.cast(self.data.spec, tf.bool))
-            # # (N, N_s)
-            # self.propagation = tf.matmul(self.front_subt, self.spec_subt, transpose_b=True)
-            # self.propagation = tf.nn.relu(self.propagation)
-            # # (N, 1)
-            # self.propagation = tf.reduce_mean(self.propagation, axis=1, keepdims=True)
-            # # (N, 1)
-            # self.belief = self.propagation * self.neg_spec
-            # # max_b = tf.maximum(tf.reduce_max(self.belief), 10 ** (-6))
-            # # self.belief = self.belief / max_b
-            # self.belief = dropout(self.belief, training)
-            # # self.belief = tf.reduce_max(self.propagation, axis=1, keepdims=True)
-            # self.belief = self.spec + self.belief
-            # self.belief = tf.minimum(self.belief, 1.0)
             # (N, 5)
             self.fna = tf.matmul(self.feat_new, self.ans, transpose_b=True)
             self.fna = tf.nn.relu(self.fna)
@@ -205,12 +215,12 @@ class Model(object):
             alpha2 = tf.nn.sigmoid(tf.get_variable('alpha2', [], initializer=tf.zeros_initializer()))
             # (N, 5)
             self.attn = self.sq + alpha1 * self.sa
-            self.attn = self.attn * self.belief
+            self.attn = self.attn * self.subt_belief
             self.attn = tf.expand_dims(self.attn, 0)
             self.attn = tf.transpose(self.attn, [2, 1, 0])
             # (N, 5)
             self.feat_attn = self.fnq + self.fna * alpha2
-            self.feat_attn = self.feat_attn * self.belief
+            self.feat_attn = self.feat_attn * self.feat_belief
             self.feat_attn = tf.expand_dims(self.feat_attn, 0)
             self.feat_attn = tf.transpose(self.feat_attn, [2, 1, 0])
             # (1, E_t)
