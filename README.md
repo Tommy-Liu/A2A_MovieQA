@@ -1,4 +1,5 @@
 # MovieQA_Contest
+Our paper has been accepted by ACCV 2018. You can find the pre-print <a href="https://www.iis.sinica.edu.tw/papers/liutyng/22063-F.pdf">here</a>.
 
 ## Installation Guidance
 
